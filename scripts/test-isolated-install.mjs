@@ -51,6 +51,13 @@ try {
       (source) => typeof source === "string" && path.resolve(agentDir, source) === root,
     ),
   );
+  const runtimeSmoke = spawnSync(process.execPath, [path.join(root, "scripts", "test-bundled-runtime.mjs")], {
+    cwd,
+    env: { ...env, PI_CAREER_PACKAGE_ROOT: root },
+    encoding: "utf8",
+    shell: false,
+  });
+  assert.equal(runtimeSmoke.status, 0, "registered local package bundled-runtime smoke failed");
 
   pi(["remove", root]);
   assert.equal(pi(["list"]).includes(root), false);
@@ -58,7 +65,7 @@ try {
   assert.equal(removedSettings.packages?.includes(root) ?? false, false);
 
   assert.equal(await digestIfPresent(maintainerSettings), maintainerBefore);
-  process.stdout.write("Isolated pi install/list/remove acceptance passed\n");
+  process.stdout.write("Isolated pi install/list/bundled-runtime/remove acceptance passed\n");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

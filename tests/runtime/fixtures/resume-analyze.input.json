@@ -1,0 +1,7 @@
+{
+  "schema_version": "career.resume_input.v1",
+  "text": "Taylor Example\ntaylor@example.test\nSUMMARY\nBackend engineer focused on reliable local services.\nEXPERIENCE\nBackend Engineer at Example Systems\n2020 - Present\n- Built deterministic APIs for internal teams.\n- Reduced deployment failures by 25 percent.\nEDUCATION\nBachelor of Science in Computer Science, Example University\n2016 - 2020\nSKILLS\nRust, PostgreSQL, Docker, Testing, Git",
+  "metadata": {
+    "document_id": "pi-career-synthetic-runtime-resume-v1"
+  }
+}

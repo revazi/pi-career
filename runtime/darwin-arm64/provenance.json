@@ -1,0 +1,101 @@
+{
+  "build": {
+    "cargo_version": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "career-cli",
+      "--target",
+      "aarch64-apple-darwin"
+    ],
+    "host_arch": "arm64",
+    "host_os": "macos",
+    "locked": true,
+    "os_release": "Darwin 23.6.0",
+    "platform_key": "darwin-arm64",
+    "profile": "release",
+    "rustc_version": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "target_triple": "aarch64-apple-darwin"
+  },
+  "contract_digests": {
+    "capabilities": {
+      "schema_version": "career.capabilities.v1",
+      "sha256": "c45443be0ba7cfbcd4e20b28d8d100f33542e77b0b983ebf3110dddfdd71d3f3",
+      "size_bytes": 1855
+    },
+    "schema_catalog": {
+      "schema_count": 25,
+      "schema_version": "career.schema_catalog.v1",
+      "sha256": "398b093a1a6245e05a1a93eafd2162c0fe5afcb4b3ff3c7856730ac64628c5e0",
+      "size_bytes": 3795
+    },
+    "schema_export": {
+      "schema_id": "career.job_match.v1",
+      "sha256": "286cf0297b3f1b224f7ec7db4b06605423dbff844a38fe79d0c53fd4dea5bfde",
+      "size_bytes": 11526
+    }
+  },
+  "executable": {
+    "file_name": "career",
+    "sha256": "9e46972c1d4b2a1ca695595c0953c4198bfb12af2ba39f040e955b5b11952790",
+    "size_bytes": 4522688,
+    "version_output": "career 0.1.0"
+  },
+  "licenses_and_notices": [
+    {
+      "file_name": "LICENSE-MIT",
+      "sha256": "10c3e4d0fc59a6a502c18039ae76f3ff473e3f17c3428f7e417582665e65e8e9",
+      "size_bytes": 1075
+    },
+    {
+      "file_name": "LICENSE-APACHE",
+      "sha256": "2f2746efca80d5c78999cf97ee127ec9e3b0e86346004f71de39a7f8f8b9b1e8",
+      "size_bytes": 11348
+    },
+    {
+      "file_name": "THIRD_PARTY_NOTICES.md",
+      "sha256": "50c74854ed27f9347ea2f647a42a18c3c5579fd32f19a416941eab50fca59ca1",
+      "size_bytes": 1141
+    }
+  ],
+  "native_verification": [
+    {
+      "golden_fixture": "fixtures/resume/phase3/complete-analysis.expected.json",
+      "input_fixture": "fixtures/resume/phase3/complete-analysis.input.json",
+      "operation": "resume.analyze",
+      "output_schema_version": "career.resume_analysis.v1",
+      "output_sha256": "01eb6332172ea2e747be7b409fe31f646882079a36d327eb66bf3f3a92bb4acc",
+      "output_size_bytes": 12416
+    },
+    {
+      "golden_fixture": "fixtures/job/phase4b/complete-match.expected.json",
+      "input_fixture": "fixtures/job/phase4b/complete-match.input.json",
+      "operation": "job.match",
+      "output_schema_version": "career.job_match.v1",
+      "output_sha256": "872727a02f690b8269533c845e701086a90523a8579ccd0bee3abc8561764e96",
+      "output_size_bytes": 17598
+    }
+  ],
+  "package": {
+    "archive_file": "career-pi-runtime-darwin-arm64-aarch64-apple-darwin-a3cdb4c6d7f966397e93ea4664071975bca7228c.tar.gz",
+    "contents": [
+      "career",
+      "metadata.json",
+      "LICENSE-MIT",
+      "LICENSE-APACHE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "unsigned": true
+  },
+  "publication_status": "not_a_public_release",
+  "purpose": "maintainer_input_for_external_pi_career",
+  "schema_version": "career.pi_career_runtime_artifact.v1",
+  "source": {
+    "git_dirty": false,
+    "git_sha": "a3cdb4c6d7f966397e93ea4664071975bca7228c",
+    "repository": "https://github.com/revazi/career-core"
+  }
+}

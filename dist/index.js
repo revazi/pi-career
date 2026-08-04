@@ -9,6 +9,206 @@ import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { TextDecoder } from "node:util";
+
+// src/errors.ts
+var ERROR_MESSAGES = {
+  invalid_request: "The Career Core tool request is invalid.",
+  invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
+  unsupported_platform: "No bundled Career Core runtime is available for this platform.",
+  bundled_runtime_invalid: "The bundled Career Core runtime failed local integrity verification.",
+  missing_executable: "The selected Career Core runtime was not found.",
+  executable_unavailable: "The selected Career Core runtime is not available for execution.",
+  cancelled: "The Career Core operation was cancelled.",
+  timeout: "The Career Core operation exceeded its time limit.",
+  stdout_overflow: "The Career Core runtime exceeded the stdout capture limit.",
+  stderr_overflow: "The Career Core runtime exceeded the stderr capture limit.",
+  result_too_large: "The complete Career Core result exceeds the Pi tool context byte limit; partial output is unavailable and full-result export is not yet supported.",
+  result_too_many_lines: "The complete Career Core result exceeds the Pi tool context line limit; partial output is unavailable and full-result export is not yet supported.",
+  malformed_result: "The Career Core runtime did not return exactly one valid JSON object.",
+  unexpected_stderr: "The Career Core runtime wrote unexpected diagnostics on success.",
+  process_signalled: "The Career Core runtime ended because of a signal.",
+  career_cli_error: "The Career Core runtime rejected the request with a validated error.",
+  cli_failure: "The Career Core runtime failed without a validated error envelope.",
+  process_io_failure: "The Career Core runtime stream failed.",
+  process_failure: "The Career Core runtime failed unexpectedly.",
+  internal_error: "The Career Core Pi adapter failed unexpectedly."
+};
+var CareerInvocationError = class extends Error {
+  payload;
+  constructor(payload) {
+    super(JSON.stringify(payload));
+    this.name = "CareerInvocationError";
+    this.payload = payload;
+  }
+};
+function adapterError(code, careerError) {
+  return new CareerInvocationError({
+    schema_version: "career.pi_error.v1",
+    code,
+    message: ERROR_MESSAGES[code],
+    ...careerError === void 0 ? {} : { career_error: careerError }
+  });
+}
+function publicAdapterError(error) {
+  return error instanceof CareerInvocationError ? error : adapterError("internal_error");
+}
+
+// src/runtime.ts
+import { createHash } from "node:crypto";
+import { lstat, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+var MANIFEST_MAX_BYTES = 65536;
+var RUNTIME_MAX_BYTES = 16777216;
+var SHA256_PATTERN = /^[a-f0-9]{64}$/;
+var TARGET_LAYOUT = {
+  "darwin-arm64": {
+    platform: "darwin",
+    arch: "arm64",
+    libc: null,
+    targetTriple: "aarch64-apple-darwin",
+    relativePath: "runtime/darwin-arm64/career",
+    provenancePath: "runtime/darwin-arm64/provenance.json"
+  },
+  "linux-x64-gnu": {
+    platform: "linux",
+    arch: "x64",
+    libc: "gnu",
+    targetTriple: "x86_64-unknown-linux-gnu",
+    relativePath: "runtime/linux-x64-gnu/career",
+    provenancePath: "runtime/linux-x64-gnu/provenance.json"
+  }
+};
+var verifiedRuntimeKeys = /* @__PURE__ */ new Set();
+var pendingRuntimeVerifications = /* @__PURE__ */ new Map();
+function detectedGlibcVersion() {
+  if (process.platform !== "linux") return void 0;
+  try {
+    const report = process.report?.getReport();
+    const header = report?.header;
+    const version = header?.glibcVersionRuntime;
+    return typeof version === "string" && version.length > 0 ? version : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function currentPlatformInfo() {
+  const glibcVersionRuntime = detectedGlibcVersion();
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    ...glibcVersionRuntime === void 0 ? {} : { glibcVersionRuntime }
+  };
+}
+function selectRuntimeTarget(info) {
+  if (info.platform === "darwin" && info.arch === "arm64") return "darwin-arm64";
+  if (info.platform === "linux" && info.arch === "x64" && typeof info.glibcVersionRuntime === "string" && info.glibcVersionRuntime.length > 0) {
+    return "linux-x64-gnu";
+  }
+  throw adapterError("unsupported_platform");
+}
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isSha256(value) {
+  return typeof value === "string" && SHA256_PATTERN.test(value);
+}
+function isBoundedPositiveInteger(value, maximum) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= maximum;
+}
+function isBoundedText(value, maximum) {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum;
+}
+async function readRuntimeManifest(manifestPath) {
+  try {
+    const metadata = await lstat(manifestPath);
+    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MANIFEST_MAX_BYTES) {
+      throw adapterError("bundled_runtime_invalid");
+    }
+    const bytes = await readFile(manifestPath);
+    if (bytes.length !== metadata.size) throw adapterError("bundled_runtime_invalid");
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    if (!isRecord(parsed)) throw adapterError("bundled_runtime_invalid");
+    return parsed;
+  } catch (error) {
+    if (error instanceof CareerInvocationError) throw error;
+    throw adapterError("bundled_runtime_invalid");
+  }
+}
+function manifestHeaderIsValid(manifest) {
+  return manifest.schema_version === "pi.career.runtime_manifest.v1" && typeof manifest.career_core?.commit === "string" && /^[a-f0-9]{40}$/.test(manifest.career_core.commit);
+}
+function targetMatchesLayout(target, layout) {
+  if (!isRecord(target)) return false;
+  return [
+    target.platform === layout.platform,
+    target.arch === layout.arch,
+    target.libc === layout.libc,
+    target.target_triple === layout.targetTriple,
+    target.path === layout.relativePath,
+    target.provenance_path === layout.provenancePath,
+    isSha256(target.sha256),
+    isBoundedPositiveInteger(target.size_bytes, RUNTIME_MAX_BYTES),
+    target.mode === "0755",
+    isBoundedText(target.version_output, 100)
+  ].every(Boolean);
+}
+function validatedTarget(manifest, targetKey) {
+  const target = manifest.targets?.[targetKey];
+  if (!manifestHeaderIsValid(manifest) || !targetMatchesLayout(target, TARGET_LAYOUT[targetKey])) {
+    throw adapterError("bundled_runtime_invalid");
+  }
+  return target;
+}
+async function verifyRuntimeBinary(executablePath, expected) {
+  try {
+    if (!path.isAbsolute(executablePath)) throw adapterError("bundled_runtime_invalid");
+    const metadata = await lstat(executablePath);
+    if (!metadata.isFile() || metadata.size !== expected.size_bytes || (metadata.mode & 511) !== 493 || expected.mode !== "0755") {
+      throw adapterError("bundled_runtime_invalid");
+    }
+    const bytes = await readFile(executablePath);
+    if (bytes.length !== expected.size_bytes) throw adapterError("bundled_runtime_invalid");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== expected.sha256) throw adapterError("bundled_runtime_invalid");
+  } catch (error) {
+    if (error instanceof CareerInvocationError) throw error;
+    throw adapterError("bundled_runtime_invalid");
+  }
+}
+function defaultManifestPath() {
+  return fileURLToPath(new URL("../runtime/manifest.json", import.meta.url));
+}
+function defaultRuntimeRoot() {
+  return fileURLToPath(new URL("../runtime", import.meta.url));
+}
+async function resolveBundledRuntime(options = {}) {
+  const targetKey = selectRuntimeTarget(options.platformInfo ?? currentPlatformInfo());
+  const manifestPath = options.manifestPath ?? defaultManifestPath();
+  const runtimeRoot = options.runtimeRoot ?? defaultRuntimeRoot();
+  if (!path.isAbsolute(manifestPath) || !path.isAbsolute(runtimeRoot)) {
+    throw adapterError("bundled_runtime_invalid");
+  }
+  const manifest = await readRuntimeManifest(manifestPath);
+  const target = validatedTarget(manifest, targetKey);
+  const executablePath = path.join(runtimeRoot, targetKey, "career");
+  const verificationKey = `${executablePath}\0${target.size_bytes}\0${target.sha256}`;
+  if (verifiedRuntimeKeys.has(verificationKey)) return executablePath;
+  let pending = pendingRuntimeVerifications.get(verificationKey);
+  if (pending === void 0) {
+    pending = verifyRuntimeBinary(executablePath, target);
+    pendingRuntimeVerifications.set(verificationKey, pending);
+  }
+  try {
+    await pending;
+    verifiedRuntimeKeys.add(verificationKey);
+    return executablePath;
+  } finally {
+    pendingRuntimeVerifications.delete(verificationKey);
+  }
+}
+
+// src/process.ts
 var SINGLE_INPUT_MAX_BYTES = 262144;
 var COMPOSITE_INPUT_MAX_BYTES = 1048576;
 var TOOL_RESULT_MAX_BYTES = 5e4;
@@ -62,48 +262,9 @@ var KNOWN_CLI_ERROR_CODES = /* @__PURE__ */ new Set([
   "variant_selection_too_long",
   "variant_selection_invalid"
 ]);
-var ERROR_MESSAGES = {
-  invalid_request: "The Career Core tool request is invalid.",
-  invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
-  missing_executable: "The installed career executable was not found.",
-  executable_unavailable: "The installed career executable is not available for execution.",
-  cancelled: "The Career Core operation was cancelled.",
-  timeout: "The Career Core operation exceeded its time limit.",
-  stdout_overflow: "The career executable exceeded the stdout capture limit.",
-  stderr_overflow: "The career executable exceeded the stderr capture limit.",
-  result_too_large: "The complete Career Core result exceeds the Pi tool context byte limit; run the installed CLI directly in a user-approved local workflow.",
-  result_too_many_lines: "The complete Career Core result exceeds the Pi tool context line limit; run the installed CLI directly in a user-approved local workflow.",
-  malformed_result: "The career executable did not return exactly one valid JSON object.",
-  unexpected_stderr: "The career executable wrote unexpected diagnostics on success.",
-  process_signalled: "The career executable ended because of a signal.",
-  career_cli_error: "The career executable rejected the request with a validated error.",
-  cli_failure: "The career executable failed without a validated error envelope.",
-  process_io_failure: "The career executable stream failed.",
-  process_failure: "The career executable failed unexpectedly.",
-  internal_error: "The Career Core Pi adapter failed unexpectedly."
-};
-var CareerInvocationError = class extends Error {
-  payload;
-  constructor(payload) {
-    super(JSON.stringify(payload));
-    this.name = "CareerInvocationError";
-    this.payload = payload;
-  }
-};
-function adapterError(code, careerError) {
-  return new CareerInvocationError({
-    schema_version: "career.pi_error.v1",
-    code,
-    message: ERROR_MESSAGES[code],
-    ...careerError === void 0 ? {} : { career_error: careerError }
-  });
-}
-function publicAdapterError(error) {
-  return error instanceof CareerInvocationError ? error : adapterError("internal_error");
-}
 function resolveCareerExecutable(environment = process.env) {
   const override = environment.CAREER_CLI_PATH;
-  if (override === void 0) return "career";
+  if (override === void 0) return void 0;
   if (override.length === 0 || override.includes("\0") || Buffer.byteLength(override, "utf8") > EXECUTABLE_MAX_BYTES || !isAbsolute(override)) {
     throw adapterError("invalid_executable_override");
   }
@@ -260,10 +421,12 @@ function completedResult(prepared, completed, limits) {
 }
 async function invokeCareerCli(invocation, signal, options = {}) {
   const prepared = prepareInvocation(invocation);
-  const executable = options.executable ?? resolveCareerExecutable();
-  if (executable.length === 0 || executable.includes("\0") || Buffer.byteLength(executable, "utf8") > EXECUTABLE_MAX_BYTES || executable !== "career" && !isAbsolute(executable)) {
+  if (signal?.aborted) throw adapterError("cancelled");
+  const explicitExecutable = options.executable ?? resolveCareerExecutable();
+  if (explicitExecutable !== void 0 && (explicitExecutable.length === 0 || explicitExecutable.includes("\0") || Buffer.byteLength(explicitExecutable, "utf8") > EXECUTABLE_MAX_BYTES || !isAbsolute(explicitExecutable))) {
     throw adapterError("invalid_executable_override");
   }
+  const executable = explicitExecutable ?? await resolveBundledRuntime();
   if (signal?.aborted) throw adapterError("cancelled");
   const limits = executionLimits(options);
   return new Promise((resolve, reject) => {
@@ -427,8 +590,8 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_discover",
     label: "Career Core Discovery",
-    description: "Discover the installed deterministic career CLI capabilities and embedded JSON schemas. Makes no network or model request.",
-    promptSnippet: "Discover installed Career Core capabilities and exact embedded schemas before document operations",
+    description: "Discover the package-owned deterministic Career Core runtime capabilities and embedded JSON schemas. Makes no network or model request.",
+    promptSnippet: "Discover bundled Career Core capabilities and exact embedded schemas before document operations",
     promptGuidelines: [
       "Use career_core_discover before career_core_resume or career_core_job; invoke only capabilities reported as available and do not infer contract shapes."
     ],
@@ -452,12 +615,12 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_resume",
     label: "Career Core Resume",
-    description: "Run one bounded installed Career Core resume operation with JSON over stdin. Returns the complete authoritative CLI JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
-    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the installed deterministic CLI",
+    description: "Run one bounded package-owned Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
+    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the bundled deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_resume only with an exact schema discovered through career_core_discover; preserve every warning, evidence item, uncertainty status, baseline boundary, and assisted/non-authoritative label returned by the tool.",
-      "If career_core_resume reports result_too_large or result_too_many_lines, do not request a truncated result; fall back to the installed career CLI in a user-approved local workflow that can consume the complete JSON."
+      "If career_core_resume reports result_too_large or result_too_many_lines, do not request or use partial output; full-result export is not yet available through pi-career."
     ],
     parameters: resumeParameters,
     async execute(_toolCallId, params, signal) {
@@ -479,12 +642,12 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_job",
     label: "Career Core Job",
-    description: "Run installed Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative CLI JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
-    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the installed deterministic CLI",
+    description: "Run package-owned Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
+    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the bundled deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_job only with an exact schema discovered through career_core_discover; preserve source spans, confidence, warnings, uncertainty, conservative equivalence, and recommendation limitations exactly.",
-      "If career_core_job reports result_too_large or result_too_many_lines, do not request a truncated result; fall back to the installed career CLI in a user-approved local workflow that can consume the complete JSON."
+      "If career_core_job reports result_too_large or result_too_many_lines, do not request or use partial output; full-result export is not yet available through pi-career."
     ],
     parameters: jobParameters,
     async execute(_toolCallId, params, signal) {

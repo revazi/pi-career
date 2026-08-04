@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ignoredDirectories = new Set([".fallow", ".git", "node_modules"]);
 const ignoredFiles = new Set(["package-lock.json"]);
+const ignoredRelativePaths = new Set([
+  "runtime/darwin-arm64/career",
+  "runtime/linux-x64-gnu/career",
+]);
 const textExtensions = new Set([".js", ".json", ".md", ".mjs", ".ts", ".yml", ".yaml", ""]);
 const patterns = [
   new RegExp(["BEGIN ", "PRIVATE KEY"].join("")),
@@ -23,7 +27,12 @@ async function files(directory) {
     if (ignoredDirectories.has(entry.name)) continue;
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) found.push(...(await files(absolute)));
-    else if (entry.isFile() && !ignoredFiles.has(entry.name) && textExtensions.has(path.extname(entry.name))) found.push(absolute);
+    else if (
+      entry.isFile() &&
+      !ignoredFiles.has(entry.name) &&
+      !ignoredRelativePaths.has(path.relative(root, absolute)) &&
+      textExtensions.has(path.extname(entry.name))
+    ) found.push(absolute);
   }
   return found;
 }

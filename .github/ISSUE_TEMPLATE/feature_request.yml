@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a scoped pi-career package or integration improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests within the Pi package boundary. Career Core algorithm, schema, scoring, or domain-policy changes belong in the Career Core repository. Do not include private career content.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed package behavior
+      description: Describe the smallest user-visible behavior without assuming model, provider, persistence, or publication changes.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      description: Note tool surface, supported runtime target, package, and Career Core contract impact.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Security and privacy impact
+      description: State what data crosses process, session, file, model/provider, or network boundaries.
+    validations:
+      required: true

@@ -1,8 +1,8 @@
 ---
 name: career-core
-description: Discovers and invokes an installed deterministic career CLI for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
+description: Discovers and invokes the package-owned deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
 license: MIT OR Apache-2.0
-compatibility: Requires Pi with the pi-career package and an installed compatible `career` executable on PATH or at bounded absolute CAREER_CLI_PATH.
+compatibility: Requires Pi with pi-career on supported darwin-arm64 or linux-x64-gnu; CAREER_CLI_PATH is an optional bounded developer/recovery override.
 metadata:
   author: revazi
   version: "0.1.0"
@@ -10,7 +10,7 @@ metadata:
 
 # Career Core through pi-career
 
-Use the installed `career` CLI through the three native tools. Career Core is authoritative; the extension only transports bounded argv/stdin JSON. Never recreate scoring, schemas, errors, evidence rules, uncertainty, or repair behavior in prompts or TypeScript.
+Use the package-owned Career Core runtime through the three native tools. Career Core is authoritative; the extension only transports bounded argv/stdin JSON. Never recreate scoring, schemas, errors, evidence rules, uncertainty, or repair behavior in prompts or TypeScript.
 
 ## Privacy decision before document use
 
@@ -30,7 +30,7 @@ Do not claim secure erasure or removal of previous sessions, backups, shell hist
 4. Export the exact input schema needed with `operation: "schema-export"` and its returned schema ID.
 5. Construct exactly one versioned input object matching that schema, serialize it as the `input_json` string, and call the relevant document tool.
 
-Do not infer input shapes from this prose. The executable embeds the reviewed Draft 2020-12 schemas and discovery performs no network request.
+Do not infer input shapes from this prose. The bundled runtime embeds the reviewed Draft 2020-12 schemas and discovery performs no network request.
 
 ## Native tool surface
 
@@ -51,15 +51,17 @@ Do not infer input shapes from this prose. The executable embeds the reviewed Dr
   - `normalize`
   - `match`
 
-The document tools send `input_json` only to installed-CLI stdin with `--input - --format json-compact`. They never invoke Cargo, fetch URLs, call a provider/model, or write payload/result files. Successful tool text is the complete CLI JSON without semantic transformation.
+The document tools send `input_json` only to package-owned runtime stdin with `--input - --format json-compact`. They never search PATH, invoke Cargo, fetch URLs, call a provider/model, or write payload/result files. Successful tool text is the complete runtime JSON without semantic transformation.
 
 ## Failure handling
 
 A `career.pi_error.v1` value is adapter/process status, not a deterministic career result.
 
+- `unsupported_platform` means no reviewed bundled runtime exists for this platform/libc; do not guess, download, or fall back to PATH/Cargo.
+- `bundled_runtime_invalid` means local integrity verification failed; do not request paths, hashes, environment values, or raw filesystem errors.
 - On `career_cli_error`, inspect only the nested, validated, bounded `career.error.v1`.
 - Correct typed invalid input before trying again; do not repair by guesswork or retry unchanged validation failures.
-- On `result_too_large` or `result_too_many_lines`, do not request or use truncated output. Ask the user to choose a direct installed-CLI local workflow that can consume the complete JSON.
+- On `result_too_large` or `result_too_many_lines`, do not request or use partial output. Full-result export is not yet available through pi-career.
 - Do not ask for raw stderr, paths, environment values, source copies, or hidden process errors.
 
 ## Resume operation rules
@@ -123,4 +125,4 @@ Use original resume and original job inputs matching the exported schema. Matchi
 - Do not modify source documents unless the user separately requests and approves that change.
 - Never place API keys in tool input, output, files, or logs.
 
-See [`references/cli-contract.md`](references/cli-contract.md) for direct installed-CLI fallback and process details. Package installation and removal are in [`../../README.md`](../../README.md).
+See [`references/cli-contract.md`](references/cli-contract.md) for bundled-runtime selection and process details. Package installation and removal are in [`../../README.md`](../../README.md).

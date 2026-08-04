@@ -1,50 +1,44 @@
-# Installed CLI contract reference
+# Bundled runtime contract reference
 
-Use this reference only after reading the parent skill. Export exact schemas from the executable; this file intentionally does not copy the authoritative schema catalog.
+Use this reference only after reading the parent skill. Export exact schemas through `career_core_discover`; this file intentionally does not copy the authoritative schema catalog.
 
-## Discovery
+## Runtime selection
 
-```bash
-career capabilities --format json-compact
-career schema list --format json-compact
-career schema export --id <exact-id-from-list> --format json-compact
-```
+Normal operations use the reviewed package-owned runtime for exactly:
 
-Invoke only capabilities whose status is `available`. Discovery is local and offline.
+- `darwin-arm64`
+- `linux-x64-gnu` with positive glibc detection
 
-## Direct document commands
+Selection order is a bounded absolute `CAREER_CLI_PATH` developer/recovery override first, then the verified bundled target. There is no PATH, sibling-checkout, Cargo, install-script, or download fallback. Windows, macOS x64, Linux arm64/musl, and unknown targets fail closed with `unsupported_platform`.
 
-```bash
-career resume evaluate --input - --format json-compact
-career resume analyze --input - --format json-compact
-career resume analysis-suggestions-review --input - --format json-compact
-career resume analysis-replacements-review --input - --format json-compact
-career resume normalize --input - --format json-compact
-career resume enrich --input - --format json-compact
-career resume variant-review --input - --format json-compact
-career resume variant-materialize --input - --format json-compact
-career job normalize --input - --format json-compact
-career job match --input - --format json-compact
-```
+Before first bundled execution per process, pi-career verifies the regular file's exact mode, size, and SHA-256 against its committed runtime manifest. A mismatch fails as `bundled_runtime_invalid`. These errors are payload-free and must not be expanded with platform details, paths, hashes, environment values, or raw failures.
 
-Pass one exact versioned JSON object on stdin. Do not concatenate document text into shell commands, use `eval`, or put source content in argv. A direct CLI fallback is appropriate only in a user-approved local workflow that can consume complete JSON, especially when the Pi tool reports `result_too_large` or `result_too_many_lines`.
+## Discovery and operations
+
+Use only the three native tools:
+
+- `career_core_discover`: `capabilities`, `schema-list`, `schema-export`
+- `career_core_resume`: `evaluate`, `analyze`, `analysis-suggestions-review`, `analysis-replacements-review`, `normalize`, `enrich`, `variant-review`, `variant-materialize`
+- `career_core_job`: `normalize`, `match`
+
+Invoke only capabilities whose status is `available`. Pass one exact versioned JSON object in `input_json`; the adapter writes it only to runtime stdin. Do not concatenate document text into commands, place source content in argv, or infer schemas from prose.
 
 ## Machine framing
 
-- Success exits `0`, writes one result JSON document to stdout, and writes no diagnostics.
-- `json-compact` has one framing newline after the document.
-- Diagnostics go to stderr as one bounded `career.error.v1` on known failures.
-- Current nonzero status meanings are: `2` CLI usage, `3` input read/CLI byte limit, `4` malformed or structurally invalid JSON, `5` Core input validation, and `6` output write/serialization.
-- Commands make no implicit network request and do not modify input.
+- The adapter uses `--format json-compact`; successful runtime output is one JSON document with one framing newline.
+- Known diagnostics are one bounded `career.error.v1` on stderr with a nonzero status.
+- The runtime makes no implicit network request and does not modify input.
 - Single-document input is bounded at 262,144 UTF-8 bytes; composite job-match and variant envelopes are bounded at 1,048,576 bytes.
 
 ## Pi adapter framing
 
-The native tools use direct `spawn(executable, argv, { shell: false })`, stdin-only document JSON, fixed operation mappings, timeout/cancellation cleanup, separate stdout/stderr capture bounds, fatal UTF-8 decoding, and exact-one-object success. `CAREER_CLI_PATH` is accepted only as a bounded absolute path; otherwise `career` resolves from `PATH`. There is no Cargo fallback.
+The native tools use direct `spawn(executable, argv, { shell: false })`, stdin-only document JSON, fixed operation mappings, timeout/cancellation cleanup, separate stdout/stderr capture bounds, fatal UTF-8 decoding, and exact-one-object success.
 
-Successful JSON is returned complete, with only the single CLI framing newline removed. The adapter writes no payload/result files and has no model/provider/network/UI/persistence behavior.
+Successful JSON is returned complete, with only the single framing newline removed. The adapter writes no payload/result files and has no model/provider/network/command/UI/persistence behavior.
 
-Known adapter failures use `career.pi_error.v1`. Only `career_cli_error` may include a nested strictly validated allowlisted `career.error.v1`. Other errors do not expose raw diagnostics, input/output, executable paths, environment values, or Node errors.
+Known adapter failures use `career.pi_error.v1`. Only `career_cli_error` may include a nested strictly validated allowlisted `career.error.v1`. Other errors do not expose raw diagnostics, input/output, executable paths, hashes, platform details, environment values, or Node/filesystem errors.
+
+If a complete result exceeds 50,000 bytes or 2,000 lines, the tool fails as `result_too_large` or `result_too_many_lines`. Do not request or use partial output. Full-result export is not yet available through pi-career.
 
 ## Privacy
 

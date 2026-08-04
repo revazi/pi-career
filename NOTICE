@@ -7,3 +7,10 @@ Zakalashvili, under the MIT OR Apache-2.0 dual license.
 
 This repository preserves those dual-license terms. See LICENSE-MIT and
 LICENSE-APACHE.
+
+Unsigned package-owned native runtime binaries and exact per-target provenance
+were imported from the independently verified Career Core workflow run
+30953471793 at commit a3cdb4c6d7f966397e93ea4664071975bca7228c,
+Copyright (c) 2026 Revaz Zakalashvili. They are private maintainer inputs, not
+a public release, signed artifact, or notarized distribution. The reviewed
+runtime license copies and third-party notice are preserved under runtime/.

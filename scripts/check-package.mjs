@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +19,16 @@ const allowed = new Set([
   "SECURITY.md",
   "dist/index.js",
   "docs/design.md",
+  "docs/product-flow.md",
   "package.json",
+  "runtime/LICENSE-APACHE",
+  "runtime/LICENSE-MIT",
+  "runtime/THIRD_PARTY_NOTICES.md",
+  "runtime/darwin-arm64/career",
+  "runtime/darwin-arm64/provenance.json",
+  "runtime/linux-x64-gnu/career",
+  "runtime/linux-x64-gnu/provenance.json",
+  "runtime/manifest.json",
   "skills/career-core/SKILL.md",
   "skills/career-core/references/cli-contract.md",
 ]);
@@ -34,7 +43,8 @@ function pack(args) {
   assert.equal(parsed.length, 1);
   const names = new Set(parsed[0].files.map(({ path: file }) => file));
   assert.deepEqual(names, allowed);
-  assert.ok(parsed[0].size < 100_000, "packed artifact must remain small");
+  assert.ok(parsed[0].size < 4_000_000, "packed artifact must remain below 4 MB");
+  assert.ok(parsed[0].unpackedSize < 11_000_000, "unpacked artifact must remain below 11 MB");
   return parsed[0];
 }
 
@@ -55,6 +65,27 @@ try {
   execFileSync("tar", ["-xzf", artifactPath, "-C", extracted]);
   const packageRoot = path.join(extracted, "package");
   await assert.rejects(access(path.join(packageRoot, "node_modules")));
+  const packagedManifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
+  assert.equal(packagedManifest.dependencies, undefined);
+  for (const lifecycle of [
+    "preinstall",
+    "install",
+    "postinstall",
+    "prepare",
+    "prepack",
+    "postpack",
+    "prepublish",
+    "prepublishOnly",
+    "publish",
+    "postpublish",
+  ]) assert.equal(packagedManifest.scripts?.[lifecycle], undefined, `lifecycle script ${lifecycle} is forbidden`);
+  assert.equal((await stat(path.join(packageRoot, "runtime", "darwin-arm64", "career"))).mode & 0o777, 0o755);
+  assert.equal((await stat(path.join(packageRoot, "runtime", "linux-x64-gnu", "career"))).mode & 0o777, 0o755);
+  execFileSync(process.execPath, [path.join(root, "scripts", "check-runtime-artifacts.mjs")], {
+    cwd: temporaryDirectory,
+    env: { ...process.env, PI_CAREER_PACKAGE_ROOT: packageRoot },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
   execFileSync(process.execPath, [path.join(root, "scripts", "test-pi-package-load.mjs")], {
     cwd: temporaryDirectory,
     env: {
@@ -66,7 +97,20 @@ try {
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
-  process.stdout.write(`Verified package artifact ${artifact.filename} (${artifact.size} bytes)\n`);
+  execFileSync(process.execPath, [path.join(root, "scripts", "test-bundled-runtime.mjs")], {
+    cwd: temporaryDirectory,
+    env: {
+      ...process.env,
+      PI_CAREER_PACKAGE_ROOT: packageRoot,
+      PI_OFFLINE: "1",
+      PI_TELEMETRY: "0",
+      PI_SKIP_VERSION_CHECK: "1",
+    },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  process.stdout.write(
+    `Verified package artifact ${artifact.filename} (${artifact.size} bytes compressed, ${artifact.unpackedSize} bytes unpacked)\n`,
+  );
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }
