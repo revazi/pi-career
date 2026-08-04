@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PI_OFFLINE: "1"
+      PI_TELEMETRY: "0"
+      PI_SKIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- dist/index.js
+      - run: npm run check
+      - run: npm run check:package
+      - run: npm run audit:runtime
+      - run: npm run test:pi-smoke
+      - run: npm run test:install
+      - run: git diff --check
