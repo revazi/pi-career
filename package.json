@@ -2,9 +2,16 @@
   "name": "pi-career",
   "version": "0.1.0",
   "private": true,
-  "description": "Private standalone Pi tools and Agent Skill for an installed deterministic career CLI",
+  "description": "Self-contained private Pi tools and Agent Skill for deterministic Career Core workflows",
   "license": "MIT OR Apache-2.0",
-  "author": "revazi",
+  "author": {
+    "name": "Revaz Zakalashvili",
+    "url": "https://github.com/revazi"
+  },
+  "homepage": "https://github.com/revazi/pi-career#readme",
+  "bugs": {
+    "url": "https://github.com/revazi/pi-career/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/revazi/pi-career.git"
@@ -19,6 +26,7 @@
   "files": [
     "dist",
     "docs",
+    "runtime",
     "skills",
     "CHANGELOG.md",
     "SECURITY.md",
@@ -30,20 +38,22 @@
     "clean": "node -e \"import('node:fs/promises').then(({rm}) => rm('dist', {recursive:true, force:true}))\"",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:process",
+    "test": "npm run test:process && npm run test:runtime",
     "test:process": "node --import tsx --test tests/process/process.test.mjs",
+    "test:runtime": "node --import tsx --test tests/runtime/runtime.test.mjs",
+    "test:bundled-runtime": "node scripts/test-bundled-runtime.mjs",
     "test:pi-smoke": "node scripts/test-pi-package-load.mjs",
     "test:install": "node scripts/test-isolated-install.mjs",
-    "test:compat": "node scripts/test-installed-cli-compat.mjs",
+    "test:compat": "node scripts/test-bundled-runtime-compat.mjs",
     "check:dist": "node scripts/check-dist.mjs",
+    "check:runtime-artifacts": "node scripts/check-runtime-artifacts.mjs",
     "check:package": "node scripts/check-package.mjs",
     "check:links": "node scripts/check-links.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:runtime": "node scripts/check-runtime-boundary.mjs",
     "audit:runtime": "npm audit --omit=dev",
-    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs",
-    "check": "npm run typecheck && npm run check:dist && npm run test:process && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax",
-    "prepack": "npm run check:dist"
+    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs tests/runtime/*.mjs",
+    "check": "npm run typecheck && npm run check:dist && npm run check:runtime-artifacts && npm test && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

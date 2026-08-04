@@ -1,0 +1,17 @@
+{
+  "schema_version": "career.job_match_input.v1",
+  "resume": {
+    "schema_version": "career.resume_input.v1",
+    "text": "Taylor Example\ntaylor@example.test\nSUMMARY\nSenior backend engineer building reliable APIs.\nEXPERIENCE\nSenior Backend Engineer at Example Systems\n2018 - 2024\n- Developed Python and Django APIs backed by PostgreSQL.\n- Operated AWS services with Docker and Kubernetes.\nEDUCATION\nBachelor of Science in Computer Science, Example University\n2013 - 2017\nSKILLS\nPython, Django, PostgreSQL, REST APIs, AWS, Docker, Kubernetes, Git",
+    "metadata": {
+      "document_id": "pi-career-synthetic-runtime-match-resume-v1"
+    }
+  },
+  "job": {
+    "schema_version": "career.job_input.v1",
+    "text": "Senior Backend Engineer\nCompany: Example Systems\nResponsibilities\n- Design reliable customer-facing APIs\n- Improve cloud platform performance\nRequirements\n- Python, Django, PostgreSQL, REST APIs\n- 5+ years of backend engineering experience\n- Bachelor's degree in Computer Science\nPreferred Skills\n- AWS, Docker, Kubernetes\n- Git",
+    "metadata": {
+      "document_id": "pi-career-synthetic-runtime-match-job-v1"
+    }
+  }
+}

@@ -92,8 +92,8 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_discover",
     label: "Career Core Discovery",
     description:
-      "Discover the installed deterministic career CLI capabilities and embedded JSON schemas. Makes no network or model request.",
-    promptSnippet: "Discover installed Career Core capabilities and exact embedded schemas before document operations",
+      "Discover the package-owned deterministic Career Core runtime capabilities and embedded JSON schemas. Makes no network or model request.",
+    promptSnippet: "Discover bundled Career Core capabilities and exact embedded schemas before document operations",
     promptGuidelines: [
       "Use career_core_discover before career_core_resume or career_core_job; invoke only capabilities reported as available and do not infer contract shapes.",
     ],
@@ -119,12 +119,12 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_resume",
     label: "Career Core Resume",
     description:
-      "Run one bounded installed Career Core resume operation with JSON over stdin. Returns the complete authoritative CLI JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
-    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the installed deterministic CLI",
+      "Run one bounded package-owned Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
+    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the bundled deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_resume only with an exact schema discovered through career_core_discover; preserve every warning, evidence item, uncertainty status, baseline boundary, and assisted/non-authoritative label returned by the tool.",
-      "If career_core_resume reports result_too_large or result_too_many_lines, do not request a truncated result; fall back to the installed career CLI in a user-approved local workflow that can consume the complete JSON.",
+      "If career_core_resume reports result_too_large or result_too_many_lines, do not request or use partial output; full-result export is not yet available through pi-career.",
     ],
     parameters: resumeParameters,
     async execute(_toolCallId, params, signal) {
@@ -148,12 +148,12 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_job",
     label: "Career Core Job",
     description:
-      "Run installed Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative CLI JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
-    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the installed deterministic CLI",
+      "Run package-owned Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
+    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the bundled deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_job only with an exact schema discovered through career_core_discover; preserve source spans, confidence, warnings, uncertainty, conservative equivalence, and recommendation limitations exactly.",
-      "If career_core_job reports result_too_large or result_too_many_lines, do not request a truncated result; fall back to the installed career CLI in a user-approved local workflow that can consume the complete JSON.",
+      "If career_core_job reports result_too_large or result_too_many_lines, do not request or use partial output; full-result export is not yet available through pi-career.",
     ],
     parameters: jobParameters,
     async execute(_toolCallId, params, signal) {

@@ -250,13 +250,23 @@ test("rejects malformed and oversized input before spawn", async () => {
   );
 });
 
-test("validates CAREER_CLI_PATH as a bounded absolute override", () => {
-  assert.equal(resolveCareerExecutable({}), "career");
+test("validates CAREER_CLI_PATH as a bounded absolute override", async () => {
+  assert.equal(resolveCareerExecutable({}), undefined);
   assert.equal(resolveCareerExecutable({ CAREER_CLI_PATH: executable }), executable);
   assert.throws(
     () => resolveCareerExecutable({ CAREER_CLI_PATH: "relative/career" }),
     (error) => error instanceof CareerInvocationError && JSON.parse(error.message).code === "invalid_executable_override",
   );
+
+  const previous = process.env.CAREER_CLI_PATH;
+  process.env.CAREER_CLI_PATH = executable;
+  try {
+    const result = await invokeCareerCli({ kind: "discovery", operation: "capabilities" });
+    assert.deepEqual(JSON.parse(result.json).args, ["capabilities", "--format", "json-compact"]);
+  } finally {
+    if (previous === undefined) delete process.env.CAREER_CLI_PATH;
+    else process.env.CAREER_CLI_PATH = previous;
+  }
 });
 
 test("keeps concurrent calls independent", async () => {

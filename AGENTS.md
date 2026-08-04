@@ -2,15 +2,16 @@
 
 ## Scope
 
-`pi-career` is a private standalone Pi package. It owns the Pi adapter, bundled Agent Skill, generated runtime bundle, packaging tests, and Pi integration documentation. The installed `career` CLI remains authoritative for every algorithm and JSON contract.
+`pi-career` is a private self-contained Pi package on explicitly reviewed native targets. It owns the Pi adapter, package-owned runtime artifacts/resolver, bundled Agent Skill, generated TypeScript bundle, packaging tests, and Pi integration documentation. Career Core remains authoritative for every algorithm and JSON contract.
 
-Treat every Career Core checkout as read-only reference material. Do not add runtime sibling-checkout paths, Cargo fallback, copied Core schemas/algorithms, network/model/provider behavior, UI, persistence, telemetry, MCP, or publication workflows.
+Treat every Career Core checkout as read-only reference material. Do not add runtime sibling-checkout/PATH/Cargo fallback, copied Core schemas/algorithms, install-time downloads/builds, runtime npm dependencies, lifecycle scripts, network/model/provider behavior, commands/UI, persistence, telemetry, MCP, or publication workflows.
 
 ## Working rules
 
 - State a short plan before editing.
 - Preserve the exact three tool names and reviewed process boundary in [`docs/design.md`](docs/design.md).
 - Keep TypeScript in `src/` authoritative. `dist/index.js` is tracked only for clean Git/local Pi loading and must reproduce with `npm run check:dist`.
+- Keep runtime targets exactly `darwin-arm64` and `linux-x64-gnu`; verify manifest/provenance/hash/size/mode before changing imported artifacts and fail every other target closed.
 - Pi-provided packages remain external peer dependencies. Development versions and tooling stay lockfile-pinned.
 - Use synthetic fixtures. Never add real resumes, job descriptions, credentials, provider responses, or session files.
 - No source/result/path/environment/raw-error logging at the adapter boundary.
@@ -24,11 +25,12 @@ Run before review:
 npm ci
 npm run build
 npm run check
+npm run test:bundled-runtime
 npm run check:package
 npm run audit:runtime
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
-npm run test:compat # skips unless CAREER_CORE_FIXTURE_ROOT is explicitly supplied
+npm run test:compat # bundled runtime; skips unless CAREER_CORE_FIXTURE_ROOT is explicitly supplied
 git diff --check
 ```
 

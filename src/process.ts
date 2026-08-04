@@ -5,6 +5,16 @@ import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { TextDecoder } from "node:util";
 
+import {
+  adapterError,
+  CareerInvocationError,
+  publicAdapterError,
+  type CareerCliErrorV1,
+} from "./errors.ts";
+import { resolveBundledRuntime } from "./runtime.ts";
+
+export { CareerInvocationError, publicAdapterError } from "./errors.ts";
+
 const SINGLE_INPUT_MAX_BYTES = 262_144;
 export const COMPOSITE_INPUT_MAX_BYTES = 1_048_576;
 const TOOL_RESULT_MAX_BYTES = 50_000;
@@ -77,13 +87,6 @@ export type CareerInvocation =
   | { kind: "resume"; operation: ResumeOperation; inputJson: string }
   | { kind: "job"; operation: JobOperation; inputJson: string };
 
-interface CareerCliErrorV1 {
-  schema_version: "career.error.v1";
-  code: string;
-  message: string;
-  field_path: string | null;
-}
-
 export interface CareerInvocationResult {
   json: string;
   operation: string;
@@ -98,82 +101,11 @@ export interface InvokeOptions {
   toolResultMaxLines?: number;
 }
 
-type AdapterErrorCode =
-  | "invalid_request"
-  | "invalid_executable_override"
-  | "missing_executable"
-  | "executable_unavailable"
-  | "cancelled"
-  | "timeout"
-  | "stdout_overflow"
-  | "stderr_overflow"
-  | "result_too_large"
-  | "result_too_many_lines"
-  | "malformed_result"
-  | "unexpected_stderr"
-  | "process_signalled"
-  | "career_cli_error"
-  | "cli_failure"
-  | "process_io_failure"
-  | "process_failure"
-  | "internal_error";
-
-interface CareerPiErrorV1 {
-  schema_version: "career.pi_error.v1";
-  code: AdapterErrorCode;
-  message: string;
-  career_error?: CareerCliErrorV1;
-}
-
-const ERROR_MESSAGES: Record<AdapterErrorCode, string> = {
-  invalid_request: "The Career Core tool request is invalid.",
-  invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
-  missing_executable: "The installed career executable was not found.",
-  executable_unavailable: "The installed career executable is not available for execution.",
-  cancelled: "The Career Core operation was cancelled.",
-  timeout: "The Career Core operation exceeded its time limit.",
-  stdout_overflow: "The career executable exceeded the stdout capture limit.",
-  stderr_overflow: "The career executable exceeded the stderr capture limit.",
-  result_too_large: "The complete Career Core result exceeds the Pi tool context byte limit; run the installed CLI directly in a user-approved local workflow.",
-  result_too_many_lines: "The complete Career Core result exceeds the Pi tool context line limit; run the installed CLI directly in a user-approved local workflow.",
-  malformed_result: "The career executable did not return exactly one valid JSON object.",
-  unexpected_stderr: "The career executable wrote unexpected diagnostics on success.",
-  process_signalled: "The career executable ended because of a signal.",
-  career_cli_error: "The career executable rejected the request with a validated error.",
-  cli_failure: "The career executable failed without a validated error envelope.",
-  process_io_failure: "The career executable stream failed.",
-  process_failure: "The career executable failed unexpectedly.",
-  internal_error: "The Career Core Pi adapter failed unexpectedly.",
-};
-
-export class CareerInvocationError extends Error {
-  readonly payload: CareerPiErrorV1;
-
-  constructor(payload: CareerPiErrorV1) {
-    super(JSON.stringify(payload));
-    this.name = "CareerInvocationError";
-    this.payload = payload;
-  }
-}
-
-function adapterError(code: AdapterErrorCode, careerError?: CareerCliErrorV1): CareerInvocationError {
-  return new CareerInvocationError({
-    schema_version: "career.pi_error.v1",
-    code,
-    message: ERROR_MESSAGES[code],
-    ...(careerError === undefined ? {} : { career_error: careerError }),
-  });
-}
-
-export function publicAdapterError(error: unknown): CareerInvocationError {
-  return error instanceof CareerInvocationError ? error : adapterError("internal_error");
-}
-
 export function resolveCareerExecutable(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-): string {
+): string | undefined {
   const override = environment.CAREER_CLI_PATH;
-  if (override === undefined) return "career";
+  if (override === undefined) return undefined;
 
   if (
     override.length === 0 ||
@@ -416,15 +348,19 @@ export async function invokeCareerCli(
   options: InvokeOptions = {},
 ): Promise<CareerInvocationResult> {
   const prepared = prepareInvocation(invocation);
-  const executable = options.executable ?? resolveCareerExecutable();
+  if (signal?.aborted) throw adapterError("cancelled");
+
+  const explicitExecutable = options.executable ?? resolveCareerExecutable();
   if (
-    executable.length === 0 ||
-    executable.includes("\0") ||
-    Buffer.byteLength(executable, "utf8") > EXECUTABLE_MAX_BYTES ||
-    (executable !== "career" && !isAbsolute(executable))
+    explicitExecutable !== undefined &&
+    (explicitExecutable.length === 0 ||
+      explicitExecutable.includes("\0") ||
+      Buffer.byteLength(explicitExecutable, "utf8") > EXECUTABLE_MAX_BYTES ||
+      !isAbsolute(explicitExecutable))
   ) {
     throw adapterError("invalid_executable_override");
   }
+  const executable = explicitExecutable ?? (await resolveBundledRuntime());
   if (signal?.aborted) throw adapterError("cancelled");
 
   const limits = executionLimits(options);

@@ -13,10 +13,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  node:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  native:
+    name: Native runtime (${{ matrix.runtime_target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            runtime_target: linux-x64-gnu
+          - runner: macos-14
+            runtime_target: darwin-arm64
     env:
+      EXPECTED_RUNTIME_TARGET: ${{ matrix.runtime_target }}
       PI_OFFLINE: "1"
       PI_TELEMETRY: "0"
       PI_SKIP_VERSION_CHECK: "1"
@@ -30,6 +40,7 @@ jobs:
       - run: npm run build
       - run: git diff --exit-code -- dist/index.js
       - run: npm run check
+      - run: npm run test:bundled-runtime
       - run: npm run check:package
       - run: npm run audit:runtime
       - run: npm run test:pi-smoke
