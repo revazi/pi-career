@@ -21,7 +21,7 @@
 - [ ] `npm run audit:runtime`
 - [ ] `PI_OFFLINE=1 npm run test:pi-smoke`
 - [ ] `PI_OFFLINE=1 npm run test:install`
-- [ ] Optional installed-CLI compatibility (when explicitly configured)
+- [ ] Optional bundled-runtime compatibility with reviewed Core fixtures (when explicitly configured)
 - [ ] `git diff --check`
 
 List exact results and residual limitations below.
