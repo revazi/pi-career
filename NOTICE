@@ -1,0 +1,9 @@
+pi-career
+
+Portions of the initial process adapter, tool mappings, Agent Skill guidance,
+and synthetic process-boundary tests were adapted from career-core commit
+100774ed8bb3b39c019d64ce105af1e3f209144f, Copyright (c) 2026 Revaz
+Zakalashvili, under the MIT OR Apache-2.0 dual license.
+
+This repository preserves those dual-license terms. See LICENSE-MIT and
+LICENSE-APACHE.

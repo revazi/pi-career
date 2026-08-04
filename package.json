@@ -1,0 +1,70 @@
+{
+  "name": "pi-career",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private standalone Pi tools and Agent Skill for an installed deterministic career CLI",
+  "license": "MIT OR Apache-2.0",
+  "author": "revazi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/revazi/pi-career.git"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "skills",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE"
+  ],
+  "scripts": {
+    "clean": "node -e \"import('node:fs/promises').then(({rm}) => rm('dist', {recursive:true, force:true}))\"",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:process",
+    "test:process": "node --import tsx --test tests/process/process.test.mjs",
+    "test:pi-smoke": "node scripts/test-pi-package-load.mjs",
+    "test:install": "node scripts/test-isolated-install.mjs",
+    "test:compat": "node scripts/test-installed-cli-compat.mjs",
+    "check:dist": "node scripts/check-dist.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "check:links": "node scripts/check-links.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check:runtime": "node scripts/check-runtime-boundary.mjs",
+    "audit:runtime": "npm audit --omit=dev",
+    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs",
+    "check": "npm run typecheck && npm run check:dist && npm run test:process && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax",
+    "prepack": "npm run check:dist"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.80.10",
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@types/node": "24.12.4",
+    "esbuild": "0.28.1",
+    "tsx": "4.23.5",
+    "typebox": "1.1.38",
+    "typescript": "5.9.3"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "skills": [
+      "./skills/career-core"
+    ]
+  }
+}
