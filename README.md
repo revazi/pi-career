@@ -1,18 +1,26 @@
 # pi-career
 
-Private, self-contained [Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows on explicitly supported native targets.
+Self-contained [Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows on explicitly supported native targets.
 
-This repository owns the Pi adapter, package-owned runtime artifacts and resolver, Pi package metadata, Pi-facing Agent Skill, build/package tests, and integration guidance. Career Core remains authoritative for operations, algorithms, versioned JSON schemas, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics.
+This publicly readable Git repository owns the Pi adapter, package-owned runtime artifacts and resolver, Pi package metadata, Pi-facing Agent Skill, build/package tests, and integration guidance. Career Core remains authoritative for operations, algorithms, versioned JSON schemas, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics.
 
 ## Surface and non-scope
 
-The package loads exactly three native tools:
+The package preserves exactly three native tools:
 
 - `career_core_discover`
 - `career_core_resume`
 - `career_core_job`
 
-The extension invokes a package-owned native runtime through direct argv/stdin process execution. It has no PATH or Cargo fallback and no model, provider, network, URL-fetching, UI, persistence, telemetry, MCP, repair, retry, or Core algorithm/schema implementation. See [`docs/design.md`](docs/design.md), [`docs/product-flow.md`](docs/product-flow.md), and [`SECURITY.md`](SECURITY.md).
+On supported targets it also provides deterministic slash commands:
+
+- `/career-setup`
+- `/career-library`
+- `/career-vacancy`
+- `/career-match`
+- `/career-analyze`
+
+Commands call the same package-owned runtime directly through bounded argv/stdin execution; they never call an LLM-facing tool, provider, model, network, PATH, Cargo, sibling checkout, or downloaded runtime. The workflow scans only explicitly configured `.md`/`.txt` roots, excludes assisted variants and inputs over 50,000 Unicode scalar values from authoritative operations, and never overwrites source files. See [`docs/design.md`](docs/design.md), [`docs/product-flow.md`](docs/product-flow.md), and [`SECURITY.md`](SECURITY.md).
 
 ## Supported runtime targets
 
@@ -23,7 +31,7 @@ The extension invokes a package-owned native runtime through direct argv/stdin p
 
 Windows, macOS x64, Linux arm64, Linux musl, and unknown libc/platform combinations are unsupported. The package may register on an unsupported target, but deterministic operations fail closed with a payload-free `unsupported_platform` error; they never guess, download a runtime, search `PATH`, or invoke Cargo.
 
-The unsigned private runtime artifacts were produced and natively verified from Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c` by [artifact run 30953471793](https://github.com/revazi/career-core/actions/runs/30953471793). [`runtime/manifest.json`](runtime/manifest.json) pins target paths, sizes, SHA-256 values, provenance, and bounded contract digests. Before the first bundled spawn in each process, the selected regular executable is checked for exact size, mode, and SHA-256; only successful verification is cached in memory.
+The unsigned package-owned runtime artifacts were produced and natively verified from Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c` by [artifact run 30953471793](https://github.com/revazi/career-core/actions/runs/30953471793). [`runtime/manifest.json`](runtime/manifest.json) pins target paths, sizes, SHA-256 values, provenance, and bounded contract digests. Before the first bundled spawn in each process, the selected regular executable is checked for exact size, mode, and SHA-256; only successful verification is cached in memory.
 
 `CAREER_CLI_PATH` remains an optional developer/recovery override. When set, it must be a bounded absolute path to a separately reviewed compatible executable and takes precedence over the bundled runtime. Normal users do not set it.
 
@@ -31,7 +39,7 @@ The unsigned private runtime artifacts were produced and natively verified from 
 
 - Pi with 0.80.10-compatible package APIs
 - one of the two supported native targets above
-- a reviewed clean local checkout or private Git commit of this package
+- a reviewed clean local checkout or public Git commit of this package
 
 No separate Career Core checkout, `career` installation, Cargo, Rust toolchain, runtime download, or npm publication is required.
 
@@ -57,9 +65,9 @@ pi remove "$package_root"
 pi list
 ```
 
-## Private Git installation pinned to a commit
+## Public Git installation pinned to a commit
 
-After reviewing a full commit SHA and configuring Git credentials for this private repository:
+After reviewing a full commit SHA, install directly from this public repository; no configured Git credentials are required:
 
 ```bash
 pi install git:github.com/revazi/pi-career@<full-reviewed-commit-sha>
@@ -78,11 +86,11 @@ Remove it by repository identity:
 pi remove git:github.com/revazi/pi-career
 ```
 
-No npm/crate artifact is published by this project.
+No npm/crate artifact is published by this project. Public Git repository visibility is source/package access, not npm publication; `package.json` keeps `private: true` solely as a guard against accidental npm publication.
 
 ## Contributor build and verification
 
-Node.js 22.19 or newer is required for development checks. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local/private-Git packages load without development dependencies. Pi-provided packages remain external peers.
+Node.js 22.19 or newer is required for development checks. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local/public-Git packages load without development dependencies. Pi-provided packages remain external peers.
 
 ```bash
 npm ci
@@ -106,11 +114,13 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-Hosted CI needs no private Core checkout or provider credentials. Its native matrix executes every claimed target: Ubuntu x64 GNU and macOS arm64.
+Hosted CI needs no separate Core checkout or provider credentials. Its native matrix executes every claimed target: Ubuntu x64 GNU and macOS arm64.
 
 ## Privacy before document operations
 
-Pi may persist `input_json` tool arguments and complete tool results in session JSONL. Before placing private resume or job content in a tool call, make an explicit persistence decision. Prefer a new transient run when session saving is not wanted:
+Pi may persist native-tool arguments/results and workflow custom entries in session JSONL. The slash commands require the displayed session-persistence decision before the first private vacancy or compact result card is appended to a persisted session. Global config stores only canonical resume-root paths and bounded labels—never resume text, vacancy text, or Core output. Full Core JSON is not stored by the workflow, and custom workflow entries are excluded from LLM context.
+
+For direct native-tool use, make the same explicit persistence decision before placing private resume or job content in `input_json`. Prefer a new transient run when session saving is not wanted:
 
 ```bash
 pi --no-session
@@ -122,7 +132,7 @@ Start with `career_core_discover`, invoke only capabilities reported as availabl
 
 ## Maintainer and support
 
-Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this private repository's Issues for sanitized bugs and scoped feature requests, follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, and follow [`SECURITY.md`](SECURITY.md) for vulnerabilities. Never place private career content or vulnerability details in an ordinary issue.
+Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this repository's Issues for sanitized bugs and scoped feature requests, follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, and follow [`SECURITY.md`](SECURITY.md) for vulnerabilities. Never place private career content or vulnerability details in an ordinary issue.
 
 ## License and provenance
 

@@ -32,6 +32,12 @@ Do not claim secure erasure or removal of previous sessions, backups, shell hist
 
 Do not infer input shapes from this prose. The bundled runtime embeds the reviewed Draft 2020-12 schemas and discovery performs no network request.
 
+## Deterministic slash commands
+
+On supported targets, users can run `/career-setup`, `/career-library`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. These commands invoke the same package-owned runtime directly rather than calling the native tools through the LLM. They scan only configured Markdown/text roots, keep assisted variants and inputs over 50,000 Unicode scalar values out of authoritative analysis/matching, require persisted-session consent before private custom entries, and never store full Core JSON.
+
+Use the native tool flow below for operations not exposed by those commands or when the user explicitly requests direct schema-level work.
+
 ## Native tool surface
 
 - `career_core_discover`

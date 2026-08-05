@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-`pi-career` is a private, self-contained Pi package on two reviewed native targets. It owns the Pi extension, package-owned native runtime artifacts and resolver, Pi-facing Agent Skill, package/build tests, and installation guidance. Career Core remains authoritative for operations, schemas, algorithms, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics; this repository does not reimplement those contracts in TypeScript.
+`pi-career` is a self-contained Pi package in a publicly readable Git repository on two reviewed native targets. It owns the Pi extension, package-owned native runtime artifacts and resolver, Pi-facing Agent Skill, package/build tests, and installation guidance. Career Core remains authoritative for operations, schemas, algorithms, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics; this repository does not reimplement those contracts in TypeScript.
 
 The stable Pi surface is exactly:
 
@@ -10,9 +10,9 @@ The stable Pi surface is exactly:
 - `career_core_resume`
 - `career_core_job`
 
-The TypeScript source is authoritative. A checked-in deterministic `dist/index.js` supports clean local and pinned-Git Pi loading without development dependencies. Pi-provided imports remain external peers. Reviewed native artifacts are also tracked directly so neither local-path nor Git installation needs a download, lifecycle script, Cargo, Rust, or a system `career` executable.
+The TypeScript source is authoritative. A checked-in deterministic `dist/index.js` supports clean local and pinned-Git Pi loading without development dependencies. Pi-provided imports remain external peers. Reviewed native artifacts are also tracked directly so neither local-path nor public Git installation needs credentials, a download, lifecycle script, Cargo, Rust, or a system `career` executable. Public repository visibility is not npm publication; package metadata retains `private: true` only as an accidental-publication guard.
 
-This phase adds no slash commands, custom UI, extension state, document persistence, provider/model behavior, or network behavior. See [`product-flow.md`](product-flow.md) for the separately gated product roadmap.
+The deterministic workflow layer additionally registers `/career-setup`, `/career-library`, `/career-vacancy`, `/career-match`, and `/career-analyze`. These commands call the shared `invokeCareerCli` helper directly; they never route through an LLM-facing tool, provider, model, network, PATH, Cargo, sibling checkout, or downloaded runtime. See [`product-flow.md`](product-flow.md) for the phase boundary.
 
 ## Runtime provenance and selection
 
@@ -39,7 +39,7 @@ Before the first bundled spawn per process, the resolver rejects symlinks/non-fi
 
 The adapter calls `spawn(executable, argv, { shell: false })`; operations and schema IDs are bounded before spawn. Document JSON is one bounded object string sent only through child stdin with `--input - --format json-compact`.
 
-The adapter creates no payload/result temporary files and adds no network, model, provider, UI, telemetry, persistence, repair, retry, or URL-fetching behavior. A successful child must emit exactly one UTF-8 JSON object, no stderr, and a complete result within capture and Pi-context ceilings. Authoritative output is never truncated. Oversized results fail without partial output; pi-career has no full-result export yet.
+The process adapter creates no payload/result temporary files and adds no network, model, provider, telemetry, repair, retry, or URL-fetching behavior. The workflow layer may read configured `.md`/`.txt` roots, atomically persist non-content global config, and append consented custom session entries, but it does not change the child-process boundary. A successful child must emit exactly one UTF-8 JSON object, no stderr, and a complete result within capture and Pi-context ceilings. Authoritative output is never truncated. Oversized results fail without partial output; pi-career has no full-result export.
 
 ## Threat model
 
@@ -53,10 +53,10 @@ The adapter creates no payload/result temporary files and adds no network, model
 | Hung or cancelled child | Abort propagation and fixed timeout send `SIGTERM`, then `SIGKILL` after a bounded grace period; settlement waits for close. |
 | Malformed, ambiguous, or multiple output documents | Fatal UTF-8 decoding and exact-one-object JSON validation. |
 | Private payload disclosure in failures | Raw stderr, process/filesystem errors, input/output, paths, hashes, platform details, and environment values never cross adapter errors or logs. Only strictly shaped, bounded, allowlisted `career.error.v1` values may be nested. |
-| Adapter-side persistence | No extension state and no payload/result file writes. Tests use synthetic data and temporary test-only roots. |
-| Pi session persistence mistaken for adapter persistence | Documentation requires an explicit decision before private document use and recommends a new `pi --no-session` run. It makes no secure-erasure claim and does not treat local-session approval as provider consent. |
+| Workflow persistence leaks or races | Global config contains canonical roots/labels only, uses a `0700` directory and atomic `0600` file, and never stores source text or Core output. Session state uses branch-aware custom entries excluded from LLM context; full Core JSON is never stored. |
+| Pi session persistence mistaken for adapter persistence | Persisted workflow sessions require the exact local-persistence decision before private vacancy or card entries. Transient sessions receive a notice. This is not secure erasure and local-session approval is not provider consent. |
 | Adapter changes Core authority | Successful JSON is returned complete and unchanged apart from removing one framing newline. Discovery-first skill guidance preserves evidence, warnings, uncertainty, baseline boundaries, and assisted labels. |
-| Hidden external behavior | Runtime imports only read-only file/hash/process utilities plus Pi peers. No fetch, provider, credential, telemetry, MCP, command/UI, or model runtime exists. No-model/offline smokes enforce the surface. |
+| Hidden external behavior | Workflow and runtime sources contain no fetch, provider, credential, telemetry, MCP, or model invocation. Commands invoke only the package-owned deterministic process helper. No-model/offline smokes enforce the surface. |
 | Supply-chain or packaging drift | Exact Core source/run provenance, lockfile-pinned development tools, external peers, tracked deterministic bundle, runtime/package allowlists and limits, native CI execution on each claimed target, and isolated install acceptance. |
 
 ## Build, package, and CI boundary
@@ -65,11 +65,11 @@ The adapter creates no payload/result temporary files and adds no network, model
 
 Package checks allow only reviewed docs, extension/skill files, and the eight runtime files. They enforce compressed/unpacked bounds, modes, hashes, provenance, no package-owned `node_modules`, no runtime npm dependencies, and no lifecycle scripts. The extracted package must load and execute the current target with `CAREER_CLI_PATH` unset and an empty `PATH`.
 
-Hosted CI uses native Ubuntu x64 GNU and macOS arm64 runners. Both run the tracked-dist stale gate, process/runtime tests, complete artifact/package checks, real bundled discovery and representative resume/job operations, no-model load, isolated install, and runtime audit. Hosted tests require no private Core checkout or provider credential.
+Hosted CI uses native Ubuntu x64 GNU and macOS arm64 runners. Both run the tracked-dist stale gate, process/runtime tests, complete artifact/package checks, real bundled discovery and representative resume/job operations, no-model load, isolated install, and runtime audit. Hosted tests require no separate Core checkout or provider credential.
 
 ## Installation boundary
 
-A normal supported-target user registers a reviewed clean absolute local path or a private Git URL pinned to a full reviewed commit. Pi local paths follow changing files; pinned Git updates require an explicit new ref. Removal only unregisters the package and does not erase Pi sessions, shell history, backups, or separately saved results.
+A normal supported-target user registers a reviewed clean absolute local path or the public Git URL pinned to a full reviewed commit. Pi local paths follow changing files; pinned Git updates require an explicit new ref. Removal only unregisters the package and does not erase Pi sessions, shell history, backups, or separately saved results.
 
 `CAREER_CLI_PATH` is not an onboarding requirement. A caller choosing it assumes review/compatibility responsibility for that executable; the same argv/stdin, bounds, cancellation, and error boundary still applies.
 

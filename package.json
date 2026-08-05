@@ -2,7 +2,7 @@
   "name": "pi-career",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-contained private Pi tools and Agent Skill for deterministic Career Core workflows",
+  "description": "Self-contained Pi tools, slash commands, and Agent Skill for deterministic Career Core workflows",
   "license": "MIT OR Apache-2.0",
   "author": {
     "name": "Revaz Zakalashvili",
@@ -38,9 +38,10 @@
     "clean": "node -e \"import('node:fs/promises').then(({rm}) => rm('dist', {recursive:true, force:true}))\"",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:process && npm run test:runtime",
+    "test": "npm run test:process && npm run test:runtime && npm run test:workflow",
     "test:process": "node --import tsx --test tests/process/process.test.mjs",
     "test:runtime": "node --import tsx --test tests/runtime/runtime.test.mjs",
+    "test:workflow": "node --import tsx --test tests/workflow/*.test.mjs",
     "test:bundled-runtime": "node scripts/test-bundled-runtime.mjs",
     "test:pi-smoke": "node scripts/test-pi-package-load.mjs",
     "test:install": "node scripts/test-isolated-install.mjs",
@@ -52,17 +53,19 @@
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:runtime": "node scripts/check-runtime-boundary.mjs",
     "audit:runtime": "npm audit --omit=dev",
-    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs tests/runtime/*.mjs",
+    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs tests/runtime/*.mjs tests/workflow/*.mjs",
     "check": "npm run typecheck && npm run check:dist && npm run check:runtime-artifacts && npm test && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.80.10",
     "@earendil-works/pi-coding-agent": "0.80.10",
+    "@earendil-works/pi-tui": "0.80.10",
     "@types/node": "24.12.4",
     "esbuild": "0.28.1",
     "tsx": "4.23.5",

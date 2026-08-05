@@ -34,7 +34,7 @@ Invoke only capabilities whose status is `available`. Pass one exact versioned J
 
 The native tools use direct `spawn(executable, argv, { shell: false })`, stdin-only document JSON, fixed operation mappings, timeout/cancellation cleanup, separate stdout/stderr capture bounds, fatal UTF-8 decoding, and exact-one-object success.
 
-Successful JSON is returned complete, with only the single framing newline removed. The adapter writes no payload/result files and has no model/provider/network/command/UI/persistence behavior.
+Successful JSON is returned complete, with only the single framing newline removed. The process adapter writes no payload/result files and has no model/provider/network behavior. The separate deterministic slash-command layer calls this process helper directly and owns only its bounded config, scan, UI, and custom-session-entry behavior.
 
 Known adapter failures use `career.pi_error.v1`. Only `career_cli_error` may include a nested strictly validated allowlisted `career.error.v1`. Other errors do not expose raw diagnostics, input/output, executable paths, hashes, platform details, environment values, or Node/filesystem errors.
 
