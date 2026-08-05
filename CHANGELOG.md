@@ -13,9 +13,10 @@
 - Public-repository author, ownership, issue-form, private vulnerability-reporting, Dependabot, and pull-request hygiene.
 - Synthetic process-boundary coverage adapted from Career Core commit `100774ed8bb3b39c019d64ce105af1e3f209144f`.
 - Release-candidate guidance for a separately authorized future GitHub tag and notes only, while immutable full-commit installation remains canonical and no current release is claimed.
-- Exact locked normal/build `career-cli` dependency evidence for both native targets, including the required Unicode License V3 text and explicit human-review limits.
+- Exact locked normal/build `career-cli` dependency evidence for both native targets, selected third-party MIT/copyright payloads, Rust 1.97.1 Standard Library evidence, target dynamic imports, the required Unicode License V3 text, deterministic package checks, and explicit independent-review limits.
 
 ### Changed
 
 - Dependabot ignores incompatible baseline major/minor churn for the Pi suite and TypeBox, plus major churn for Node types and TypeScript, while preserving patch and security updates.
-- Strict package checks reject optional or bundled runtime dependency declarations and allow only the approved release/inventory/license documents.
+- Strict package checks reject optional or bundled runtime dependency declarations, allow only the approved release/inventory/license documents, and verify the extracted native license inventory.
+- Release preparation fails closed on the unresolved full development audit; runtime-only audit success cannot satisfy the v0.1.0 advisory gate.

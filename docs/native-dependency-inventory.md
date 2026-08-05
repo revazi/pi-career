@@ -34,6 +34,8 @@ Starting at the `career-cli` resolve node, only normal and build dependency edge
 
 Both targets resolve the same 30-package set. Cargo metadata reports no `kind = "build"` dependency edge in either graph. `clap_derive` and `serde_derive` are included because they are proc-macro packages reached through normal dependency edges and compiled for the build host. The table excludes all development dependencies and the unrelated `career-swift`/UniFFI workspace graph.
 
+The Cargo graph does not enumerate the statically linked Rust Standard Library or host-supplied dynamic libraries. Those are inventoried separately below from the exact provenance `rustc` version, Rust 1.97.1 source license metadata, `otool -L runtime/darwin-arm64/career`, and `objdump -p runtime/linux-x64-gnu/career`.
+
 ## Exact reachable package set for both targets
 
 For crates.io packages, “Source” identifies the immutable name/version registry coordinate and “Lock checksum” is the package checksum recorded in the pinned `Cargo.lock`. Workspace crates are bound by the Core commit instead.
@@ -71,10 +73,44 @@ For crates.io packages, “Source” identifies the immutable name/version regis
 | `utf8parse` | `0.2.2` | `Apache-2.0 OR MIT` | [crates.io](https://crates.io/crates/utf8parse/0.2.2) | `06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821` |
 | `zmij` | `1.0.23` | `MIT` | [crates.io](https://crates.io/crates/zmij/1.0.23) | `29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b` |
 
-## License evidence and limits
+## Selected native license payload
 
-The only reachable manifest expression requiring a license beyond the root MIT/Apache alternatives is `unicode-ident 1.0.24`: `(MIT OR Apache-2.0) AND Unicode-3.0`. Its exact packaged `LICENSE-UNICODE` text is preserved as [`licenses/Unicode-3.0.txt`](licenses/Unicode-3.0.txt), SHA-256 `f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1`.
+For this source package, the MIT alternative is selected for every reachable dependency that offers MIT. For `aho-corasick` and `memchr`, MIT is selected instead of the Unlicense. `unicode-ident` additionally requires Unicode-3.0. The exact upstream license files are preserved once per byte-identical text group:
+
+| Selected license file | SHA-256 | Applies to exact locked packages |
+|---|---|---|
+| [`licenses/MIT-aho-corasick-memchr.txt`](licenses/MIT-aho-corasick-memchr.txt) | `0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f` | `aho-corasick 1.1.4`, `memchr 2.8.3` |
+| [`licenses/MIT-anstyle-clap-family.txt`](licenses/MIT-anstyle-clap-family.txt) | `6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6` | `anstream 1.0.0`, `anstyle 1.0.14`, `anstyle-parse 1.0.0`, `anstyle-query 1.1.5`, `clap 4.6.4`, `clap_builder 4.6.2`, `clap_derive 4.6.4`, `clap_lex 1.1.0`, `colorchoice 1.0.5`, `is_terminal_polyfill 1.70.2` |
+| [`licenses/MIT-heck.txt`](licenses/MIT-heck.txt) | `7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0` | `heck 0.5.0` |
+| [`licenses/MIT-dtolnay-family.txt`](licenses/MIT-dtolnay-family.txt) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` | `itoa 1.0.18`, `proc-macro2 1.0.107`, `quote 1.0.47`, `serde 1.0.229`, `serde_core 1.0.229`, `serde_derive 1.0.229`, `serde_json 1.0.151`, `syn 3.0.3`, `unicode-ident 1.0.24`, `zmij 1.0.23` |
+| [`licenses/MIT-regex-family.txt`](licenses/MIT-regex-family.txt) | `6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb` | `regex 1.13.1`, `regex-automata 0.4.16`, `regex-syntax 0.8.11` |
+| [`licenses/MIT-strsim.txt`](licenses/MIT-strsim.txt) | `1e697ce8d21401fbf1bddd9b5c3fd4c4c79ae1e3bdf51f81761c85e11d5a89cd` | `strsim 0.11.1` |
+| [`licenses/MIT-utf8parse.txt`](licenses/MIT-utf8parse.txt) | `e4c9b06fa850cb9b540a5e400e9f6394cf15efcf4098144de477d1d3dae10150` | `utf8parse 0.2.2` |
+| [`licenses/Unicode-3.0.txt`](licenses/Unicode-3.0.txt) | `f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1` | `unicode-ident 1.0.24`; Rust standard-library Unicode data |
+
+The two workspace packages use the project-authored MIT alternative preserved at `runtime/LICENSE-MIT`. No reachable crate has a package-specific notice file beyond the selected texts above.
+
+## Rust Standard Library and dynamic system inventory
+
+Both provenance files identify `rustc 1.97.1 (8bab26f4f 2026-07-14)`, exact Rust source commit [`8bab26f4f68e0e26f0bb7960be334d5b520ea452`](https://github.com/rust-lang/rust/commit/8bab26f4f68e0e26f0bb7960be334d5b520ea452). The statically linked Rust Standard Library uses its MIT alternative plus Unicode-3.0 for generated Unicode data:
+
+| Evidence | SHA-256 |
+|---|---|
+| [`licenses/Rust-1.97.1-COPYRIGHT.txt`](licenses/Rust-1.97.1-COPYRIGHT.txt) | `172020dbfd5b53a226dfde77616190a48dcff519b0bc0e6deb91a8450782c4af` |
+| [`licenses/Rust-1.97.1-LICENSE-MIT.txt`](licenses/Rust-1.97.1-LICENSE-MIT.txt) | `b71bd43a069ca0641a9ecfe585ca7b3c53b5cc1608f8b68321168698e28b5ea1` |
+| [`licenses/Rust-1.97.1-STDLIB-NOTICE.md`](licenses/Rust-1.97.1-STDLIB-NOTICE.md) | `294893c9a5aef6fa5578cc190735e72251268366924d8f1dd8a40ca0e58394df` |
+
+The target linkage inventory is:
+
+| Bundled target | Dynamic imports supplied by the target operating system |
+|---|---|
+| `aarch64-apple-darwin` | `/usr/lib/libSystem.B.dylib` |
+| `x86_64-unknown-linux-gnu` | `libgcc_s.so.1`, `libc.so.6`, `ld-linux-x86-64.so.2` |
+
+Those dynamic libraries are not copied into this repository, npm-pack artifact, or GitHub source archive; their host-system license payloads are therefore not package contents. The Rust notice explicitly excludes the Fuchsia-only standard-library source path from both compiled target inventories.
+
+## Completeness boundary
 
 No MPL-2.0 UniFFI package is reachable from this `career-cli` normal/build graph. The UniFFI entries in `runtime/THIRD_PARTY_NOTICES.md` belong to the excluded Swift adapter graph, not either distributed CLI target.
 
-The manifest expressions and registry checksums do not by themselves establish which alternative license should be selected, preserve every third-party copyright notice, prove the exact linker result, or determine distribution obligations. Human review must inspect the corresponding crate license files and the actual package notice set before any release claim.
+This evidence closes the package-owned inventory and selected-license payload mechanically: 28 crates.io packages, two Career Core workspace packages, the Rust 1.97.1 Standard Library, and the exact dynamic imports for both binaries are accounted for. It is not legal advice or self-approval. The independent human review required by [`releasing.md`](releasing.md) must confirm the evidence and either approve it or keep release blocked.

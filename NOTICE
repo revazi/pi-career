@@ -17,11 +17,14 @@ assets, signed artifacts, or a notarized distribution. This repository remains
 Unreleased and no tag or GitHub Release is claimed.
 
 The reviewed runtime license copies and third-party notice are preserved under
-runtime/. docs/native-dependency-inventory.md records the locked normal/build
-career-cli graph for both distributed targets. unicode-ident 1.0.24 requires the
-Unicode License V3 in addition to its MIT/Apache alternative; its exact
-LICENSE-UNICODE text is preserved at docs/licenses/Unicode-3.0.txt.
+runtime/. docs/native-dependency-inventory.md records the exact locked
+normal/build career-cli graph, selected MIT texts for every reachable crate,
+Rust 1.97.1 Standard Library evidence, target dynamic imports, and exclusions
+for both distributed targets. unicode-ident 1.0.24 and Rust Unicode data require
+the Unicode License V3; the exact selected license/copyright payload is
+preserved under docs/licenses/.
 
 The dependency inventory is evidence, not legal advice or legal approval.
-docs/releasing.md requires separate human license and expiring-artifact review
-before any future annotated tag and GitHub release-notes entry.
+docs/releasing.md requires separate human license and expiring-artifact review,
+and a zero-result full development audit, before any future annotated tag and
+GitHub release-notes entry.

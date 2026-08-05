@@ -19,6 +19,16 @@ const allowed = new Set([
   "SECURITY.md",
   "dist/index.js",
   "docs/design.md",
+  "docs/licenses/MIT-aho-corasick-memchr.txt",
+  "docs/licenses/MIT-anstyle-clap-family.txt",
+  "docs/licenses/MIT-dtolnay-family.txt",
+  "docs/licenses/MIT-heck.txt",
+  "docs/licenses/MIT-regex-family.txt",
+  "docs/licenses/MIT-strsim.txt",
+  "docs/licenses/MIT-utf8parse.txt",
+  "docs/licenses/Rust-1.97.1-COPYRIGHT.txt",
+  "docs/licenses/Rust-1.97.1-LICENSE-MIT.txt",
+  "docs/licenses/Rust-1.97.1-STDLIB-NOTICE.md",
   "docs/licenses/Unicode-3.0.txt",
   "docs/native-dependency-inventory.md",
   "docs/product-flow.md",
@@ -89,6 +99,11 @@ try {
   assert.equal((await stat(path.join(packageRoot, "runtime", "darwin-arm64", "career"))).mode & 0o777, 0o755);
   assert.equal((await stat(path.join(packageRoot, "runtime", "linux-x64-gnu", "career"))).mode & 0o777, 0o755);
   execFileSync(process.execPath, [path.join(root, "scripts", "check-runtime-artifacts.mjs")], {
+    cwd: temporaryDirectory,
+    env: { ...process.env, PI_CAREER_PACKAGE_ROOT: packageRoot },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  execFileSync(process.execPath, [path.join(root, "scripts", "check-native-license-inventory.mjs")], {
     cwd: temporaryDirectory,
     env: { ...process.env, PI_CAREER_PACKAGE_ROOT: packageRoot },
     stdio: ["ignore", "inherit", "inherit"],

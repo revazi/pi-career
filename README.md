@@ -88,7 +88,7 @@ pi remove git:github.com/revazi/pi-career
 
 No npm/crate artifact is published by this project. Public Git repository visibility is source/package access, not npm publication; `package.json` keeps `private: true` solely as a guard against accidental npm publication.
 
-This repository is still **Unreleased** and claims no current tag or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `v0.1.0` GitHub tag and release-notes entry only: the reviewed full commit SHA remains the canonical installation coordinate, with no npm package, custom release asset, signing, or notarization.
+This repository is still **Unreleased** and claims no current tag or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `v0.1.0` GitHub tag and release-notes entry only: the reviewed full commit SHA remains the canonical installation coordinate, with no npm package, custom release asset, signing, or notarization. The v0.1.0 gate remains fail-closed while the full development audit reports unresolved upstream Pi-tooling advisories; `npm run check:release-prep` intentionally exits nonzero until a compatible pinned upstream remediation is available.
 
 ## Contributor build and verification
 
@@ -140,4 +140,4 @@ Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this reposito
 
 Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded runtime license/notices files under [`runtime/`](runtime/).
 
-The locked normal/build dependency evidence for the two native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), including the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text. That inventory is evidence, not legal advice or release approval; [`docs/releasing.md`](docs/releasing.md) keeps human license review as a blocking gate.
+The locked normal/build dependency evidence for both native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md). The package preserves the exact selected MIT/copyright texts for every reachable crate group, Rust 1.97.1 Standard Library evidence, and the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text under [`docs/licenses/`](docs/licenses/). `npm run check:native-licenses` enforces that payload. The inventory is evidence, not legal advice or release approval; [`docs/releasing.md`](docs/releasing.md) requires independent human confirmation before any tag or GitHub Release.

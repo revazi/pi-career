@@ -29,17 +29,16 @@ Every item in this section blocks the future tag and GitHub Release. A skipped, 
 
 ### 2. Human native-license review
 
-[`native-dependency-inventory.md`](native-dependency-inventory.md) records the locked normal/build dependency graph used by `career-cli` for both bundled targets. It is evidence, not legal advice, an SPDX/CycloneDX SBOM, or approval to distribute.
+[`native-dependency-inventory.md`](native-dependency-inventory.md) records the exact 30-package normal/build Cargo graph, selected MIT texts for all 28 crates.io packages, the two Career Core workspace packages, Rust 1.97.1 Standard Library evidence, Unicode-3.0 requirement, target dynamic imports, and the Swift/UniFFI exclusion. `npm run check:native-licenses` enforces every packaged license/notice hash, inventory coordinate, target, provenance compiler version, and file boundary. This is evidence, not legal advice, an SPDX/CycloneDX SBOM, or self-approval.
 
-Before release, a human reviewer must:
+Before release, an independent human reviewer must:
 
-- verify the inventory against Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c`, Cargo.lock SHA-256 `18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609`, and the two per-target provenance records;
-- inspect the actual license files and notices for every reachable locked package, choose any permitted license alternatives intentionally, and determine whether the package-bounded license/notice set satisfies all obligations for the native binaries;
-- confirm that excluded Swift/UniFFI dependencies are not reachable from either distributed `career-cli` graph;
-- verify that the required Unicode License V3 text for `unicode-ident 1.0.24` is preserved at [`licenses/Unicode-3.0.txt`](licenses/Unicode-3.0.txt); and
-- record an explicit approve/block decision without presenting this repository's inventory as legal advice.
+- verify the inventory against Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c`, Cargo.lock SHA-256 `18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609`, and both per-target provenance records;
+- confirm the documented MIT selections, exact grouped upstream texts/copyright notices, Rust Standard Library evidence, and Unicode License V3 payload satisfy the package-owned obligations for both native binaries;
+- confirm the host-supplied dynamic-library boundary and that excluded Fuchsia/Swift/UniFFI dependencies are not part of either distributed target; and
+- record an explicit approve/block decision without presenting the inventory as legal advice.
 
-No tag or release may proceed while this human review is absent or blocked.
+No tag or release may proceed while this independent review is absent or blocked. Any dependency, compiler, target, binary, provenance, or notice change invalidates the evidence and requires a fresh inventory and review.
 
 ### 3. Upstream artifact-expiry decision
 
@@ -56,12 +55,11 @@ Before release, a human must recheck artifact availability and explicitly decide
 
 `npm run audit:runtime` must pass with zero runtime npm vulnerabilities. That narrow result must not be described as a clean full audit.
 
-The release-preparation baseline has an unresolved nonzero full `npm audit` result in the pinned development/peer tool tree rooted at `@earendil-works/pi-coding-agent`, including `undici`, `brace-expansion`, and `protobufjs` advisories. Before release, rerun the full audit and require one of:
+The release-preparation baseline has an unresolved nonzero full `npm audit` result in the pinned development/peer tool tree rooted at `@earendil-works/pi-coding-agent`, including `undici`, `brace-expansion`, and `protobufjs` advisories. Release is fail-closed until a compatible, reviewed, lockfile-pinned upstream remediation makes the full audit exit zero and passes every project check. Risk acceptance does not close this v0.1.0 gate.
 
-- a compatible, reviewed, lockfile-pinned upstream remediation that passes all project checks; or
-- an explicit human advisory-by-advisory risk acceptance scoped to build/test tooling, with the runtime-empty dependency boundary and mitigations recorded.
+`npm run check:release-prep` first verifies the exact native license inventory and then runs the full audit without omitting development dependencies. It is intentionally expected to exit nonzero while the upstream advisories remain and must not be added to a supposedly green release report.
 
-Do not use `npm audit fix --force`, silently downgrade the Pi baseline, or call the full audit passing while it exits nonzero. Dependabot policy suppresses incompatible baseline version churn only; patch version updates and security updates remain enabled.
+Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or call the full audit passing while it exits nonzero. Dependabot policy suppresses incompatible baseline version churn only; patch version updates and security updates remain enabled.
 
 ### 5. Complete verification on the frozen SHA
 
@@ -75,6 +73,7 @@ npm run check
 npm run test:bundled-runtime
 npm run check:package
 npm run audit:runtime
+npm run check:release-prep
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
 CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core npm run test:compat
@@ -86,7 +85,7 @@ git diff --check
 Requirements:
 
 - `npm run build` may reproduce tracked `dist/index.js`; it must not alter runtime artifacts. The immediate dist diff must pass.
-- All project/runtime/package/offline checks must pass and the runtime npm tree must remain empty.
+- All project/runtime/package/offline checks must pass, the runtime npm tree must remain empty, and `npm run check:release-prep` must exit zero. Its current advisory failure keeps release blocked even when every other local check passes.
 - Compatibility must execute against an explicitly reviewed fixture checkout; a skip is not release evidence.
 - Preserve the exact nonzero full-audit output for the human advisory gate rather than masking it.
 - The exact final SHA must then pass both required hosted native jobs: `darwin-arm64` on macOS arm64 and `linux-x64-gnu` on Linux x64 glibc.
@@ -99,6 +98,6 @@ This preparation intentionally leaves `CHANGELOG.md` under `Unreleased`. After e
 - state the canonical full release commit SHA;
 - preserve unsigned/not-notarized runtime caveats and the two supported targets;
 - state that there is no npm/crate package and no custom release asset; and
-- disclose any approved residual development-advisory risk accurately.
+- state that the full development audit passed on the finalized lockfile; no residual advisory risk acceptance satisfies this v0.1.0 gate.
 
 Only the separately authorized final commit may receive the annotated tag and GitHub Release notes. Do not sign, publish assets, change repository settings, or create the tag/release as part of a preparation PR.
