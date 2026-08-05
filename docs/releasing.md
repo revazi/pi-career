@@ -59,7 +59,7 @@ The release-preparation baseline has an unresolved nonzero full `npm audit` resu
 
 `npm run check:release-prep` first verifies the exact native license inventory and then runs the full audit without omitting development dependencies. It is intentionally expected to exit nonzero while the upstream advisories remain and must not be added to a supposedly green release report.
 
-Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or call the full audit passing while it exits nonzero. Dependabot policy suppresses incompatible baseline version churn only; patch version updates and security updates remain enabled.
+Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or call the full audit passing while it exits nonzero. This preparation adds no Dependabot ignore policy: a compatible remediation may require a minor or major update, and the explicit zero-result full audit remains authoritative regardless of update automation.
 
 ### 5. Complete verification on the frozen SHA
 

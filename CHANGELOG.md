@@ -17,6 +17,5 @@
 
 ### Changed
 
-- Dependabot ignores incompatible baseline major/minor churn for the Pi suite and TypeBox, plus major churn for Node types and TypeScript, while preserving patch and security updates.
 - Strict package checks reject optional or bundled runtime dependency declarations, allow only the approved release/inventory/license documents, and verify the extracted native license inventory.
 - Release preparation fails closed on the unresolved full development audit; runtime-only audit success cannot satisfy the v0.1.0 advisory gate.
