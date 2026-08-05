@@ -12,3 +12,10 @@
 - Deterministic `/career-setup`, `/career-library`, `/career-vacancy`, `/career-match`, and `/career-analyze` workflows with bounded symlink-free text libraries, branch-aware consented session cards, conservative ranking, cancellation ownership, and RPC/TUI support without provider/model calls.
 - Public-repository author, ownership, issue-form, private vulnerability-reporting, Dependabot, and pull-request hygiene.
 - Synthetic process-boundary coverage adapted from Career Core commit `100774ed8bb3b39c019d64ce105af1e3f209144f`.
+- Release-candidate guidance for a separately authorized future GitHub tag and notes only, while immutable full-commit installation remains canonical and no current release is claimed.
+- Exact locked normal/build `career-cli` dependency evidence for both native targets, including the required Unicode License V3 text and explicit human-review limits.
+
+### Changed
+
+- Dependabot ignores incompatible baseline major/minor churn for the Pi suite and TypeBox, plus major churn for Node types and TypeScript, while preserving patch and security updates.
+- Strict package checks reject optional or bundled runtime dependency declarations and allow only the approved release/inventory/license documents.

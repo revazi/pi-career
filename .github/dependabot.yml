@@ -6,6 +6,31 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    # Keep the reviewed compatibility baseline while allowing patch version
+    # updates. update-types filters version updates, not security updates.
+    ignore:
+      - dependency-name: "@earendil-works/pi-ai"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: "@earendil-works/pi-coding-agent"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: "@earendil-works/pi-tui"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: "typebox"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     target-branch: main

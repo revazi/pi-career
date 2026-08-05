@@ -19,7 +19,10 @@ const allowed = new Set([
   "SECURITY.md",
   "dist/index.js",
   "docs/design.md",
+  "docs/licenses/Unicode-3.0.txt",
+  "docs/native-dependency-inventory.md",
   "docs/product-flow.md",
+  "docs/releasing.md",
   "package.json",
   "runtime/LICENSE-APACHE",
   "runtime/LICENSE-MIT",
@@ -68,6 +71,9 @@ try {
   const packagedManifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
   assert.equal(packagedManifest.private, true, "package.json private must guard npm publication");
   assert.equal(packagedManifest.dependencies, undefined);
+  assert.equal(packagedManifest.optionalDependencies, undefined);
+  assert.equal(packagedManifest.bundleDependencies, undefined);
+  assert.equal(packagedManifest.bundledDependencies, undefined);
   for (const lifecycle of [
     "preinstall",
     "install",

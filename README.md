@@ -88,6 +88,8 @@ pi remove git:github.com/revazi/pi-career
 
 No npm/crate artifact is published by this project. Public Git repository visibility is source/package access, not npm publication; `package.json` keeps `private: true` solely as a guard against accidental npm publication.
 
+This repository is still **Unreleased** and claims no current tag or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `v0.1.0` GitHub tag and release-notes entry only: the reviewed full commit SHA remains the canonical installation coordinate, with no npm package, custom release asset, signing, or notarization.
+
 ## Contributor build and verification
 
 Node.js 22.19 or newer is required for development checks. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local/public-Git packages load without development dependencies. Pi-provided packages remain external peers.
@@ -137,3 +139,5 @@ Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this reposito
 ## License and provenance
 
 Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded runtime license/notices files under [`runtime/`](runtime/).
+
+The locked normal/build dependency evidence for the two native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), including the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text. That inventory is evidence, not legal advice or release approval; [`docs/releasing.md`](docs/releasing.md) keeps human license review as a blocking gate.
