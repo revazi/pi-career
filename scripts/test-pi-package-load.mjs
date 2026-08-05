@@ -25,6 +25,7 @@ for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "pre
 assert.deepEqual(Object.keys(manifest.peerDependencies).sort(), [
   "@earendil-works/pi-ai",
   "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-tui",
   "typebox",
 ]);
 
@@ -67,6 +68,14 @@ try {
   const tools = [...loaded[0].tools.values()].map(({ definition }) => definition);
   const names = tools.map(({ name }) => name).sort();
   assert.deepEqual(names, ["career_core_discover", "career_core_job", "career_core_resume"]);
+  assert.deepEqual([...loaded[0].commands.keys()].sort(), [
+    "career-analyze",
+    "career-library",
+    "career-match",
+    "career-setup",
+    "career-vacancy",
+  ]);
+  assert.ok(loaded[0].entryRenderers?.has("career.workflow"));
   for (const tool of tools) {
     assert.equal(tool.parameters.type, "object");
     assert.equal(tool.parameters.additionalProperties, false);

@@ -521,6 +521,1678 @@ async function invokeCareerCli(invocation, signal, options = {}) {
   });
 }
 
+// src/workflow/commands.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import {
+  BorderedLoader,
+  getAgentDir
+} from "@earendil-works/pi-coding-agent";
+
+// src/workflow/config.ts
+import { createHash as createHash2, randomUUID } from "node:crypto";
+import {
+  access,
+  chmod,
+  lstat as lstat2,
+  mkdir,
+  open,
+  readFile as readFile2,
+  realpath,
+  rename,
+  rm
+} from "node:fs/promises";
+import { constants } from "node:fs";
+import path2 from "node:path";
+import { TextDecoder as TextDecoder2 } from "node:util";
+
+// src/workflow/types.ts
+var WORKFLOW_CUSTOM_TYPE = "career.workflow";
+var WORKFLOW_STATE_SCHEMA = "pi.career.workflow_state.v1";
+var RESULT_PROJECTION_SCHEMA = "pi.career.result_projection.v1";
+var WORKFLOW_ERROR_MESSAGES = {
+  interactive_mode_required: "This career command requires TUI or RPC mode.",
+  invalid_command_arguments: "The career command arguments are invalid.",
+  config_invalid: "The pi-career configuration is invalid.",
+  root_invalid: "The selected resume root is unavailable or invalid.",
+  library_empty: "No eligible original resumes are available.",
+  vacancy_required: "Set a vacancy with /career-vacancy first.",
+  consent_required: "Session-persistence consent was not granted.",
+  workflow_cancelled: "The career workflow was cancelled.",
+  workflow_stale: "A newer career workflow owns this session.",
+  core_result_invalid: "Career Core returned an unexpected result shape.",
+  workflow_failed: "The career workflow failed."
+};
+var CareerWorkflowError = class extends Error {
+  code;
+  constructor(code) {
+    super(
+      JSON.stringify({
+        schema_version: "pi.career.workflow_error.v1",
+        code,
+        message: WORKFLOW_ERROR_MESSAGES[code]
+      })
+    );
+    this.name = "CareerWorkflowError";
+    this.code = code;
+  }
+};
+function workflowError(code) {
+  return new CareerWorkflowError(code);
+}
+function workflowErrorMessage(code) {
+  return WORKFLOW_ERROR_MESSAGES[code];
+}
+
+// src/workflow/config.ts
+var CONFIG_SCHEMA = "pi.career.config.v1";
+var CONFIG_MAX_BYTES = 65536;
+var LABEL_MAX_CHARACTERS = 80;
+var SHA256 = /^[a-f0-9]{64}$/;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function emptyConfig() {
+  return { schema_version: CONFIG_SCHEMA, library_roots: [] };
+}
+function configPath(agentDir) {
+  if (!path2.isAbsolute(agentDir)) throw workflowError("config_invalid");
+  return path2.join(agentDir, "career", "config.v1.json");
+}
+function rootId(canonicalPath) {
+  return createHash2("sha256").update(canonicalPath).digest("hex");
+}
+function isPlainRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys(value, required, optional = []) {
+  const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
+}
+function validLabel(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function parseRoot(value) {
+  if (!isPlainRecord(value) || !exactKeys(value, ["id", "path", "label"])) return void 0;
+  if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
+  return { id: value.id, path: value.path, label: value.label };
+}
+function parseConfig(value) {
+  if (!isPlainRecord(value) || !exactKeys(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
+  const roots = [];
+  const ids = /* @__PURE__ */ new Set();
+  const paths = /* @__PURE__ */ new Set();
+  for (const candidate of value.library_roots) {
+    const root = parseRoot(candidate);
+    if (root === void 0 || ids.has(root.id) || paths.has(root.path)) {
+      throw workflowError("config_invalid");
+    }
+    ids.add(root.id);
+    paths.add(root.path);
+    roots.push(root);
+  }
+  if (value.generated_variants_root !== void 0 && (typeof value.generated_variants_root !== "string" || !path2.isAbsolute(value.generated_variants_root) || value.generated_variants_root.length === 0)) throw workflowError("config_invalid");
+  return {
+    schema_version: CONFIG_SCHEMA,
+    library_roots: roots,
+    ...typeof value.generated_variants_root === "string" ? { generated_variants_root: value.generated_variants_root } : {}
+  };
+}
+async function loadConfig(agentDir) {
+  const file = configPath(agentDir);
+  try {
+    const metadata = await lstat2(file);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > CONFIG_MAX_BYTES) {
+      throw workflowError("config_invalid");
+    }
+    if ((metadata.mode & 511) !== 384) throw workflowError("config_invalid");
+    const bytes = await readFile2(file);
+    if (bytes.length !== metadata.size) throw workflowError("config_invalid");
+    const text = new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
+    return parseConfig(JSON.parse(text));
+  } catch (error) {
+    if (error?.code === "ENOENT") return emptyConfig();
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+async function canonicalizeRoot(inputPath) {
+  if (typeof inputPath !== "string" || inputPath.length === 0 || inputPath.includes("\0") || Buffer.byteLength(inputPath, "utf8") > 4096) throw workflowError("root_invalid");
+  try {
+    const absolute = path2.resolve(inputPath);
+    const suppliedMetadata = await lstat2(absolute);
+    if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) {
+      throw workflowError("root_invalid");
+    }
+    const canonical = await realpath(absolute);
+    const metadata = await lstat2(canonical);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw workflowError("root_invalid");
+    await access(canonical, constants.R_OK);
+    return canonical;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("root_invalid");
+  }
+}
+function defaultRootLabel(canonicalPath) {
+  const label = path2.basename(canonicalPath).trim();
+  return (label || "Resume library").slice(0, LABEL_MAX_CHARACTERS);
+}
+async function addLibraryRoot(config, inputPath, label) {
+  const canonical = await canonicalizeRoot(inputPath);
+  const chosenLabel = label?.trim() || defaultRootLabel(canonical);
+  if (!validLabel(chosenLabel)) throw workflowError("root_invalid");
+  const id = rootId(canonical);
+  const withoutExisting = config.library_roots.filter((root) => root.id !== id);
+  return {
+    ...config,
+    library_roots: [...withoutExisting, { id, path: canonical, label: chosenLabel }]
+  };
+}
+function removeLibraryRoot(config, id) {
+  return { ...config, library_roots: config.library_roots.filter((root) => root.id !== id) };
+}
+async function writeConfig(agentDir, config, uuid = randomUUID) {
+  const validated = parseConfig(config);
+  const file = configPath(agentDir);
+  const directory = path2.dirname(file);
+  const temporaryId = uuid();
+  if (!UUID.test(temporaryId)) throw workflowError("config_invalid");
+  const temporary = path2.join(directory, `.config.v1.${temporaryId}.tmp`);
+  const encoded = Buffer.from(`${JSON.stringify(validated, null, 2)}
+`, "utf8");
+  if (encoded.length > CONFIG_MAX_BYTES) throw workflowError("config_invalid");
+  let handle;
+  try {
+    await mkdir(directory, { recursive: true, mode: 448 });
+    const directoryMetadata = await lstat2(directory);
+    if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink()) {
+      throw workflowError("config_invalid");
+    }
+    await chmod(directory, 448);
+    handle = await open(temporary, "wx", 384);
+    await handle.writeFile(encoded);
+    await handle.sync();
+    await handle.close();
+    handle = void 0;
+    await chmod(temporary, 384);
+    await rename(temporary, file);
+    const directoryHandle = await open(directory, "r");
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  } catch {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    await rm(temporary, { force: true }).catch(() => void 0);
+    throw workflowError("config_invalid");
+  }
+}
+
+// src/workflow/core-input.ts
+function buildResumeInput(resume) {
+  return {
+    schema_version: "career.resume_input.v1",
+    text: resume.text,
+    metadata: { document_id: resume.id }
+  };
+}
+function buildJobInput(vacancy) {
+  return {
+    schema_version: "career.job_input.v1",
+    text: vacancy.vacancy_text,
+    metadata: { document_id: vacancy.state_id }
+  };
+}
+function buildJobMatchInput(resume, vacancy) {
+  return {
+    schema_version: "career.job_match_input.v1",
+    resume: buildResumeInput(resume),
+    job: buildJobInput(vacancy)
+  };
+}
+function serializeCoreInput(value) {
+  return JSON.stringify(value);
+}
+
+// src/workflow/renderers.ts
+import os from "node:os";
+import path4 from "node:path";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { Container, truncateToWidth } from "@earendil-works/pi-tui";
+
+// src/workflow/scan.ts
+import { createHash as createHash3 } from "node:crypto";
+import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath2 } from "node:fs/promises";
+import path3 from "node:path";
+import { TextDecoder as TextDecoder3 } from "node:util";
+
+// src/workflow/text-limit.ts
+var CORE_MAX_CHARACTERS = 5e4;
+function isWithinCoreCharacterLimit(value) {
+  let codePoints = 0;
+  for (const _codePoint of value) {
+    codePoints += 1;
+    if (codePoints > CORE_MAX_CHARACTERS) return false;
+  }
+  return true;
+}
+
+// src/workflow/scan.ts
+var SCAN_MAX_DEPTH = 8;
+var SCAN_MAX_FILES_PER_ROOT = 500;
+var SCAN_MAX_FILES_TOTAL = 2e3;
+var SCAN_MAX_RAW_BYTES = 256 * 1024;
+var SIDECAR_MAX_BYTES = 16384;
+var MAX_DIRECTORY_ENTRIES_PER_ROOT = 1e4;
+var SHA2562 = /^[a-f0-9]{64}$/;
+var ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function sha256(value) {
+  return createHash3("sha256").update(value).digest("hex");
+}
+function normalizeDocumentText(value) {
+  return value.replace(/\r\n?/g, "\n");
+}
+function supportedFormat(file) {
+  const extension = path3.extname(file).toLowerCase();
+  if (extension === ".md") return "markdown";
+  if (extension === ".txt") return "text";
+  return void 0;
+}
+function safeLabel(value, fallback) {
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  return (cleaned || fallback).slice(0, 120);
+}
+function resumeLabel(file, format, text) {
+  const fallback = path3.basename(file, path3.extname(file));
+  if (format === "markdown") {
+    let nonEmpty = 0;
+    for (const line of text.split("\n")) {
+      if (line.trim().length === 0) continue;
+      nonEmpty += 1;
+      const match = line.match(/^#\s+(.+?)\s*#*\s*$/);
+      if (match?.[1]) return safeLabel(match[1], fallback);
+      if (nonEmpty >= 32) break;
+    }
+  }
+  return safeLabel(fallback, "Resume");
+}
+function sidecarPath(file) {
+  return path3.join(path3.dirname(file), `${path3.basename(file, path3.extname(file))}.pi-career.json`);
+}
+function validSidecar(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value;
+  const keys = "base_document_id,created_at,kind,schema_version";
+  if (Object.keys(record).sort().join(",") !== keys) return false;
+  if (record.schema_version !== "pi.career.assisted_variant_meta.v1" || record.kind !== "assisted_variant") {
+    return false;
+  }
+  if (typeof record.base_document_id !== "string" || !SHA2562.test(record.base_document_id)) return false;
+  return typeof record.created_at === "string" && ISO_UTC.test(record.created_at) && Number.isFinite(Date.parse(record.created_at));
+}
+async function readSidecar(file) {
+  const sidecar = sidecarPath(file);
+  try {
+    const metadata = await lstat3(sidecar);
+    const invalidMetadata = !metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > SIDECAR_MAX_BYTES;
+    if (invalidMetadata) return { kind: "original", invalid: true };
+    const bytes = await readFile3(sidecar);
+    if (bytes.length !== metadata.size) return { kind: "original", invalid: true };
+    const text = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+    const parsed = JSON.parse(text);
+    if (!validSidecar(parsed)) return { kind: "original", invalid: true };
+    return { kind: "assisted_variant", variantGroupId: parsed.base_document_id, invalid: false };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { kind: "original", invalid: false };
+    return { kind: "original", invalid: true };
+  }
+}
+async function scanRootIsCurrent(root) {
+  try {
+    const metadata = await lstat3(root.path);
+    const canonical = await realpath2(root.path);
+    return metadata.isDirectory() && !metadata.isSymbolicLink() && canonical === root.path;
+  } catch {
+    return false;
+  }
+}
+async function directoryChildren(current, rootId2, warnings, maximumEntries) {
+  const entries = [];
+  try {
+    const directory = await opendir(current.absolute);
+    for await (const entry of directory) {
+      entries.push(entry);
+      if (entries.length > maximumEntries) {
+        return { children: [], entryCount: entries.length, overflow: true };
+      }
+    }
+  } catch {
+    warnings.push({ code: "scan_entry_unavailable", root_id: rootId2 });
+    return { children: [], entryCount: 0, overflow: false };
+  }
+  entries.sort((left, right) => compareText(left.name, right.name));
+  const children = [];
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const relative = current.relative ? path3.posix.join(current.relative, entry.name) : entry.name;
+    const absolute = path3.join(current.absolute, entry.name);
+    const depth = current.depth + 1;
+    if (entry.isDirectory() && depth <= SCAN_MAX_DEPTH) {
+      children.push({ absolute, relative, depth, kind: "directory" });
+    } else if (entry.isFile() && supportedFormat(entry.name) !== void 0) {
+      children.push({ absolute, relative, depth: current.depth, kind: "file" });
+    }
+  }
+  return { children, entryCount: entries.length, overflow: false };
+}
+function candidateFromPending(current) {
+  const format = supportedFormat(current.absolute);
+  return format === void 0 ? void 0 : { absolute: current.absolute, relative: current.relative, format };
+}
+async function collectCandidates(root, maximum, warnings) {
+  if (!await scanRootIsCurrent(root)) {
+    warnings.push({ code: "root_stale", root_id: root.id });
+    return { candidates: [], capped: false, stale: true };
+  }
+  const pending = [{ absolute: root.path, relative: "", depth: 0, kind: "directory" }];
+  const candidates = [];
+  let visitedEntries = 0;
+  let capped = false;
+  while (pending.length > 0 && candidates.length < maximum) {
+    pending.sort((left, right) => compareText(left.relative, right.relative));
+    const current = pending.shift();
+    if (current === void 0) break;
+    if (current.kind === "file") {
+      const candidate = candidateFromPending(current);
+      if (candidate !== void 0) candidates.push(candidate);
+      capped = candidates.length >= maximum;
+      continue;
+    }
+    const remainingEntryBudget = MAX_DIRECTORY_ENTRIES_PER_ROOT - visitedEntries;
+    const { children, entryCount, overflow } = await directoryChildren(
+      current,
+      root.id,
+      warnings,
+      remainingEntryBudget
+    );
+    if (overflow) {
+      capped = true;
+      break;
+    }
+    visitedEntries += entryCount;
+    pending.push(...children);
+  }
+  candidates.sort((left, right) => {
+    const relative = compareText(left.relative, right.relative);
+    if (relative !== 0) return relative;
+    return compareText(path3.basename(left.relative), path3.basename(right.relative));
+  });
+  return { candidates, capped, stale: false };
+}
+async function scanCandidate(root, candidate, warnings) {
+  let metadata;
+  let canonical;
+  try {
+    metadata = await lstat3(candidate.absolute);
+    canonical = await realpath2(candidate.absolute);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== candidate.absolute || !canonical.startsWith(`${root.path}${path3.sep}`)) return void 0;
+  } catch {
+    warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
+    return void 0;
+  }
+  if (metadata.size > SCAN_MAX_RAW_BYTES) {
+    warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
+    return void 0;
+  }
+  let decoded;
+  try {
+    const bytes = await readFile3(canonical);
+    if (bytes.length > SCAN_MAX_RAW_BYTES || bytes.length !== metadata.size) {
+      warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
+      return void 0;
+    }
+    decoded = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+    return void 0;
+  }
+  const text = normalizeDocumentText(decoded);
+  const id = sha256(canonical);
+  const sidecar = await readSidecar(canonical);
+  if (sidecar.invalid) {
+    warnings.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+  }
+  return {
+    id,
+    root_id: root.id,
+    path: canonical,
+    relative_path: candidate.relative,
+    label: resumeLabel(canonical, candidate.format, text),
+    kind: sidecar.kind,
+    format: candidate.format,
+    modified_at: metadata.mtime.toISOString(),
+    size_bytes: metadata.size,
+    ...sidecar.variantGroupId === void 0 ? {} : { variant_group_id: sidecar.variantGroupId },
+    ...!isWithinCoreCharacterLimit(text) ? { too_large_for_core_input: true } : {},
+    text,
+    text_sha256: sha256(text)
+  };
+}
+async function scanLibrary(config) {
+  const warnings = [];
+  const records = [];
+  const roots = [];
+  let totalCapped = false;
+  let scannedCandidateCount = 0;
+  for (const root of config.library_roots) {
+    const remaining = SCAN_MAX_FILES_TOTAL - scannedCandidateCount;
+    if (remaining <= 0) {
+      warnings.push({ code: "total_file_cap_reached", root_id: root.id });
+      totalCapped = true;
+      roots.push({
+        root_id: root.id,
+        original_count: 0,
+        assisted_variant_count: 0,
+        too_large_count: 0,
+        stale: false,
+        capped: true
+      });
+      continue;
+    }
+    const maximum = Math.min(SCAN_MAX_FILES_PER_ROOT, remaining);
+    const collected = await collectCandidates(root, maximum, warnings);
+    scannedCandidateCount += collected.candidates.length;
+    const rootRecords = [];
+    for (const candidate of collected.candidates) {
+      const record = await scanCandidate(root, candidate, warnings);
+      if (record !== void 0) rootRecords.push(record);
+    }
+    records.push(...rootRecords);
+    if (collected.capped) {
+      warnings.push({ code: "root_file_cap_reached", root_id: root.id });
+      if (maximum < SCAN_MAX_FILES_PER_ROOT) totalCapped = true;
+    }
+    roots.push({
+      root_id: root.id,
+      original_count: rootRecords.filter((record) => record.kind === "original").length,
+      assisted_variant_count: rootRecords.filter((record) => record.kind === "assisted_variant").length,
+      too_large_count: rootRecords.filter((record) => record.too_large_for_core_input === true).length,
+      stale: collected.stale,
+      capped: collected.capped
+    });
+  }
+  return { records, warnings, roots, total_capped: totalCapped };
+}
+function eligibleOriginals(scan) {
+  return scan.records.filter(
+    (record) => record.kind === "original" && record.too_large_for_core_input !== true
+  );
+}
+
+// src/workflow/session-state.ts
+var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var SHA2563 = /^[a-f0-9]{64}$/;
+var ISO_UTC2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var CARD_MAX_BYTES = 16384;
+function isRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys2(value, required) {
+  return Object.keys(value).sort().join(",") === [...required].sort().join(",");
+}
+function boundedText(value, maximum) {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum;
+}
+function validBase(value) {
+  return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
+}
+function validFlags(value) {
+  if (!isRecord2(value) || !exactKeys2(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
+    return false;
+  }
+  return [value.adjusted, value.provisional, value.close_cluster, value.stale].every(
+    (flag) => typeof flag === "boolean"
+  );
+}
+function validProjection(value) {
+  if (!isRecord2(value) || !exactKeys2(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
+    return false;
+  }
+  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord2(value.summary) || !validFlags(value.ui_flags)) return false;
+  return Buffer.byteLength(JSON.stringify(value), "utf8") <= CARD_MAX_BYTES;
+}
+function isUuid(value) {
+  return typeof value === "string" && UUID2.test(value);
+}
+function isSha2562(value) {
+  return typeof value === "string" && SHA2563.test(value);
+}
+function parseVacancy(value) {
+  if (!exactKeys2(value, [
+    "schema_version",
+    "kind",
+    "state_id",
+    "created_at",
+    "vacancy_label",
+    "vacancy_text",
+    "vacancy_text_sha256",
+    "source"
+  ])) return void 0;
+  if (!boundedText(value.vacancy_label, 120) || typeof value.vacancy_text !== "string" || value.vacancy_text.trim().length === 0 || !isWithinCoreCharacterLimit(value.vacancy_text)) return void 0;
+  if (!isSha2562(value.vacancy_text_sha256) || value.vacancy_text_sha256 !== sha256(value.vacancy_text)) {
+    return void 0;
+  }
+  if (value.source !== "paste" && value.source !== "replace") return void 0;
+  return value;
+}
+function parseVacancyClear(value) {
+  const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
+  return exactKeys2(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+}
+function parseConsent(value) {
+  const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "granted"];
+  return exactKeys2(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
+}
+function parseConsentClear(value) {
+  const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "clears_state_id"];
+  return exactKeys2(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
+}
+function validInputDigests(value) {
+  return isRecord2(value) && exactKeys2(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha2562(value.resume_text_sha256) && isSha2562(value.vacancy_text_sha256);
+}
+function parseResultCard(value) {
+  if (!exactKeys2(value, [
+    "schema_version",
+    "kind",
+    "state_id",
+    "created_at",
+    "workflow",
+    "run_id",
+    "resume_id",
+    "resume_label",
+    "resume_path_fingerprint",
+    "input_digests",
+    "projection"
+  ])) return void 0;
+  if (value.workflow !== "analyze" && value.workflow !== "match") return void 0;
+  if (!isUuid(value.run_id) || !isSha2562(value.resume_id) || !boundedText(value.resume_label, 120)) {
+    return void 0;
+  }
+  if (!isSha2562(value.resume_path_fingerprint) || !validInputDigests(value.input_digests)) {
+    return void 0;
+  }
+  return validProjection(value.projection) ? value : void 0;
+}
+function parseWorkflowEntryData(value) {
+  if (!isRecord2(value) || !validBase(value)) return void 0;
+  switch (value.kind) {
+    case "vacancy":
+      return parseVacancy(value);
+    case "vacancy_clear":
+      return parseVacancyClear(value);
+    case "consent":
+      return parseConsent(value);
+    case "consent_clear":
+      return parseConsentClear(value);
+    case "result_card":
+      return parseResultCard(value);
+    default:
+      return void 0;
+  }
+}
+function workflowDataFromEntries(entries) {
+  const data = [];
+  for (const entry of entries) {
+    if (entry.type !== "custom" || entry.customType !== WORKFLOW_CUSTOM_TYPE) continue;
+    const parsed = parseWorkflowEntryData(entry.data);
+    if (parsed !== void 0) data.push(parsed);
+  }
+  return data;
+}
+function workflowResultCards(entries) {
+  return workflowDataFromEntries(entries).filter(
+    (data) => data.kind === "result_card"
+  );
+}
+function reconstructWorkflowState(entries) {
+  let vacancy;
+  let consent;
+  const cards = /* @__PURE__ */ new Map();
+  for (const data of workflowDataFromEntries(entries)) {
+    switch (data.kind) {
+      case "vacancy":
+        vacancy = data;
+        break;
+      case "vacancy_clear":
+        if (vacancy?.state_id === data.clears_state_id) vacancy = void 0;
+        break;
+      case "consent":
+        consent = data;
+        break;
+      case "consent_clear":
+        if (consent?.state_id === data.clears_state_id) consent = void 0;
+        break;
+      case "result_card":
+        cards.set(`${data.workflow}:${data.resume_id}`, data);
+        break;
+    }
+  }
+  return {
+    ...vacancy === void 0 ? {} : { vacancy },
+    ...consent === void 0 ? {} : { consent },
+    result_cards: [...cards.values()]
+  };
+}
+function base(options) {
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    state_id: options.uuid(),
+    created_at: options.now().toISOString()
+  };
+}
+function createVacancyEntry(text, source, options) {
+  const label = text.split("\n").find((line) => line.trim().length > 0)?.trim() || "Current vacancy";
+  return {
+    ...base(options),
+    kind: "vacancy",
+    vacancy_label: label.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 120),
+    vacancy_text: text,
+    vacancy_text_sha256: sha256(text),
+    source
+  };
+}
+function createVacancyClearEntry(vacancy, options) {
+  return { ...base(options), kind: "vacancy_clear", clears_state_id: vacancy.state_id };
+}
+function createConsentEntry(granted, options) {
+  return {
+    ...base(options),
+    kind: "consent",
+    scope: "session_persistence",
+    granted
+  };
+}
+function withCurrentStaleness(state, scan) {
+  const records = new Map(scan.records.map((record) => [record.id, record]));
+  const cards = state.result_cards.map((card) => {
+    const current = records.get(card.resume_id);
+    const resumeStale = current === void 0 || current.text_sha256 !== card.input_digests.resume_text_sha256;
+    const vacancyStale = card.workflow === "match" && state.vacancy?.vacancy_text_sha256 !== card.input_digests.vacancy_text_sha256;
+    const stale = resumeStale || vacancyStale;
+    return {
+      ...card,
+      projection: {
+        ...card.projection,
+        ui_flags: { ...card.projection.ui_flags, stale }
+      }
+    };
+  });
+  return { ...state, result_cards: cards };
+}
+
+// src/workflow/renderers.ts
+var UI_TEXT_MAX = 8e3;
+function privacyDisplayPath(absolutePath) {
+  const home = os.homedir();
+  const relative = path4.relative(home, absolutePath);
+  if (relative && !relative.startsWith("..") && !path4.isAbsolute(relative)) {
+    return `~${path4.sep}${relative}`;
+  }
+  return path4.basename(absolutePath) || "resume root";
+}
+function setupSummary(config, scan, persisted2) {
+  const resumes = scan.records.length;
+  const roots = config.library_roots.length;
+  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`;
+}
+function libraryIndexPreview(config, scan, maximum = 50) {
+  const lines = [];
+  let remaining = maximum;
+  for (const root of config.library_roots) {
+    lines.push(`[${root.label}]`);
+    const records = scan.records.filter((record) => record.root_id === root.id);
+    for (const record of records.slice(0, remaining)) {
+      const labels = [
+        ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
+        ...record.too_large_for_core_input === true ? ["too large"] : []
+      ];
+      lines.push(`- ${record.label}${labels.length > 0 ? ` — ${labels.join(", ")}` : ""}`);
+    }
+    remaining -= Math.min(records.length, remaining);
+    if (remaining === 0) break;
+  }
+  if (scan.records.length > maximum) lines.push(`Showing ${maximum} of ${scan.records.length} indexed resumes.`);
+  return lines.join("\n") || "No indexed resumes";
+}
+function librarySummary(config, scan, persisted2) {
+  const originals = scan.records.filter((record) => record.kind === "original").length;
+  const assisted = scan.records.filter((record) => record.kind === "assisted_variant").length;
+  const tooLarge = scan.records.filter((record) => record.too_large_for_core_input === true).length;
+  const staleRoots = scan.roots.filter((root) => root.stale).length;
+  return [
+    `${config.library_roots.length} roots`,
+    `${originals} original resumes`,
+    `${assisted} assisted variants`,
+    `${tooLarge} too large`,
+    `${staleRoots} stale roots`,
+    `${persisted2 ? "persisted" : "transient"} session`
+  ].join(" • ");
+}
+function summaryRecord(card) {
+  return card.projection.summary;
+}
+function recommendationLabel(card) {
+  const recommendation = summaryRecord(card).recommendation;
+  if (recommendation !== null && typeof recommendation === "object" && !Array.isArray(recommendation)) {
+    const label = recommendation.label;
+    return typeof label === "string" ? label : void 0;
+  }
+  return void 0;
+}
+function scoreValue(card) {
+  const value = summaryRecord(card).overall_score;
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function score(card) {
+  return String(scoreValue(card) ?? "unavailable");
+}
+function badges(card, tie = false) {
+  const flags = card.projection.ui_flags;
+  return [
+    ...tie ? ["tie"] : [],
+    ...flags.adjusted ? ["adjusted"] : [],
+    ...flags.provisional ? ["provisional"] : [],
+    ...flags.close_cluster ? ["close cluster"] : [],
+    ...flags.stale ? ["stale"] : []
+  ];
+}
+function objectField(value, field) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value[field] : void 0;
+}
+function previewItems(summary, field) {
+  const values = summary[field];
+  if (!Array.isArray(values)) return "none";
+  const items = values.slice(0, 2).flatMap((value) => {
+    const item = objectField(value, "item") ?? objectField(value, "title");
+    return typeof item === "string" ? [item.slice(0, 80)] : [];
+  });
+  return items.length > 0 ? items.join(", ") : "none";
+}
+function matchProjectionDetails(projection) {
+  const summary = projection.summary;
+  const confidence = summary.confidence_context;
+  const resumeConfidence = objectField(confidence, "resume_parse_confidence");
+  const jobConfidence = objectField(confidence, "job_parse_confidence");
+  const resumeLabel2 = objectField(resumeConfidence, "label");
+  const resumeScore = objectField(resumeConfidence, "score");
+  const jobLabel = objectField(jobConfidence, "label");
+  const jobScore = objectField(jobConfidence, "score");
+  const warnings = summary.warnings;
+  const warningCount = Array.isArray(warnings) ? warnings.length : 0;
+  return [
+    `confidence resume ${String(resumeLabel2 ?? "unavailable")} ${String(resumeScore ?? "-")} • job ${String(jobLabel ?? "unavailable")} ${String(jobScore ?? "-")}`,
+    `strengths ${previewItems(summary, "top_strengths")}`,
+    `gaps ${previewItems(summary, "top_gaps")} • warnings ${warningCount}`
+  ];
+}
+function plainResultCard(card, tie = false) {
+  const labels = badges(card, tie);
+  const recommendation = recommendationLabel(card);
+  return [
+    `${card.workflow === "match" ? "Career match" : "Career analyze"}: ${card.resume_label}`,
+    `score ${score(card)}${recommendation ? ` • ${recommendation}` : ""}`,
+    ...labels.length > 0 ? [labels.join(" • ")] : [],
+    ...card.workflow === "match" ? matchProjectionDetails(card.projection) : []
+  ].join("\n");
+}
+function stateEntryText(data) {
+  switch (data.kind) {
+    case "vacancy":
+      return `Career vacancy: ${data.vacancy_label}`;
+    case "vacancy_clear":
+      return "Career vacancy cleared";
+    case "consent":
+      return `Career session-persistence consent: ${data.granted ? "granted" : "declined"}`;
+    case "consent_clear":
+      return "Career session-persistence consent cleared";
+  }
+}
+function resultCardLines(card, theme, width, tie) {
+  const label = theme.fg("accent", theme.bold(card.resume_label));
+  const flags = badges(card, tie);
+  const recommendation = recommendationLabel(card);
+  const recommendationText = recommendation ? ` • ${recommendation}` : "";
+  const flagText = flags.length > 0 ? flags.join(" • ") : void 0;
+  const matchDetails = card.workflow === "match" ? matchProjectionDetails(card.projection) : [];
+  if (width >= 100) {
+    return [
+      `${label} • score ${score(card)}${recommendationText}${flagText ? ` • ${flagText}` : ""}`,
+      ...matchDetails
+    ];
+  }
+  if (width >= 80) {
+    return [label, `score ${score(card)}${recommendationText}`, ...flagText ? [flagText] : [], ...matchDetails];
+  }
+  return [label, `score ${score(card)}`, ...flagText ? [flagText] : [], ...matchDetails];
+}
+var ResponsiveCard = class {
+  constructor(data, theme, tie) {
+    this.data = data;
+    this.theme = theme;
+    this.tie = tie;
+  }
+  data;
+  theme;
+  tie;
+  render(width) {
+    if (this.data.kind !== "result_card") {
+      return [truncateToWidth(this.theme.fg("muted", stateEntryText(this.data)), width)];
+    }
+    return resultCardLines(this.data, this.theme, width, this.tie).map((line) => truncateToWidth(line, width));
+  }
+  invalidate() {
+  }
+};
+function registerWorkflowEntryRenderer(pi, currentData, currentTie) {
+  pi.registerEntryRenderer(WORKFLOW_RENDERER_TYPE, (entry, _options, theme) => {
+    const parsed = parseWorkflowEntryData(entry.data);
+    if (parsed === void 0) return void 0;
+    const data = currentData?.(parsed.state_id) ?? parsed;
+    const tie = data.kind === "result_card" && currentTie?.(data.state_id) === true;
+    const container = new Container();
+    container.addChild(new DynamicBorder((text) => theme.fg("borderMuted", text)));
+    container.addChild(new ResponsiveCard(data, theme, tie));
+    container.addChild(new DynamicBorder((text) => theme.fg("borderMuted", text)));
+    return container;
+  });
+}
+var WORKFLOW_RENDERER_TYPE = "career.workflow";
+function oversizeResultMessage(command, runId, code) {
+  return `${command} • run ${runId} • ${code}
+No partial output exists and the result was not stored.`;
+}
+function unavailableMatchResultMessage(runId, resumeLabel2, code) {
+  return `career-match • run ${runId} • ${code}
+${resumeLabel2} • result unavailable
+No partial output exists and the result was not stored.`;
+}
+function deriveMatchTieStateIds(cards) {
+  const byRun = /* @__PURE__ */ new Map();
+  for (const card of cards) {
+    if (card.workflow !== "match" || scoreValue(card) === void 0) continue;
+    const runCards = byRun.get(card.run_id) ?? [];
+    runCards.push(card);
+    byRun.set(card.run_id, runCards);
+  }
+  const tied = /* @__PURE__ */ new Set();
+  for (const runCards of byRun.values()) {
+    const topScore = Math.max(...runCards.map((card) => scoreValue(card)));
+    const topCards = runCards.filter((card) => scoreValue(card) === topScore);
+    if (topCards.length < 2) continue;
+    for (const card of topCards) tied.add(card.state_id);
+  }
+  return tied;
+}
+function rankedRows(ranked) {
+  return ranked.map((item, index) => {
+    const labels = [
+      ...item.tie ? ["tie"] : [],
+      ...item.closeCluster ? ["close cluster"] : [],
+      ...item.projection.ui_flags.provisional ? ["provisional"] : []
+    ];
+    return `${index + 1}. ${item.resume.label} — ${item.overallScore} — ${item.recommendation}${labels.length ? ` — ${labels.join(", ")}` : ""}`;
+  });
+}
+function analyzeDetailSections(result) {
+  return [
+    { label: "checks", value: result.checks },
+    { label: "confidence_context", value: result.confidence_context },
+    { label: "top_strengths", value: result.top_strengths },
+    { label: "top_weaknesses", value: result.top_weaknesses },
+    { label: "improvement_actions", value: result.improvement_actions },
+    { label: "warnings", value: result.warnings }
+  ];
+}
+function matchDetailSections(result, vacancyText) {
+  return [
+    { label: "category_results", value: result.category_results },
+    { label: "confidence_context", value: result.confidence_context },
+    { label: "top_strengths", value: result.top_strengths },
+    { label: "top_gaps", value: result.top_gaps },
+    { label: "recommendation", value: result.recommendation },
+    { label: "warnings", value: result.warnings },
+    { label: "current vacancy preview", value: vacancyText.slice(0, 1e3) }
+  ];
+}
+function detailText(section) {
+  const text = JSON.stringify({ [section.label]: section.value }, null, 2);
+  if (Buffer.byteLength(text, "utf8") > UI_TEXT_MAX) {
+    return `${section.label}: detail is too large for the bounded pane; no partial detail is shown.`;
+  }
+  return text;
+}
+
+// src/workflow/result-projection.ts
+function isRecord3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function numberField(value, field) {
+  const found = value[field];
+  if (typeof found !== "number" || !Number.isFinite(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function recordField(value, field) {
+  const found = value[field];
+  if (!isRecord3(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function arrayField(value, field) {
+  const found = value[field];
+  if (!Array.isArray(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function compactObjects(value, fields, maximum) {
+  return value.slice(0, maximum).flatMap((candidate) => {
+    if (!isRecord3(candidate)) return [];
+    const selected = {};
+    for (const field of fields) {
+      if (candidate[field] !== void 0) selected[field] = candidate[field];
+    }
+    return [selected];
+  });
+}
+function compactWarnings(value) {
+  return compactObjects(value, ["code", "message", "related_fields", "related_categories"], 3);
+}
+function parseConfidencePreview(value) {
+  if (!isRecord3(value) || typeof value.label !== "string" || typeof value.score !== "number") {
+    throw workflowError("core_result_invalid");
+  }
+  return { label: value.label, score: value.score };
+}
+function parseCoreJson(json) {
+  try {
+    const value = JSON.parse(json);
+    if (!isRecord3(value)) throw workflowError("core_result_invalid");
+    return value;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("core_result_invalid");
+  }
+}
+function projectResumeAnalysis(result) {
+  if (result.schema_version !== "career.resume_analysis.v1") throw workflowError("core_result_invalid");
+  const checks = arrayField(result, "checks");
+  const confidence = recordField(result, "confidence_context");
+  const parseConfidence = parseConfidencePreview(confidence.parse_confidence);
+  const adjusted = checks.some((check) => isRecord3(check) && check.score_adjusted === true);
+  return {
+    schema_version: RESULT_PROJECTION_SCHEMA,
+    core_schema_version: "career.resume_analysis.v1",
+    summary: {
+      overall_score: numberField(result, "overall_score"),
+      category_scores: recordField(result, "category_scores"),
+      confidence_context: { parse_confidence: parseConfidence },
+      top_strengths: compactObjects(arrayField(result, "top_strengths"), ["area", "title", "status"], 2),
+      top_weaknesses: compactObjects(arrayField(result, "top_weaknesses"), ["area", "title", "status"], 2),
+      improvement_actions: compactObjects(
+        arrayField(result, "improvement_actions"),
+        ["priority", "area", "action", "basis_check_id", "status"],
+        2
+      ),
+      warnings: compactWarnings(arrayField(result, "warnings"))
+    },
+    ui_flags: { adjusted, provisional: false, close_cluster: false, stale: false }
+  };
+}
+function projectJobMatch(result) {
+  if (result.schema_version !== "career.job_match.v1") throw workflowError("core_result_invalid");
+  const categories = arrayField(result, "category_results");
+  const confidence = recordField(result, "confidence_context");
+  const recommendation = recordField(result, "recommendation");
+  if (typeof recommendation.label !== "string") throw workflowError("core_result_invalid");
+  const provisional = confidence.is_uncertain === true;
+  const adjusted = categories.some((category) => isRecord3(category) && category.score_adjusted === true);
+  return {
+    schema_version: RESULT_PROJECTION_SCHEMA,
+    core_schema_version: "career.job_match.v1",
+    summary: {
+      overall_score: numberField(result, "overall_score"),
+      category_scores: recordField(result, "category_scores"),
+      confidence_context: {
+        resume_parse_confidence: parseConfidencePreview(confidence.resume_parse_confidence),
+        job_parse_confidence: parseConfidencePreview(confidence.job_parse_confidence),
+        is_uncertain: provisional
+      },
+      top_strengths: compactObjects(
+        arrayField(result, "top_strengths"),
+        ["category", "item", "status", "match_type"],
+        2
+      ),
+      top_gaps: compactObjects(arrayField(result, "top_gaps"), ["category", "item", "status"], 2),
+      recommendation: compactObjects([recommendation], ["label", "status"], 1)[0] ?? {},
+      warnings: compactWarnings(arrayField(result, "warnings"))
+    },
+    ui_flags: { adjusted, provisional, close_cluster: false, stale: false }
+  };
+}
+function createResultCard(options) {
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    kind: "result_card",
+    state_id: options.uuid(),
+    created_at: options.now().toISOString(),
+    workflow: options.workflow,
+    run_id: options.runId,
+    resume_id: options.resume.id,
+    resume_label: options.resume.label,
+    resume_path_fingerprint: sha256(options.resume.path),
+    input_digests: {
+      resume_text_sha256: options.resume.text_sha256,
+      vacancy_text_sha256: options.vacancy?.vacancy_text_sha256 ?? sha256("")
+    },
+    projection: options.projection
+  };
+}
+var RECOMMENDATION_BUCKET = {
+  apply_now: 3,
+  apply_after_small_edits: 2,
+  improve_first: 1
+};
+function recommendationLabel2(result) {
+  const recommendation = recordField(result, "recommendation").label;
+  if (recommendation !== "apply_now" && recommendation !== "apply_after_small_edits" && recommendation !== "improve_first") throw workflowError("core_result_invalid");
+  return recommendation;
+}
+function compareText2(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function rankMatches(values) {
+  const ranked = values.map(({ resume, result, projection }) => ({
+    resume,
+    result,
+    projection: projection ?? projectJobMatch(result),
+    overallScore: numberField(result, "overall_score"),
+    recommendation: recommendationLabel2(result),
+    tie: false,
+    closeCluster: false
+  }));
+  ranked.sort((left, right) => {
+    if (left.overallScore !== right.overallScore) return right.overallScore - left.overallScore;
+    const bucket = RECOMMENDATION_BUCKET[right.recommendation] - RECOMMENDATION_BUCKET[left.recommendation];
+    if (bucket !== 0) return bucket;
+    const pathOrder = compareText2(left.resume.path, right.resume.path);
+    return pathOrder !== 0 ? pathOrder : compareText2(left.resume.id, right.resume.id);
+  });
+  const topScore = ranked[0]?.overallScore;
+  const secondScore = ranked[1]?.overallScore;
+  const tie = topScore !== void 0 && secondScore === topScore;
+  const close = topScore !== void 0 && secondScore !== void 0 && topScore - secondScore <= 3;
+  for (const [index, item] of ranked.entries()) {
+    item.tie = tie && item.overallScore === topScore;
+    item.closeCluster = close && index < 2;
+    item.projection = {
+      ...item.projection,
+      ui_flags: { ...item.projection.ui_flags, close_cluster: item.closeCluster }
+    };
+  }
+  return ranked;
+}
+
+// src/workflow/commands.ts
+var CONSENT_COPY = "Pi may save private vacancy/resume text and result cards in the current session JSONL. `pi-career` does not write documents outside the files you chose. Use `pi --no-session` for an ephemeral run. This is not secure erasure.";
+var TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
+var BANNER = "pi-career not configured — run /career-setup";
+var MAX_FILTER_CHARACTERS = 200;
+var RunOwner = class {
+  constructor(uuid) {
+    this.uuid = uuid;
+  }
+  uuid;
+  sequence = 0;
+  current;
+  start(ctx) {
+    this.current?.controller.abort();
+    const run = {
+      sequence: ++this.sequence,
+      runId: this.uuid(),
+      sessionId: ctx.sessionManager.getSessionId(),
+      controller: new AbortController()
+    };
+    this.current = run;
+    return run;
+  }
+  assert(run, ctx) {
+    if (this.current !== run || run.controller.signal.aborted || ctx.sessionManager.getSessionId() !== run.sessionId) throw workflowError("workflow_stale");
+  }
+  invalidate() {
+    this.sequence += 1;
+    this.current?.controller.abort();
+    this.current = void 0;
+  }
+};
+function persisted(ctx) {
+  return ctx.sessionManager.getSessionFile() !== void 0;
+}
+function safeAdapterCode(error) {
+  return error instanceof CareerInvocationError ? error.payload.code : void 0;
+}
+function isOversizeCode(code) {
+  return code === "result_too_large" || code === "result_too_many_lines";
+}
+function requireInteractive(ctx) {
+  if (!ctx.hasUI) throw workflowError("interactive_mode_required");
+}
+function parseStatusArgument(args) {
+  const value = args.trim();
+  if (value === "") return "default";
+  if (value === "status") return "status";
+  throw workflowError("invalid_command_arguments");
+}
+function parseFilter(args) {
+  const value = args.trim();
+  if (value.length > MAX_FILTER_CHARACTERS || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw workflowError("invalid_command_arguments");
+  }
+  return value.toLowerCase();
+}
+function filteredResumes(records, filter) {
+  if (!filter) return records;
+  return records.filter(
+    (record) => `${record.label}
+${record.relative_path}
+${record.id}`.toLowerCase().includes(filter)
+  );
+}
+function recordBadges(record) {
+  return [
+    ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
+    ...record.too_large_for_core_input === true ? ["too large"] : []
+  ].join(", ");
+}
+function recordOption(record) {
+  const badges2 = recordBadges(record);
+  return `${record.label}${badges2 ? ` — ${badges2}` : ""} — ${record.id.slice(0, 12)}`;
+}
+function rootOption(root) {
+  return `${root.label} — ${privacyDisplayPath(root.path)} — ${root.id.slice(0, 12)}`;
+}
+async function loadLibrary(dependencies) {
+  const config = await loadConfig(dependencies.agentDir);
+  return { config, scan: await scanLibrary(config) };
+}
+async function runOperation(ctx, owner, run, label, operation) {
+  owner.assert(run, ctx);
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(label, "info");
+    const value = await operation(run.controller.signal);
+    owner.assert(run, ctx);
+    return value;
+  }
+  const result = await ctx.ui.custom((tui, theme, _keybindings, done) => {
+    const loader = new BorderedLoader(tui, theme, label);
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      done(value);
+    };
+    loader.onAbort = () => {
+      run.controller.abort();
+      finish(null);
+    };
+    operation(run.controller.signal).then((value) => finish({ ok: true, value })).catch((error) => finish({ ok: false, error }));
+    return loader;
+  });
+  if (result === null) throw workflowError("workflow_cancelled");
+  if (!result.ok) throw result.error;
+  owner.assert(run, ctx);
+  return result.value;
+}
+function appendData(pi, owner, run, ctx, data) {
+  owner.assert(run, ctx);
+  pi.appendEntry(WORKFLOW_CUSTOM_TYPE, data);
+}
+function retainOversizeFailure(error, resume, unavailable) {
+  const code = safeAdapterCode(error);
+  if (!isOversizeCode(code)) return false;
+  unavailable.set(resume.id, { resume, code });
+  return true;
+}
+async function normalizeVacancy(dependencies, vacancy, signal) {
+  const normalized = await dependencies.invoke(
+    { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+    signal
+  );
+  if (parseCoreJson(normalized.json).schema_version !== "career.job_normalization.v1") {
+    throw workflowError("core_result_invalid");
+  }
+}
+async function analyzeMatchResumes(dependencies, resumes, signal, unavailable) {
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+        signal
+      );
+      projectResumeAnalysis(parseCoreJson(invocation.json));
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+}
+async function matchResumes(dependencies, resumes, vacancy, signal, unavailable) {
+  const matches = [];
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+        signal
+      );
+      const result = parseCoreJson(invocation.json);
+      if (!unavailable.has(resume.id)) matches.push({ resume, result });
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+  return matches;
+}
+async function executeMatchQueue(dependencies, resumes, vacancy, signal) {
+  const unavailable = /* @__PURE__ */ new Map();
+  await normalizeVacancy(dependencies, vacancy, signal);
+  await analyzeMatchResumes(dependencies, resumes, signal, unavailable);
+  const matches = await matchResumes(dependencies, resumes, vacancy, signal, unavailable);
+  return { matches, unavailable };
+}
+function matchBatchSummary(cards, ranked, unavailable, runId) {
+  const visibleCards = cards.slice(0, 20).map(
+    (card, index) => `${index + 1}. ${plainResultCard(card, ranked[index]?.tie === true)}`
+  );
+  const unavailableRows = [...unavailable.values()].map(
+    (item) => unavailableMatchResultMessage(runId, item.resume.label, item.code)
+  );
+  const sections = [
+    ...visibleCards.length === 0 ? [] : [visibleCards.join("\n\n")],
+    ...ranked.length > visibleCards.length ? [`Showing ${visibleCards.length} of ${ranked.length} ranked rows.`] : [],
+    ...unavailableRows.length === 0 ? [] : ["Unranked result-unavailable rows:", ...unavailableRows]
+  ];
+  return sections.join("\n\n");
+}
+async function showDetail(ctx, sections) {
+  const choice = await ctx.ui.select("Career detail", [...sections.map((section2) => section2.label), "Close"]);
+  const section = sections.find((candidate) => candidate.label === choice);
+  if (section !== void 0) ctx.ui.notify(detailText(section), "info");
+}
+function registerCareerCommands(pi, options = {}) {
+  const dependencies = {
+    agentDir: options.agentDir ?? getAgentDir(),
+    invoke: options.invoke ?? invokeCareerCli,
+    now: options.now ?? (() => /* @__PURE__ */ new Date()),
+    uuid: options.uuid ?? randomUUID2
+  };
+  const owner = new RunOwner(dependencies.uuid);
+  let transientNoticeSession;
+  const renderedData = /* @__PURE__ */ new Map();
+  const renderedTieStateIds = /* @__PURE__ */ new Set();
+  const refreshState = async (ctx) => {
+    const library = await loadLibrary(dependencies);
+    const branch = ctx.sessionManager.getBranch();
+    const state = withCurrentStaleness(reconstructWorkflowState(branch), library.scan);
+    renderedData.clear();
+    for (const entry of [
+      ...state.vacancy === void 0 ? [] : [state.vacancy],
+      ...state.consent === void 0 ? [] : [state.consent],
+      ...state.result_cards
+    ]) renderedData.set(entry.state_id, entry);
+    renderedTieStateIds.clear();
+    for (const stateId of deriveMatchTieStateIds(workflowResultCards(branch))) {
+      renderedTieStateIds.add(stateId);
+    }
+    return library;
+  };
+  registerWorkflowEntryRenderer(
+    pi,
+    (stateId) => renderedData.get(stateId),
+    (stateId) => renderedTieStateIds.has(stateId)
+  );
+  const ensureConsent = async (ctx, run) => {
+    if (!persisted(ctx)) {
+      if (transientNoticeSession !== run.sessionId) {
+        ctx.ui.notify(TRANSIENT_NOTICE, "info");
+        transientNoticeSession = run.sessionId;
+      }
+      return;
+    }
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    if (state.consent?.granted === true) return;
+    const choice = await ctx.ui.select(CONSENT_COPY, [
+      "Continue in this session",
+      "Cancel and restart with --no-session"
+    ]);
+    owner.assert(run, ctx);
+    const granted = choice === "Continue in this session";
+    appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies));
+    if (!granted) throw workflowError("consent_required");
+  };
+  const handle = async (ctx, action) => {
+    try {
+      await action();
+    } catch (error) {
+      if (!ctx.hasUI) throw error;
+      if (error instanceof CareerWorkflowError) {
+        const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+        ctx.ui.notify(workflowErrorMessage(error.code), type);
+        return;
+      }
+      if (error instanceof CareerInvocationError) {
+        ctx.ui.notify(`${error.payload.code}: ${error.payload.message}`, "error");
+        return;
+      }
+      ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+    }
+  };
+  pi.registerCommand("career-setup", {
+    description: "Configure deterministic resume-library roots",
+    getArgumentCompletions: (prefix) => "status".startsWith(prefix) ? [{ value: "status", label: "status" }] : null,
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const mode = parseStatusArgument(args);
+      const run = owner.start(ctx);
+      const { config, scan } = await refreshState(ctx);
+      owner.assert(run, ctx);
+      const summary = setupSummary(config, scan, persisted(ctx));
+      if (mode === "status") {
+        ctx.ui.notify(summary, "info");
+        return;
+      }
+      ctx.ui.notify(summary, "info");
+      if (config.library_roots.length === 0) ctx.ui.notify(BANNER, "warning");
+      const action = await ctx.ui.select("Career setup", ["Add root", "Rescan", "Status", "Close"]);
+      owner.assert(run, ctx);
+      if (action === "Add root") {
+        const rootPath = await ctx.ui.input("Resume root", "Absolute path");
+        if (rootPath === void 0) return;
+        const updated = await addLibraryRoot(config, rootPath);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        owner.assert(run, ctx);
+        const rescanned = await scanLibrary(updated);
+        ctx.ui.notify(setupSummary(updated, rescanned, persisted(ctx)), "info");
+      } else if (action === "Rescan" || action === "Status") {
+        ctx.ui.notify(summary, "info");
+      }
+    })
+  });
+  pi.registerCommand("career-library", {
+    description: "Browse deterministic resume-library entries",
+    getArgumentCompletions: (prefix) => "status".startsWith(prefix) ? [{ value: "status", label: "status" }] : null,
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const mode = parseStatusArgument(args);
+      const run = owner.start(ctx);
+      const { config, scan } = await refreshState(ctx);
+      owner.assert(run, ctx);
+      const summary = librarySummary(config, scan, persisted(ctx));
+      if (mode === "status") {
+        ctx.ui.notify(summary, "info");
+        return;
+      }
+      const roots = config.library_roots.map(rootOption).join("\n") || "No configured roots";
+      ctx.ui.notify(`${roots}
+${libraryIndexPreview(config, scan)}
+${summary}`, "info");
+      const action = await ctx.ui.select("Career library", [
+        "Browse",
+        "Add root",
+        "Remove root",
+        "Rescan",
+        "Status",
+        "Close"
+      ]);
+      owner.assert(run, ctx);
+      if (action === "Browse") {
+        if (scan.records.length === 0) {
+          ctx.ui.notify(BANNER, "warning");
+          return;
+        }
+        const optionsByLabel = new Map(scan.records.map((record2) => [recordOption(record2), record2]));
+        const selected = await ctx.ui.select("Indexed resumes", [...optionsByLabel.keys()]);
+        const record = selected === void 0 ? void 0 : optionsByLabel.get(selected);
+        if (record !== void 0) ctx.ui.notify(recordOption(record), "info");
+      } else if (action === "Add root") {
+        const rootPath = await ctx.ui.input("Resume root", "Absolute path");
+        if (rootPath === void 0) return;
+        const updated = await addLibraryRoot(config, rootPath);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root added.", "info");
+      } else if (action === "Remove root") {
+        const byOption = new Map(config.library_roots.map((root2) => [rootOption(root2), root2]));
+        const selected = await ctx.ui.select("Remove root from config", [...byOption.keys()]);
+        const root = selected === void 0 ? void 0 : byOption.get(selected);
+        if (root === void 0) return;
+        const updated = removeLibraryRoot(config, root.id);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root removed from config; no files were changed.", "info");
+      } else if (action === "Rescan" || action === "Status") {
+        ctx.ui.notify(summary, "info");
+      }
+    })
+  });
+  pi.registerCommand("career-vacancy", {
+    description: "Set, view, replace, or clear the current vacancy",
+    getArgumentCompletions: (prefix) => "clear".startsWith(prefix) ? [{ value: "clear", label: "clear" }] : null,
+    handler: async (args, ctx) => handle(ctx, async () => {
+      const argument = args.trim();
+      if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      const run = owner.start(ctx);
+      const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      if (argument === "clear") {
+        if (state.vacancy !== void 0) {
+          appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+          if (ctx.hasUI) ctx.ui.notify("Current career vacancy cleared.", "info");
+        }
+        return;
+      }
+      requireInteractive(ctx);
+      let source = "paste";
+      let prefill = "";
+      if (state.vacancy !== void 0) {
+        const action = await ctx.ui.select("Current career vacancy", ["Replace", "View", "Clear", "Cancel"]);
+        owner.assert(run, ctx);
+        if (action === "View") {
+          ctx.ui.notify(`Current vacancy: ${state.vacancy.vacancy_label}`, "info");
+          return;
+        }
+        if (action === "Clear") {
+          appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+          ctx.ui.notify("Current career vacancy cleared.", "info");
+          return;
+        }
+        if (action !== "Replace") return;
+        source = "replace";
+        prefill = state.vacancy.vacancy_text;
+      }
+      const edited = await ctx.ui.editor(source === "replace" ? "Replace career vacancy" : "Paste career vacancy", prefill);
+      if (edited === void 0) return;
+      const text = edited.replace(/\r\n?/g, "\n");
+      if (text.trim().length === 0 || !isWithinCoreCharacterLimit(text)) {
+        throw workflowError("invalid_command_arguments");
+      }
+      await ensureConsent(ctx, run);
+      const vacancy = createVacancyEntry(text, source, dependencies);
+      await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
+        const result = await dependencies.invoke(
+          { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+          signal
+        );
+        const parsed = parseCoreJson(result.json);
+        if (parsed.schema_version !== "career.job_normalization.v1") throw workflowError("core_result_invalid");
+      });
+      appendData(pi, owner, run, ctx, vacancy);
+      ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
+    })
+  });
+  pi.registerCommand("career-analyze", {
+    description: "Run deterministic readiness analysis for one original resume",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const filter = parseFilter(args);
+      const run = owner.start(ctx);
+      const { scan } = await refreshState(ctx);
+      const candidates = filteredResumes(eligibleOriginals(scan), filter);
+      if (candidates.length === 0) throw workflowError("library_empty");
+      const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
+      const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+      const resume = selected === void 0 ? void 0 : byOption.get(selected);
+      if (resume === void 0) return;
+      owner.assert(run, ctx);
+      await ensureConsent(ctx, run);
+      let result;
+      try {
+        result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+          const invocation = await dependencies.invoke(
+            { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+            signal
+          );
+          return parseCoreJson(invocation.json);
+        });
+      } catch (error) {
+        const code = safeAdapterCode(error);
+        if (isOversizeCode(code)) {
+          ctx.ui.notify(oversizeResultMessage("career-analyze", run.runId, code), "error");
+          return;
+        }
+        throw error;
+      }
+      const projection = projectResumeAnalysis(result);
+      const card = createResultCard({
+        workflow: "analyze",
+        runId: run.runId,
+        resume,
+        projection,
+        uuid: dependencies.uuid,
+        now: dependencies.now
+      });
+      appendData(pi, owner, run, ctx, card);
+      renderedData.set(card.state_id, card);
+      ctx.ui.notify(plainResultCard(card), "info");
+      const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      const actions = [
+        "View detail",
+        ...currentState.vacancy === void 0 ? [] : ["Career match this resume"],
+        "Close"
+      ];
+      const action = await ctx.ui.select("Career analyze result", actions);
+      if (action === "View detail") {
+        await showDetail(ctx, analyzeDetailSections(result));
+      } else if (action === "Career match this resume") {
+        ctx.ui.setEditorText(`/career-match ${resume.id}`);
+        ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
+      }
+    })
+  });
+  pi.registerCommand("career-match", {
+    description: "Deterministically rank original resumes against the current vacancy",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const filter = parseFilter(args);
+      const run = owner.start(ctx);
+      const { scan } = await refreshState(ctx);
+      const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      const vacancy = state.vacancy;
+      if (vacancy === void 0) throw workflowError("vacancy_required");
+      const candidates = filteredResumes(eligibleOriginals(scan), filter);
+      if (candidates.length === 0) throw workflowError("library_empty");
+      const scope = await ctx.ui.select("Career match", ["All original resumes", "Select subset", "Cancel"]);
+      if (scope === void 0 || scope === "Cancel") return;
+      let selected = candidates;
+      if (scope === "Select subset") {
+        const remaining = new Map(candidates.map((record) => [recordOption(record), record]));
+        selected = [];
+        while (remaining.size > 0) {
+          const choice = await ctx.ui.select("Select resumes", ["Done", ...remaining.keys()]);
+          if (choice === void 0 || choice === "Done") break;
+          const record = remaining.get(choice);
+          if (record !== void 0) {
+            selected.push(record);
+            remaining.delete(choice);
+          }
+        }
+        if (selected.length === 0) return;
+      }
+      owner.assert(run, ctx);
+      await ensureConsent(ctx, run);
+      const queue = await runOperation(
+        ctx,
+        owner,
+        run,
+        "Running deterministic career match queue…",
+        (signal) => executeMatchQueue(dependencies, selected, vacancy, signal)
+      );
+      owner.assert(run, ctx);
+      const ranked = rankMatches(queue.matches);
+      const cards = ranked.map((item2) => createResultCard({
+        workflow: "match",
+        runId: run.runId,
+        resume: item2.resume,
+        vacancy,
+        projection: item2.projection,
+        uuid: dependencies.uuid,
+        now: dependencies.now
+      }));
+      for (const card of cards) appendData(pi, owner, run, ctx, card);
+      for (const card of cards) renderedData.set(card.state_id, card);
+      for (const stateId of deriveMatchTieStateIds(cards)) renderedTieStateIds.add(stateId);
+      ctx.ui.notify(
+        matchBatchSummary(cards, ranked, queue.unavailable, run.runId),
+        ranked.length === 0 ? "error" : "info"
+      );
+      if (ranked.length === 0) return;
+      const rows = rankedRows(ranked);
+      const byRow = new Map(ranked.map((item2, index) => [rows[index], item2]));
+      const chosen = await ctx.ui.select("Career match detail", [...byRow.keys(), "Close"]);
+      const item = chosen === void 0 ? void 0 : byRow.get(chosen);
+      if (item !== void 0) await showDetail(ctx, matchDetailSections(item.result, vacancy.vacancy_text));
+    })
+  });
+  pi.on("session_start", async (_event, ctx) => {
+    owner.invalidate();
+    transientNoticeSession = void 0;
+    try {
+      const { config, scan } = await refreshState(ctx);
+      if (ctx.hasUI && (config.library_roots.length === 0 || scan.records.length === 0)) {
+        ctx.ui.setWidget("pi-career-setup", [BANNER]);
+      } else if (ctx.hasUI) {
+        ctx.ui.setWidget("pi-career-setup", void 0);
+      }
+    } catch {
+      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [BANNER]);
+    }
+  });
+  pi.on("session_tree", async (_event, ctx) => {
+    owner.invalidate();
+    try {
+      await refreshState(ctx);
+    } catch {
+      renderedData.clear();
+      renderedTieStateIds.clear();
+    }
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    owner.invalidate();
+    renderedData.clear();
+    renderedTieStateIds.clear();
+    transientNoticeSession = void 0;
+    if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", void 0);
+  });
+}
+
 // src/index.ts
 var DISCOVERY_OPERATIONS = ["capabilities", "schema-list", "schema-export"];
 var RESUME_OPERATIONS = [
@@ -587,6 +2259,7 @@ function resultContent(json, operation) {
   };
 }
 function careerCoreExtension(pi) {
+  registerCareerCommands(pi);
   pi.registerTool({
     name: "career_core_discover",
     label: "Career Core Discovery",

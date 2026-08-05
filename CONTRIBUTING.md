@@ -2,7 +2,7 @@
 
 ## Scope
 
-Keep changes limited to the standalone Pi adapter, reviewed package-owned runtime integration, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. Slash commands, UI, persistence, and model/provider workflows require a separate approved phase.
+Keep changes limited to the standalone Pi adapter, approved deterministic slash-command workflow, reviewed package-owned runtime integration, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. Provider/model workflows and assisted document generation require a separate approved phase.
 
 Read [`AGENTS.md`](AGENTS.md), [`docs/design.md`](docs/design.md), and [`SECURITY.md`](SECURITY.md) before changing code.
 
@@ -20,6 +20,7 @@ npm run check:package
 npm run audit:runtime
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
+npm run test:compat
 git diff --check
 ```
 

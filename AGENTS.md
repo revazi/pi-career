@@ -2,9 +2,9 @@
 
 ## Scope
 
-`pi-career` is a private self-contained Pi package on explicitly reviewed native targets. It owns the Pi adapter, package-owned runtime artifacts/resolver, bundled Agent Skill, generated TypeScript bundle, packaging tests, and Pi integration documentation. Career Core remains authoritative for every algorithm and JSON contract.
+`pi-career` is a self-contained Pi package in a publicly readable Git repository on explicitly reviewed native targets. It owns the Pi adapter, package-owned runtime artifacts/resolver, bundled Agent Skill, generated TypeScript bundle, packaging tests, and Pi integration documentation. Career Core remains authoritative for every algorithm and JSON contract.
 
-Treat every Career Core checkout as read-only reference material. Do not add runtime sibling-checkout/PATH/Cargo fallback, copied Core schemas/algorithms, install-time downloads/builds, runtime npm dependencies, lifecycle scripts, network/model/provider behavior, commands/UI, persistence, telemetry, MCP, or publication workflows.
+Treat every Career Core checkout as read-only reference material. Do not add runtime sibling-checkout/PATH/Cargo fallback, copied Core schemas/algorithms, install-time downloads/builds, runtime npm dependencies, lifecycle scripts, network/model/provider behavior, model-assisted commands, full-screen UI, payload/result file persistence beyond the approved config/custom-entry workflow, telemetry, MCP, or publication workflows.
 
 ## Working rules
 

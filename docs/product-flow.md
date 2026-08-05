@@ -1,18 +1,14 @@
 # Product flow roadmap
 
-## Current phase: deterministic runtime tools
+## Current phase: deterministic tools and slash-command MVP
 
-This package currently exposes only the three stable native tools:
+This package preserves the three stable native tools:
 
 - `career_core_discover`
 - `career_core_resume`
 - `career_core_job`
 
-On supported targets, they invoke the package-owned deterministic Career Core runtime. This phase adds no slash commands, custom UI, document library, extension persistence, model/provider call, or network behavior. The Agent Skill remains the expert/manual workflow.
-
-## Next phase: deterministic slash-command MVP
-
-A separately reviewed phase may add:
+It also registers:
 
 - `/career-setup` for library and privacy onboarding—not external CLI installation
 - `/career-library` for explicitly configured Markdown/text resume roots
@@ -20,7 +16,9 @@ A separately reviewed phase may add:
 - `/career-match` for deterministic multi-resume matching and conservative ranking
 - `/career-analyze` for deterministic single-resume readiness detail
 
-Binding boundaries for that phase:
+On supported targets all eight routes invoke the package-owned deterministic Career Core runtime. Slash commands call the shared process helper directly and do not use a provider/model or an LLM-facing tool.
+
+Binding boundaries:
 
 - no provider/model calls in deterministic commands
 - agent-directory-relative non-sensitive config only
@@ -32,7 +30,7 @@ Binding boundaries for that phase:
 - cancellation aborts the active child and stops remaining batch work
 - no full-result export unless a separate bounded local-file workflow is designed and tested
 
-The exact command behavior, persistence format, non-TUI behavior, and UI accessibility require a dedicated implementation review before code is added.
+The approved workflow specification fixes command behavior, persistence format, non-TUI behavior, bounded UI, and cancellation ownership. Print/JSON modes fail closed except for the pure `/career-vacancy clear` state action.
 
 ## Later phase: assisted workflows
 
@@ -40,10 +38,10 @@ Model-assisted tailoring or suggestion review is intentionally deferred. A futur
 
 ## Non-goals in this phase
 
-- command or TUI implementation
+- provider/model-assisted commands or full-screen UI
 - PDF/DOCX/OCR/URL ingestion
 - model/provider integration
-- document/session/config persistence
+- source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
 - publication, release downloads, signing, or notarization
 - expanded runtime platform claims beyond `darwin-arm64` and `linux-x64-gnu`

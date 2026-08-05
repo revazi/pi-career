@@ -112,7 +112,7 @@ assert.deepEqual(manifest.career_core, {
   },
 });
 assert.deepEqual(manifest.distribution, {
-  private_package: true,
+  public_repository: true,
   unsigned: true,
   publication_status: "not_a_public_release",
 });

@@ -13,6 +13,7 @@ import {
   type JobOperation,
   type ResumeOperation,
 } from "./process.ts";
+import { registerCareerCommands } from "./workflow/commands.ts";
 
 const DISCOVERY_OPERATIONS = ["capabilities", "schema-list", "schema-export"] as const;
 const RESUME_OPERATIONS = [
@@ -88,6 +89,8 @@ function resultContent(json: string, operation: string) {
 }
 
 export default function careerCoreExtension(pi: ExtensionAPI) {
+  registerCareerCommands(pi);
+
   pi.registerTool({
     name: "career_core_discover",
     label: "Career Core Discovery",

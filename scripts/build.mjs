@@ -22,7 +22,12 @@ export async function buildBundle(outputFile = path.join(repositoryRoot, "dist",
     sourcemap: false,
     legalComments: "none",
     treeShaking: true,
-    external: ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "typebox"],
+    external: [
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-coding-agent",
+      "@earendil-works/pi-tui",
+      "typebox",
+    ],
     banner: {
       js: "// Generated from src/ by npm run build; do not edit.\n// SPDX-License-Identifier: MIT OR Apache-2.0",
     },

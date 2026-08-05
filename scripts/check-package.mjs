@@ -66,6 +66,7 @@ try {
   const packageRoot = path.join(extracted, "package");
   await assert.rejects(access(path.join(packageRoot, "node_modules")));
   const packagedManifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
+  assert.equal(packagedManifest.private, true, "package.json private must guard npm publication");
   assert.equal(packagedManifest.dependencies, undefined);
   for (const lifecycle of [
     "preinstall",
