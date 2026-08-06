@@ -43,5 +43,5 @@ Model-assisted tailoring or suggestion review is intentionally deferred. A futur
 - model/provider integration
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
-- publication, release downloads, signing, or notarization
+- career-document publication/export, release-asset downloads, signing, or notarization
 - expanded runtime platform claims beyond `darwin-arm64` and `linux-x64-gnu`

@@ -16,9 +16,21 @@ The exact npm version and reviewed full commit SHA are the canonical installatio
 
 There is no automated publication workflow. Release execution is manual; sole maintainer Revaz Zakalashvili explicitly authorized the coordinated `v0.1.0` npm publication, tag, and GitHub Release after the candidate gates.
 
-## Blocking gates
+## v0.1.0 outcome
 
-Every item in this section blocks the npm publication, tag, and GitHub Release. A skipped, unknown, or merely planned result is not a pass.
+Release execution completed on 2026-08-06:
+
+- npm: [`pi-career@0.1.0`](https://www.npmjs.com/package/pi-career/v/0.1.0)
+- commit: `967da62503bc8a97c070946f6506ea3471baeb34`
+- annotated unsigned tag: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
+- npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
+- npm shasum: `4212cea50c08c98771df267361cee28070a15765`
+- custom GitHub Release assets: none
+- isolated npm-based Pi install/list/load/bundled-runtime/remove smoke: passed
+
+## Release gates
+
+Every item in this section was required before npm publication, tagging, and the GitHub Release. A skipped, unknown, or merely planned result was not a pass.
 
 ### 1. Freeze and review the exact candidate
 
@@ -103,20 +115,20 @@ After every preceding gate passes, a separately committed finalization change mu
 
 A commit cannot contain its own Git SHA. After the finalization commit exists, record its full SHA in the GitHub Release notes and verify npm's `gitHead` against it. Only that separately authorized final commit may receive the annotated tag, npm publication, and GitHub Release.
 
-## Manual release execution
+## Recorded manual release procedure
 
-After all blocking gates pass on the final clean commit and the maintainer has explicitly authorized execution:
+After all gates passed on the final clean commit and the maintainer authorized execution:
 
-1. Confirm `npm whoami` identifies the intended npm account and the registry is exactly `https://registry.npmjs.org/`. Never place an npm token or one-time password in repository files, Pi messages, logs, or release notes.
-2. Reconfirm that `npm view pi-career@0.1.0 version --json` returns not found. A registry name check does not reserve the name.
-3. Create and push the unsigned annotated `v0.1.0` tag for the exact final commit.
-4. From Node 22.19.0/npm 10.9.3, publish once with lifecycle scripts disabled:
+1. `npm whoami` identified the intended npm account and the registry was exactly `https://registry.npmjs.org/`. No npm token or one-time password was placed in repository files, Pi messages, logs, or release notes.
+2. `npm view pi-career@0.1.0 version --json` returned not found immediately before the maintainer completed the authorized OTP-protected publication locally.
+3. The unsigned annotated `v0.1.0` tag was created and pushed for the exact final commit.
+4. Publication used Node 22.19.0/npm 10.9.3 with lifecycle scripts disabled:
 
    ```bash
    npm publish --access public --tag latest --ignore-scripts
    ```
 
-5. Verify `npm view pi-career@0.1.0 --json` reports the expected version, repository, four peers, tarball integrity, and `gitHead`; then perform an isolated `pi install npm:pi-career@0.1.0`, package load, bundled-runtime smoke, and removal on a supported target.
-6. Create the GitHub Release from `v0.1.0`. State the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized binaries, no crate/custom assets, zero-vulnerability package-owned production and complete development/host-Pi audits at the explicit low threshold, and that native-license evidence received sole-maintainer self-review rather than independent legal review.
+5. Registry metadata reported the expected version, repository, four peers, tarball integrity, and `gitHead`; an isolated `pi install npm:pi-career@0.1.0`, package load, bundled-runtime smoke, and removal passed on `darwin-arm64`.
+6. The GitHub Release was created from `v0.1.0` with the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized caveat, no crate/custom assets, both clean audits, and sole-maintainer native-license-review disclosure.
 
 Do not sign, attach assets, change repository settings, publish another registry tag/version, or retry after an ambiguous registry response without first querying the registry. npm versions are immutable; a failed post-publication check is an incident, not permission to overwrite `0.1.0`.
