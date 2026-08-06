@@ -10,7 +10,7 @@ On supported targets, the extension invokes only its reviewed package-owned Care
 
 Supported bundled targets are exactly `darwin-arm64` and `linux-x64-gnu`; Linux support requires positive glibc detection. Other platforms, architectures, musl, and unknown libc fail closed with a payload-free `unsupported_platform` error.
 
-The committed runtime manifest pins exact Core commit/run provenance, paths, target triples, sizes, modes, SHA-256 values, notices, and bounded contract digests. Before the first bundled spawn per process, the resolver rejects links/non-files, verifies exact mode/size/SHA-256, and caches only successful verification in memory. Runtime-selection/integrity errors never expose platform details, paths, hashes, environment values, or raw filesystem errors. The imported binaries are unsigned package-owned artifacts tracked with the repository; this project makes no signing, notarization, or release-artifact claim.
+The committed runtime manifest pins exact Core commit/run provenance, paths, target triples, sizes, modes, SHA-256 values, notices, and bounded contract digests. Before the first bundled spawn per process, the resolver rejects links/non-files, verifies exact mode/size/SHA-256, and caches only successful verification in memory. Runtime-selection/integrity errors never expose platform details, paths, hashes, environment values, or raw filesystem errors. The imported binaries are unsigned package-owned artifacts tracked with the repository and included in the npm package; this project makes no signing or notarization claim.
 
 ## Process and data boundary
 
@@ -34,7 +34,7 @@ This is not secure erasure and does not remove shell history, backups, earlier P
 
 ## Installation and supply chain
 
-Pi packages execute with the user's permissions. Install only a reviewed clean local checkout or public Git source pinned to a reviewed full commit; this public Git install requires no configured Git credentials. Review the tracked TypeScript bundle, runtime manifest/provenance, binary hashes/modes, package allowlist, and native CI results. Normal installation has no npm lifecycle script, download, Cargo/Rust build, or package-owned runtime npm dependency.
+Pi packages execute with the user's permissions. Install only a reviewed clean local checkout, public Git source pinned to a reviewed full commit, or public npm package pinned to an exact reviewed version. Review the tracked TypeScript bundle, runtime manifest/provenance, binary hashes/modes, package allowlist, registry metadata, and native CI results. Normal installation has no npm lifecycle script, post-install runtime download, Cargo/Rust build, or package-owned runtime npm dependency.
 
 `npm run audit:production` must report zero vulnerabilities with explicit `--audit-level=low`. Audit and pack checks invoke `process.execPath` with the absolute npm CLI derived from the real Node installation, require any inherited `npm_execpath` to resolve to that CLI, and remove omit/include/audit-level/`NODE_ENV` overrides. Package listing/extraction invokes verified root-owned absolute `/usr/bin/tar`; neither npm nor tar is resolved from `PATH`. The strict package check proves the tarball contains no `node_modules` or Pi package contents and declares exactly four wildcard external peers: `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox`. Those packages are supplied by the host Pi installation, outside this tarball's production dependency tree.
 
@@ -42,4 +42,4 @@ The pinned development tool tree currently has a nonzero full npm audit. Its exa
 
 A local-path registration follows later filesystem changes. Uninstalling the package only unregisters it; it does not erase Git clones, Pi sessions, shell history, backups, or document copies.
 
-Supported security fixes apply to the latest reviewed repository revision. No npm publication or release channel is claimed.
+Supported security fixes apply to the latest reviewed repository revision and published npm version. No npm version, tag, or GitHub Release is claimed until the release checklist is completed.

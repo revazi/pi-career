@@ -1,7 +1,7 @@
 {
   "name": "pi-career",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Self-contained Pi tools, slash commands, and Agent Skill for deterministic Career Core workflows",
   "license": "MIT OR Apache-2.0",
   "author": {
@@ -76,6 +76,10 @@
     "tsx": "4.23.5",
     "typebox": "1.1.38",
     "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "pi": {
     "extensions": [

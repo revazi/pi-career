@@ -21,6 +21,10 @@ const expectedExternalPeers = {
   "@earendil-works/pi-tui": "*",
   typebox: "*",
 };
+const expectedPublishConfig = {
+  access: "public",
+  registry: "https://registry.npmjs.org/",
+};
 const allowed = new Set([
   "CHANGELOG.md",
   "audit/accepted-development-audit.json",
@@ -119,7 +123,10 @@ try {
     label: "packed package manifest",
     maximumBytes: 256 * 1024,
   });
-  assert.equal(packagedManifest.private, true, "package.json private must guard npm publication");
+  assert.equal(packagedManifest.name, "pi-career");
+  assert.equal(packagedManifest.version, "0.1.0");
+  assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
+  assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
   assert.equal(packagedManifest.peerDependenciesMeta, undefined);
   assert.equal(packagedManifest.dependencies, undefined);

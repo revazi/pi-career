@@ -39,9 +39,9 @@ The unsigned package-owned runtime artifacts were produced and natively verified
 
 - Pi with 0.80.10-compatible package APIs
 - one of the two supported native targets above
-- a reviewed clean local checkout or public Git commit of this package
+- a reviewed clean local checkout, public Git commit, or exact npm version of this package
 
-No separate Career Core checkout, `career` installation, Cargo, Rust toolchain, runtime download, or npm publication is required.
+No separate Career Core checkout, `career` installation, Cargo, Rust toolchain, install-time build, or runtime download is required.
 
 ## Reviewed local installation
 
@@ -65,6 +65,21 @@ pi remove "$package_root"
 pi list
 ```
 
+## Public npm installation pinned to a version
+
+After reviewing the release metadata, install an exact published version:
+
+```bash
+pi install npm:pi-career@0.1.0
+pi list
+```
+
+A versioned npm package is pinned and skipped by package updates. Review and install a new exact version to update. Remove it by package identity:
+
+```bash
+pi remove npm:pi-career
+```
+
 ## Public Git installation pinned to a commit
 
 After reviewing a full commit SHA, install directly from this public repository; no configured Git credentials are required:
@@ -86,13 +101,13 @@ Remove it by repository identity:
 pi remove git:github.com/revazi/pi-career
 ```
 
-No npm/crate artifact is published by this project. Public Git repository visibility is source/package access, not npm publication; `package.json` keeps `private: true` solely as a guard against accidental npm publication.
+The package is prepared for public npm publication as `pi-career` with no lifecycle scripts, package-owned runtime npm dependencies, or bundled Pi peer contents. The npm tarball carries the same two unsigned, hash-verified native executables as reviewed local and Git installations; it does not build them with Cargo on the user's machine.
 
-This repository is still **Unreleased** and claims no current tag or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `v0.1.0` GitHub tag and release-notes entry only: the reviewed full commit SHA remains the canonical installation coordinate, with no npm package, custom release asset, signing, or notarization. The package-owned production audit must be clean. The currently nonzero development/host-Pi audit is temporarily accepted only when it exactly matches the checked-in baseline and only before `2026-08-19T00:00:00.000Z`; this is not a clean full-audit claim.
+This repository is still **Unreleased** and claims no current npm version, tag, or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `pi-career@0.1.0` npm publication, annotated `v0.1.0` Git tag, and GitHub Release. The reviewed full commit SHA and exact npm version are the installation coordinates, with no crate publication, custom release asset, signing, or notarization. The package-owned production audit must be clean. The currently nonzero development/host-Pi audit is temporarily accepted only when it exactly matches the checked-in baseline and only before `2026-08-19T00:00:00.000Z`; this is not a clean full-audit claim.
 
 ## Contributor build and verification
 
-Node.js 22.19 or newer is required for development checks. The temporary accepted-development validator intentionally pins npm 10.9.3, matching the Node 22.19 CI toolchain; another npm version is audit metadata drift and makes `check:publish` fail. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local/public-Git packages load without development dependencies. Pi-provided packages remain external peers.
+Node.js 22.19 or newer is required for development checks. The temporary accepted-development validator intentionally pins npm 10.9.3, matching the Node 22.19 CI toolchain; another npm version is audit metadata drift and makes `check:publish` fail. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local, public-Git, and npm packages load without development dependencies. Pi-provided packages remain external peers.
 
 ```bash
 npm ci
@@ -142,4 +157,4 @@ Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this reposito
 
 Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded runtime license/notices files under [`runtime/`](runtime/).
 
-The locked normal/build dependency evidence for both native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md). The package preserves the exact selected MIT/copyright texts for every reachable crate group, Rust 1.97.1 Standard Library evidence, and the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text under [`docs/licenses/`](docs/licenses/). `npm run check:native-licenses` enforces that payload. The inventory is evidence, not legal advice or release approval; [`docs/releasing.md`](docs/releasing.md) requires independent human confirmation before any tag or GitHub Release.
+The locked normal/build dependency evidence for both native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md). The package preserves the exact selected MIT/copyright texts for every reachable crate group, Rust 1.97.1 Standard Library evidence, and the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text under [`docs/licenses/`](docs/licenses/). `npm run check:native-licenses` enforces that payload. The inventory is evidence, not legal advice or release approval; [`docs/releasing.md`](docs/releasing.md) requires independent human confirmation before any npm publication, tag, or GitHub Release.
