@@ -12,7 +12,8 @@ Treat every Career Core checkout as read-only reference material. Do not add run
 - Preserve the exact three tool names and reviewed process boundary in [`docs/design.md`](docs/design.md).
 - Keep TypeScript in `src/` authoritative. `dist/index.js` is tracked only for clean Git/local Pi loading and must reproduce with `npm run check:dist`.
 - Keep runtime targets exactly `darwin-arm64` and `linux-x64-gnu`; verify manifest/provenance/hash/size/mode before changing imported artifacts and fail every other target closed.
-- Pi-provided packages remain external peer dependencies. Development versions and tooling stay lockfile-pinned.
+- Pi-provided packages remain exactly four wildcard external peer dependencies. Development versions and tooling stay lockfile-pinned; package tarballs must contain neither peer package contents nor `node_modules`.
+- `audit:production` must remain clean at explicit `--audit-level=low`. Production/full audit and package orchestration must derive npm from the real `process.execPath` installation, reject conflicting `npm_execpath`, sanitize npm tree/severity environment overrides, reject duplicate decoded JSON keys, and use only verified absolute `/usr/bin/tar`. A nonzero full development audit is accepted only through the exact checked-in npm 10.9.3 baseline and only before its fixed expiry; never normalize, extend, or weaken that validator silently.
 - Use synthetic fixtures. Never add real resumes, job descriptions, credentials, provider responses, or session files.
 - No source/result/path/environment/raw-error logging at the adapter boundary.
 - Do not commit, push, publish, release, change repository visibility, or mutate maintainer Pi settings without explicit approval.
@@ -26,8 +27,8 @@ npm ci
 npm run build
 npm run check
 npm run test:bundled-runtime
-npm run check:package
-npm run audit:runtime
+npm run audit:production
+npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
 npm run test:compat # bundled runtime; skips unless CAREER_CORE_FIXTURE_ROOT is explicitly supplied

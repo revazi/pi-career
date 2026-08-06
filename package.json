@@ -24,6 +24,7 @@
     "node": ">=22.19.0"
   },
   "files": [
+    "audit",
     "dist",
     "docs",
     "runtime",
@@ -38,10 +39,11 @@
     "clean": "node -e \"import('node:fs/promises').then(({rm}) => rm('dist', {recursive:true, force:true}))\"",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:process && npm run test:runtime && npm run test:workflow",
+    "test": "npm run test:process && npm run test:runtime && npm run test:workflow && npm run test:audit",
     "test:process": "node --import tsx --test tests/process/process.test.mjs",
     "test:runtime": "node --import tsx --test tests/runtime/runtime.test.mjs",
     "test:workflow": "node --import tsx --test tests/workflow/*.test.mjs",
+    "test:audit": "node --test tests/audit/*.test.mjs",
     "test:bundled-runtime": "node scripts/test-bundled-runtime.mjs",
     "test:pi-smoke": "node scripts/test-pi-package-load.mjs",
     "test:install": "node scripts/test-isolated-install.mjs",
@@ -49,13 +51,14 @@
     "check:dist": "node scripts/check-dist.mjs",
     "check:runtime-artifacts": "node scripts/check-runtime-artifacts.mjs",
     "check:native-licenses": "node scripts/check-native-license-inventory.mjs",
-    "check:release-prep": "npm run check:native-licenses && npm audit",
+    "check:accepted-development-audit": "node scripts/check-accepted-development-audit.mjs",
     "check:package": "node scripts/check-package.mjs",
+    "check:publish": "node scripts/check-publish.mjs",
     "check:links": "node scripts/check-links.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:runtime": "node scripts/check-runtime-boundary.mjs",
-    "audit:runtime": "npm audit --omit=dev",
-    "check:syntax": "node --check scripts/*.mjs tests/process/*.mjs tests/runtime/*.mjs tests/workflow/*.mjs",
+    "audit:production": "node scripts/audit-production.mjs",
+    "check:syntax": "node --check scripts/*.mjs scripts/lib/*.mjs tests/audit/*.mjs tests/process/*.mjs tests/runtime/*.mjs tests/workflow/*.mjs",
     "check": "npm run typecheck && npm run check:dist && npm run check:runtime-artifacts && npm run check:native-licenses && npm test && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax"
   },
   "peerDependencies": {

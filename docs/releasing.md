@@ -51,15 +51,15 @@ The imported binaries and provenance remain tracked and hash-verified in this re
 
 Before release, a human must recheck artifact availability and explicitly decide whether the tracked binaries, per-target provenance, manifest, archive identities/hashes, and public Core commit are sufficient durable provenance after expiry. If they are not sufficient, release stays blocked pending a separately approved preservation plan. This preparation does not download, copy, upload, recreate, or relabel either artifact.
 
-### 4. Unresolved development-advisory review
+### 4. Expiring development/host-Pi audit acceptance
 
-`npm run audit:runtime` must pass with zero runtime npm vulnerabilities. That narrow result must not be described as a clean full audit.
+`npm run audit:production` must pass with zero vulnerabilities at explicit `--audit-level=low`. It omits development, optional, and peer trees because the tarball owns no runtime dependency tree; strict package checks separately prove there is no `node_modules` or Pi package content and that exactly four wildcard peers remain external. The audit invokes `process.execPath` plus the absolute npm CLI derived from the real Node installation, verifies any inherited `npm_execpath`, and removes omit/include/audit-level/`NODE_ENV` overrides rather than trusting PATH-selected npm or caller-controlled tree/severity configuration.
 
-The release-preparation baseline has an unresolved nonzero full `npm audit` result in the pinned development/peer tool tree rooted at `@earendil-works/pi-coding-agent`, including `undici`, `brace-expansion`, and `protobufjs` advisories. Release is fail-closed until a compatible, reviewed, lockfile-pinned upstream remediation makes the full audit exit zero and passes every project check. Risk acceptance does not close this v0.1.0 gate.
+The full `npm audit` is currently nonzero in the pinned development tool tree rooted at host-supplied Pi packages. This is temporarily accepted only through [`../audit/accepted-development-audit.json`](../audit/accepted-development-audit.json), which expires at `2026-08-19T00:00:00.000Z`. The acceptance covers only the exact report and installed tree under npm `10.9.3`: four vulnerable packages, nine advisory objects, their complete identities/details/severities/ranges/directness/node paths/fix metadata, all npm report metadata/counts, exact installed versions, and package-lock SHA-256 `7ff307f39cd2294e0ac4251f056d61e22785a36d81f325e7aa093e587ee64dec`.
 
-`npm run check:release-prep` first verifies the exact native license inventory and then runs the full audit without omitting development dependencies. It is intentionally expected to exit nonzero while the upstream advisories remain and must not be added to a supposedly green release report.
+This is a bounded development/host-Pi risk acceptance, **not a clean full audit**, a claim that another host Pi installation has the same tree, or a general waiver. `npm run check:accepted-development-audit` uses the same trusted npm coordinate and strict bounded JSON parsing. It must fail on or after expiry and on any package, installed version, advisory, severity, path, range, directness, fix data, metadata/count, npm-version, command, duplicate decoded key, malformed JSON, or lockfile drift. A newly clean full audit also requires explicit baseline retirement rather than being silently treated as the expected nonzero result.
 
-Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or call the full audit passing while it exits nonzero. This preparation adds no Dependabot ignore policy: a compatible remediation may require a minor or major update, and the explicit zero-result full audit remains authoritative regardless of update automation.
+`npm run check:publish` is the authoritative readiness gate but performs no publication. It is a direct Node orchestrator with no nested npm command and requires the strict production audit, exact unexpired development acceptance, and extracted package/load/install proof. Pack uses the trusted absolute npm CLI; listing and extraction use verified root-owned absolute `/usr/bin/tar`, never PATH-selected tools. Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, extend the expiry, or regenerate the baseline mechanically. This preparation adds no Dependabot ignore policy; remediation may require a minor or major update.
 
 ### 5. Complete verification on the frozen SHA
 
@@ -71,23 +71,21 @@ npm run build
 git diff --exit-code -- dist/index.js
 npm run check
 npm run test:bundled-runtime
-npm run check:package
-npm run audit:runtime
-npm run check:release-prep
+npm run audit:production
+npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
 CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core npm run test:compat
 npm ls --omit=dev --depth=0
-npm audit
 git diff --check
 ```
 
 Requirements:
 
 - `npm run build` may reproduce tracked `dist/index.js`; it must not alter runtime artifacts. The immediate dist diff must pass.
-- All project/runtime/package/offline checks must pass, the runtime npm tree must remain empty, and `npm run check:release-prep` must exit zero. Its current advisory failure keeps release blocked even when every other local check passes.
+- All project/runtime/package/offline checks must pass, the runtime npm tree must remain empty, and `npm run check:publish` must pass before its fixed baseline expiry.
 - Compatibility must execute against an explicitly reviewed fixture checkout; a skip is not release evidence.
-- Preserve the exact nonzero full-audit output for the human advisory gate rather than masking it.
+- Preserve and disclose the exact temporary nonzero development audit acceptance without describing the full audit as clean.
 - The exact final SHA must then pass both required hosted native jobs: `darwin-arm64` on macOS arm64 and `linux-x64-gnu` on Linux x64 glibc.
 
 ### 6. Finalize notes only after all other gates pass
@@ -98,6 +96,6 @@ This preparation intentionally leaves `CHANGELOG.md` under `Unreleased`. After e
 - state the canonical full release commit SHA;
 - preserve unsigned/not-notarized runtime caveats and the two supported targets;
 - state that there is no npm/crate package and no custom release asset; and
-- state that the full development audit passed on the finalized lockfile; no residual advisory risk acceptance satisfies this v0.1.0 gate.
+- state either that the accepted development/host-Pi baseline remains exact and unexpired, including its expiry and not-clean-full-audit caveat, or that a separately reviewed remediation retired the baseline.
 
 Only the separately authorized final commit may receive the annotated tag and GitHub Release notes. Do not sign, publish assets, change repository settings, or create the tag/release as part of a preparation PR.
