@@ -52,15 +52,13 @@ The imported binaries and provenance remain tracked and hash-verified in this re
 
 Before npm publication, a human must recheck artifact availability and explicitly decide whether the tracked binaries, per-target provenance, manifest, archive identities/hashes, and public Core commit are sufficient durable provenance after expiry. If they are not sufficient, release stays blocked pending a separately approved preservation plan. This preparation does not download, copy, upload, recreate, or relabel either artifact.
 
-### 4. Expiring development/host-Pi audit acceptance
+### 4. Clean production and full audits
 
-`npm run audit:production` must pass with zero vulnerabilities at explicit `--audit-level=low`. It omits development, optional, and peer trees because the tarball owns no runtime dependency tree; strict package checks separately prove there is no `node_modules` or Pi package content and that exactly four wildcard peers remain external. The audit invokes `process.execPath` plus the absolute npm CLI derived from the real Node installation, verifies any inherited `npm_execpath`, and removes omit/include/audit-level/`NODE_ENV` overrides rather than trusting PATH-selected npm or caller-controlled tree/severity configuration.
+`npm run audit:production` must pass with zero package-owned production vulnerabilities and `npm run audit:full` must pass with zero vulnerabilities across the complete development/host-Pi tree, both at explicit `--audit-level=low`. The production audit omits development, optional, and peer trees because the tarball owns no runtime dependency tree; strict package checks separately prove there is no `node_modules` or Pi package content and that exactly four wildcard peers remain external.
 
-The full `npm audit` is currently nonzero in the pinned development tool tree rooted at host-supplied Pi packages. This is temporarily accepted only through [`../audit/accepted-development-audit.json`](../audit/accepted-development-audit.json), which expires at `2026-08-19T00:00:00.000Z`. The acceptance covers only the exact report and installed tree under npm `10.9.3`: four vulnerable packages, nine advisory objects, their complete identities/details/severities/ranges/directness/node paths/fix metadata, all npm report metadata/counts, exact installed versions, and package-lock SHA-256 `7ff307f39cd2294e0ac4251f056d61e22785a36d81f325e7aa093e587ee64dec`.
+Both audits invoke `process.execPath` plus the absolute npm CLI derived from the real Node installation, verify any inherited `npm_execpath`, remove omit/include/audit-level/`NODE_ENV` overrides, strictly parse bounded JSON, and reject duplicate decoded keys. `npm run check:publish` is the authoritative readiness gate but performs no publication. It is a direct Node orchestrator with no nested npm command and requires both clean audits plus extracted package/load/install proof. Pack uses the trusted absolute npm CLI; listing and extraction use verified root-owned absolute `/usr/bin/tar`, never PATH-selected tools.
 
-This is a bounded development/host-Pi risk acceptance, **not a clean full audit**, a claim that another host Pi installation has the same tree, or a general waiver. `npm run check:accepted-development-audit` uses the same trusted npm coordinate and strict bounded JSON parsing. It must fail on or after expiry and on any package, installed version, advisory, severity, path, range, directness, fix data, metadata/count, npm-version, command, duplicate decoded key, malformed JSON, or lockfile drift. A newly clean full audit also requires explicit baseline retirement rather than being silently treated as the expected nonzero result.
-
-`npm run check:publish` is the authoritative readiness gate but performs no publication. It is a direct Node orchestrator with no nested npm command and requires the strict production audit, exact unexpired development acceptance, and extracted package/load/install proof. Pack uses the trusted absolute npm CLI; listing and extraction use verified root-owned absolute `/usr/bin/tar`, never PATH-selected tools. Do not use `npm audit fix --force`, silently downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, extend the expiry, or regenerate the baseline mechanically. This preparation adds no Dependabot ignore policy; remediation may require a minor or major update.
+The former temporary development/host-Pi acceptance was explicitly retired after upgrading the Pi development baseline to `0.84.0`; no accepted-audit file or validator remains. Do not use `npm audit fix --force`, downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or add a replacement acceptance. A future finding blocks publication until remediated.
 
 ### 5. Complete verification on the frozen SHA
 
@@ -73,6 +71,7 @@ git diff --exit-code -- dist/index.js
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
+npm run audit:full
 npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
@@ -84,9 +83,9 @@ git diff --check
 Requirements:
 
 - `npm run build` may reproduce tracked `dist/index.js`; it must not alter runtime artifacts. The immediate dist diff must pass.
-- All project/runtime/package/offline checks must pass, the runtime npm tree must remain empty, and `npm run check:publish` must pass before its fixed baseline expiry.
+- All project/runtime/package/offline checks and both zero-vulnerability audits must pass, the runtime npm tree must remain empty, and `npm run check:publish` must pass.
 - Compatibility must execute against an explicitly reviewed fixture checkout; a skip is not release evidence.
-- Preserve and disclose the exact temporary nonzero development audit acceptance without describing the full audit as clean.
+- No audit acceptance or not-clean full-audit claim is permitted.
 - The exact final SHA must then pass both required hosted native jobs: `darwin-arm64` on macOS arm64 and `linux-x64-gnu` on Linux x64 glibc.
 
 ### 6. Finalize notes only after all other gates pass
@@ -96,7 +95,7 @@ This preparation intentionally leaves `CHANGELOG.md` under `Unreleased`. After e
 - convert the candidate notes to a dated `0.1.0` entry;
 - preserve unsigned/not-notarized runtime caveats and the two supported targets;
 - state that `pi-career@0.1.0` is the public npm package and that there is no crate publication or custom release asset; and
-- state either that the accepted development/host-Pi baseline remains exact and unexpired, including its expiry and not-clean-full-audit caveat, or that a separately reviewed remediation retired the baseline.
+- state that both the package-owned production audit and complete development/host-Pi audit are clean at the explicit low threshold.
 
 A commit cannot contain its own Git SHA. After the finalization commit exists, record its full SHA in the GitHub Release notes and verify npm's `gitHead` against it. Only that separately authorized final commit may receive the annotated tag, npm publication, and GitHub Release.
 
@@ -114,6 +113,6 @@ After all blocking gates pass on the final clean commit and the maintainer expli
    ```
 
 5. Verify `npm view pi-career@0.1.0 --json` reports the expected version, repository, four peers, tarball integrity, and `gitHead`; then perform an isolated `pi install npm:pi-career@0.1.0`, package load, bundled-runtime smoke, and removal on a supported target.
-6. Create the GitHub Release from `v0.1.0`. State the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized binaries, no crate/custom assets, zero-vulnerability package-owned production audit, and exact temporary development/host-Pi acceptance with its expiry and not-clean caveat.
+6. Create the GitHub Release from `v0.1.0`. State the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized binaries, no crate/custom assets, and zero-vulnerability package-owned production and complete development/host-Pi audits at the explicit low threshold.
 
 Do not sign, attach assets, change repository settings, publish another registry tag/version, or retry after an ambiguous registry response without first querying the registry. npm versions are immutable; a failed post-publication check is an incident, not permission to overwrite `0.1.0`.

@@ -37,7 +37,7 @@ The unsigned package-owned runtime artifacts were produced and natively verified
 
 ## End-user prerequisites
 
-- Pi with 0.80.10-compatible package APIs
+- Pi with 0.84.0-compatible package APIs
 - one of the two supported native targets above
 - a reviewed clean local checkout, public Git commit, or exact npm version of this package
 
@@ -103,11 +103,11 @@ pi remove git:github.com/revazi/pi-career
 
 The package is prepared for public npm publication as `pi-career` with no lifecycle scripts, package-owned runtime npm dependencies, or bundled Pi peer contents. The npm tarball carries the same two unsigned, hash-verified native executables as reviewed local and Git installations; it does not build them with Cargo on the user's machine.
 
-This repository is still **Unreleased** and claims no current npm version, tag, or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `pi-career@0.1.0` npm publication, annotated `v0.1.0` Git tag, and GitHub Release. The reviewed full commit SHA and exact npm version are the installation coordinates, with no crate publication, custom release asset, signing, or notarization. The package-owned production audit must be clean. The currently nonzero development/host-Pi audit is temporarily accepted only when it exactly matches the checked-in baseline and only before `2026-08-19T00:00:00.000Z`; this is not a clean full-audit claim.
+This repository is still **Unreleased** and claims no current npm version, tag, or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `pi-career@0.1.0` npm publication, annotated `v0.1.0` Git tag, and GitHub Release. The reviewed full commit SHA and exact npm version are the installation coordinates, with no crate publication, custom release asset, signing, or notarization. Both the package-owned production audit and complete development/host-Pi audit must be clean.
 
 ## Contributor build and verification
 
-Node.js 22.19 or newer is required for development checks. The temporary accepted-development validator intentionally pins npm 10.9.3, matching the Node 22.19 CI toolchain; another npm version is audit metadata drift and makes `check:publish` fail. TypeScript under `src/` is authoritative. `dist/index.js` and the reviewed native runtimes are intentionally tracked so clean local, public-Git, and npm packages load without development dependencies. Pi-provided packages remain external peers.
+Node.js 22.19 or newer is required for development checks; release verification uses npm 10.9.3 from the Node 22.19 CI toolchain. TypeScript under `src/` is authoritative. `dist/index.js` is its reproducible generated bundle and is intentionally tracked with the reviewed native runtimes so clean local, public-Git, and npm packages load without development dependencies. Node build/test tooling stays as directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the package artifact. Pi-provided packages remain external peers.
 
 ```bash
 npm ci
@@ -116,15 +116,14 @@ git diff --exit-code -- dist/index.js
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
+npm run audit:full
 npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
 git diff --check
 ```
 
-`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:runtime-artifacts` enforces the runtime manifest, provenance, five-file source artifact contract, target magic, exact hashes/sizes/modes, and package bounds. `npm run audit:production` requires zero vulnerabilities from an explicit low-severity threshold after omitting development, optional, and peer trees. Production/full audit and package commands invoke `process.execPath` with the absolute npm CLI derived from that real Node installation, verify any inherited `npm_execpath`, and remove omit/include/audit-level/`NODE_ENV` overrides; npm and tar are never selected from `PATH`. `npm run check:publish` is a direct Node authoritative readiness orchestrator but does not publish anything: it runs that production audit, validates the exact expiring accepted-development report/tree/lock baseline, and runs strict package checks. Strict bounded parsing rejects duplicate decoded keys in baseline, audit, and pack JSON. The package check uses verified absolute `/usr/bin/tar`, proves the tarball has no `node_modules` or Pi package contents, keeps exactly `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` as wildcard external peers, extracts the artifact, loads it, executes the bundled runtime, and performs an isolated install/list/remove smoke.
-
-The accepted full-audit result covers only the exact pinned development tool tree and the corresponding host-supplied Pi baseline. It expires at the start of 2026-08-19 UTC and is not a clean full audit, a general advisory waiver, or evidence that another host Pi installation is safe. Any package/version/advisory/severity/path/range/directness/count/metadata/lock/tool drift, duplicate decoded JSON key, untrusted tool coordinate, command failure, or expiry fails closed and requires remediation or a separately reviewed baseline decision.
+`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:runtime-artifacts` enforces the runtime manifest, provenance, five-file source artifact contract, target magic, exact hashes/sizes/modes, and package bounds. `npm run audit:production` requires zero package-owned production vulnerabilities and `npm run audit:full` requires zero vulnerabilities across the complete development/host-Pi tree, both from an explicit low-severity threshold. Production/full audit and package commands invoke `process.execPath` with the absolute npm CLI derived from that real Node installation, verify any inherited `npm_execpath`, and remove omit/include/audit-level/`NODE_ENV` overrides; npm and tar are never selected from `PATH`. `npm run check:publish` is a direct Node authoritative readiness orchestrator but does not publish anything: it runs both strict audits and the package checks. Strict bounded parsing rejects duplicate decoded keys in audit and pack JSON. The package check uses verified absolute `/usr/bin/tar`, proves the tarball has no `node_modules` or Pi package contents, keeps exactly `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` as wildcard external peers, extracts the artifact, loads it, executes the bundled runtime, and performs an isolated install/list/remove smoke. Any future audit finding blocks publication and requires remediation rather than a checked-in acceptance baseline.
 
 Optional local compatibility uses an explicitly supplied reviewed Career Core fixture root while still executing the bundled runtime:
 

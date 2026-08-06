@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  FULL_AUDIT_ARGUMENTS,
   PRODUCTION_AUDIT_ARGUMENTS,
   resolveTrustedNpm,
   resolveTrustedTar,
@@ -25,14 +26,16 @@ async function assertMissing(file) {
   await assert.rejects(access(file), { code: "ENOENT" });
 }
 
-test("production audit is explicitly strict from low severity upward", () => {
+test("production and full audits are explicitly strict from low severity upward", () => {
   assert.deepEqual(PRODUCTION_AUDIT_ARGUMENTS, [
     "audit",
     "--omit=dev",
     "--omit=optional",
     "--omit=peer",
     "--audit-level=low",
+    "--json",
   ]);
+  assert.deepEqual(FULL_AUDIT_ARGUMENTS, ["audit", "--audit-level=low", "--json"]);
 });
 
 test("npm environment sanitization removes omit/include/audit-level/NODE_ENV overrides case-insensitively", () => {
@@ -91,6 +94,20 @@ test("npm_execpath must resolve to the npm CLI bundled with the real Node instal
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+});
+
+test("rejects trusted npm command execution failure", async () => {
+  await assert.rejects(
+    runTrustedNpm(["--version"], {
+      cwd: process.cwd(),
+      exec: async () => {
+        const error = new Error("synthetic execution failure");
+        error.code = "ENOENT";
+        throw error;
+      },
+    }),
+    /failed to execute/,
+  );
 });
 
 test("PATH-shadowed npm cannot intercept trusted npm execution", async () => {

@@ -27,7 +27,6 @@ const expectedPublishConfig = {
 };
 const allowed = new Set([
   "CHANGELOG.md",
-  "audit/accepted-development-audit.json",
   "LICENSE-APACHE",
   "LICENSE-MIT",
   "NOTICE",
@@ -114,11 +113,6 @@ try {
   execFileSync(trustedTar, ["-xzf", artifactPath, "-C", extracted], { shell: false });
   const packageRoot = path.join(extracted, "package");
   await assert.rejects(access(path.join(packageRoot, "node_modules")));
-  assert.deepEqual(
-    await readFile(path.join(packageRoot, "audit", "accepted-development-audit.json")),
-    await readFile(path.join(root, "audit", "accepted-development-audit.json")),
-    "packed accepted-development baseline must be byte-exact",
-  );
   const packagedManifest = parseStrictJson(await readFile(path.join(packageRoot, "package.json"), "utf8"), {
     label: "packed package manifest",
     maximumBytes: 256 * 1024,

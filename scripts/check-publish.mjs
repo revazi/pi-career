@@ -10,11 +10,7 @@ import { resolveTrustedNpm, sanitizeNpmEnvironment } from "./lib/trusted-tooling
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 await resolveTrustedNpm();
 const environment = sanitizeNpmEnvironment();
-const checks = [
-  "scripts/audit-production.mjs",
-  "scripts/check-accepted-development-audit.mjs",
-  "scripts/check-package.mjs",
-];
+const checks = ["scripts/audit-production.mjs", "scripts/audit-full.mjs", "scripts/check-package.mjs"];
 
 for (const relativeCheck of checks) {
   const absoluteCheck = path.join(root, relativeCheck);
