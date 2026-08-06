@@ -21,7 +21,10 @@ export const PRODUCTION_AUDIT_ARGUMENTS = Object.freeze([
   "--omit=optional",
   "--omit=peer",
   "--audit-level=low",
+  "--json",
 ]);
+
+export const FULL_AUDIT_ARGUMENTS = Object.freeze(["audit", "--audit-level=low", "--json"]);
 
 function assertExecutableRegularFile(metadata, label) {
   assert.ok(metadata.isFile() && !metadata.isSymbolicLink(), `${label} must be a regular file`);

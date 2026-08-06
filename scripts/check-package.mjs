@@ -21,9 +21,12 @@ const expectedExternalPeers = {
   "@earendil-works/pi-tui": "*",
   typebox: "*",
 };
+const expectedPublishConfig = {
+  access: "public",
+  registry: "https://registry.npmjs.org/",
+};
 const allowed = new Set([
   "CHANGELOG.md",
-  "audit/accepted-development-audit.json",
   "LICENSE-APACHE",
   "LICENSE-MIT",
   "NOTICE",
@@ -110,16 +113,14 @@ try {
   execFileSync(trustedTar, ["-xzf", artifactPath, "-C", extracted], { shell: false });
   const packageRoot = path.join(extracted, "package");
   await assert.rejects(access(path.join(packageRoot, "node_modules")));
-  assert.deepEqual(
-    await readFile(path.join(packageRoot, "audit", "accepted-development-audit.json")),
-    await readFile(path.join(root, "audit", "accepted-development-audit.json")),
-    "packed accepted-development baseline must be byte-exact",
-  );
   const packagedManifest = parseStrictJson(await readFile(path.join(packageRoot, "package.json"), "utf8"), {
     label: "packed package manifest",
     maximumBytes: 256 * 1024,
   });
-  assert.equal(packagedManifest.private, true, "package.json private must guard npm publication");
+  assert.equal(packagedManifest.name, "pi-career");
+  assert.equal(packagedManifest.version, "0.1.0");
+  assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
+  assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
   assert.equal(packagedManifest.peerDependenciesMeta, undefined);
   assert.equal(packagedManifest.dependencies, undefined);

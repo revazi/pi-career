@@ -14,7 +14,7 @@ were imported from the independently verified Career Core workflow run
 Copyright (c) 2026 Revaz Zakalashvili. They are tracked package inputs from a
 Career Core workflow marked not_a_public_release, not standalone/custom release
 assets, signed artifacts, or a notarized distribution. This repository remains
-Unreleased and no tag or GitHub Release is claimed.
+Unreleased; no npm version, tag, or GitHub Release is claimed.
 
 The reviewed runtime license copies and third-party notice are preserved under
 runtime/. docs/native-dependency-inventory.md records the exact locked
