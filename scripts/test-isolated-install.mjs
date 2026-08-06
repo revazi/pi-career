@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const harnessRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = process.env.PI_CAREER_PACKAGE_ROOT ?? harnessRoot;
+assert.ok(path.isAbsolute(root), "PI_CAREER_PACKAGE_ROOT must be absolute when supplied");
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-install-"));
 const agentDir = path.join(temporaryRoot, "agent");
 const home = path.join(temporaryRoot, "home");
@@ -51,7 +53,7 @@ try {
       (source) => typeof source === "string" && path.resolve(agentDir, source) === root,
     ),
   );
-  const runtimeSmoke = spawnSync(process.execPath, [path.join(root, "scripts", "test-bundled-runtime.mjs")], {
+  const runtimeSmoke = spawnSync(process.execPath, [path.join(harnessRoot, "scripts", "test-bundled-runtime.mjs")], {
     cwd,
     env: { ...env, PI_CAREER_PACKAGE_ROOT: root },
     encoding: "utf8",

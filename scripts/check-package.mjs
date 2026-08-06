@@ -2,16 +2,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseStrictJson } from "./lib/strict-json.mjs";
+import { resolveTrustedNpm, resolveTrustedTar, sanitizeNpmEnvironment } from "./lib/trusted-tooling.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const trustedNpm = await resolveTrustedNpm();
+const trustedTar = await resolveTrustedTar();
+const trustedNpmEnvironment = sanitizeNpmEnvironment();
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "pi-career-pack-"));
+const expectedExternalPeers = {
+  "@earendil-works/pi-ai": "*",
+  "@earendil-works/pi-coding-agent": "*",
+  "@earendil-works/pi-tui": "*",
+  typebox: "*",
+};
 const allowed = new Set([
   "CHANGELOG.md",
+  "audit/accepted-development-audit.json",
   "LICENSE-APACHE",
   "LICENSE-MIT",
   "NOTICE",
@@ -47,12 +59,25 @@ const allowed = new Set([
 ]);
 
 function pack(args) {
-  const output = execFileSync("npm", ["pack", ...args, "--json", "--ignore-scripts"], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const parsed = JSON.parse(output);
+  const result = spawnSync(
+    trustedNpm.nodePath,
+    [trustedNpm.npmCliPath, "pack", ...args, "--json", "--ignore-scripts"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: trustedNpmEnvironment,
+      maxBuffer: 512 * 1024,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120_000,
+      windowsHide: true,
+    },
+  );
+  assert.equal(result.error, undefined, "trusted npm pack must execute");
+  assert.equal(result.signal, null, "trusted npm pack must not be signalled");
+  assert.equal(result.status, 0, "trusted npm pack must succeed");
+  assert.equal(result.stderr, "", "trusted npm pack stderr must be empty");
+  const parsed = parseStrictJson(result.stdout, { label: "npm pack output", maximumBytes: 512 * 1024 });
   assert.equal(parsed.length, 1);
   const names = new Set(parsed[0].files.map(({ path: file }) => file));
   assert.deepEqual(names, allowed);
@@ -66,20 +91,37 @@ try {
   const artifact = pack(["--pack-destination", temporaryDirectory]);
   const artifactPath = path.join(temporaryDirectory, artifact.filename);
   assert.ok((await stat(artifactPath)).size > 0);
-  const tarEntries = execFileSync("tar", ["-tzf", artifactPath], { encoding: "utf8" })
+  const rawTarEntries = execFileSync(trustedTar, ["-tzf", artifactPath], { encoding: "utf8", shell: false })
     .trim()
     .split("\n")
-    .filter((entry) => entry && !entry.endsWith("/"))
+    .filter(Boolean);
+  assert.equal(
+    rawTarEntries.some((entry) => entry.split("/").includes("node_modules")),
+    false,
+    "packed artifact must not contain node_modules or Pi package contents",
+  );
+  const tarEntries = rawTarEntries
+    .filter((entry) => !entry.endsWith("/"))
     .map((entry) => entry.replace(/^package\//, ""));
   assert.deepEqual(new Set(tarEntries), allowed);
 
   const extracted = path.join(temporaryDirectory, "extracted");
   await mkdir(extracted);
-  execFileSync("tar", ["-xzf", artifactPath, "-C", extracted]);
+  execFileSync(trustedTar, ["-xzf", artifactPath, "-C", extracted], { shell: false });
   const packageRoot = path.join(extracted, "package");
   await assert.rejects(access(path.join(packageRoot, "node_modules")));
-  const packagedManifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
+  assert.deepEqual(
+    await readFile(path.join(packageRoot, "audit", "accepted-development-audit.json")),
+    await readFile(path.join(root, "audit", "accepted-development-audit.json")),
+    "packed accepted-development baseline must be byte-exact",
+  );
+  const packagedManifest = parseStrictJson(await readFile(path.join(packageRoot, "package.json"), "utf8"), {
+    label: "packed package manifest",
+    maximumBytes: 256 * 1024,
+  });
   assert.equal(packagedManifest.private, true, "package.json private must guard npm publication");
+  assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
+  assert.equal(packagedManifest.peerDependenciesMeta, undefined);
   assert.equal(packagedManifest.dependencies, undefined);
   assert.equal(packagedManifest.optionalDependencies, undefined);
   assert.equal(packagedManifest.bundleDependencies, undefined);
@@ -96,6 +138,11 @@ try {
     "publish",
     "postpublish",
   ]) assert.equal(packagedManifest.scripts?.[lifecycle], undefined, `lifecycle script ${lifecycle} is forbidden`);
+  const bundle = await readFile(path.join(packageRoot, "dist", "index.js"), "utf8");
+  assert.equal(bundle.includes("node_modules"), false, "bundle must not contain a bundled package tree");
+  for (const peer of Object.keys(expectedExternalPeers)) {
+    assert.ok(bundle.includes(`from \"${peer}\"`), `${peer} must remain an external bundle import`);
+  }
   assert.equal((await stat(path.join(packageRoot, "runtime", "darwin-arm64", "career"))).mode & 0o777, 0o755);
   assert.equal((await stat(path.join(packageRoot, "runtime", "linux-x64-gnu", "career"))).mode & 0o777, 0o755);
   execFileSync(process.execPath, [path.join(root, "scripts", "check-runtime-artifacts.mjs")], {
@@ -130,6 +177,18 @@ try {
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
+  execFileSync(process.execPath, [path.join(root, "scripts", "test-isolated-install.mjs")], {
+    cwd: temporaryDirectory,
+    env: {
+      ...process.env,
+      PI_CAREER_PACKAGE_ROOT: packageRoot,
+      PI_OFFLINE: "1",
+      PI_TELEMETRY: "0",
+      PI_SKIP_VERSION_CHECK: "1",
+    },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  await assert.rejects(access(path.join(packageRoot, "node_modules")));
   process.stdout.write(
     `Verified package artifact ${artifact.filename} (${artifact.size} bytes compressed, ${artifact.unpackedSize} bytes unpacked)\n`,
   );

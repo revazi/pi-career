@@ -14,8 +14,9 @@
 - Synthetic process-boundary coverage adapted from Career Core commit `100774ed8bb3b39c019d64ce105af1e3f209144f`.
 - Release-candidate guidance for a separately authorized future GitHub tag and notes only, while immutable full-commit installation remains canonical and no current release is claimed.
 - Exact locked normal/build `career-cli` dependency evidence for both native targets, selected third-party MIT/copyright payloads, Rust 1.97.1 Standard Library evidence, target dynamic imports, the required Unicode License V3 text, deterministic package checks, and explicit independent-review limits.
+- Exact checked-in acceptance for the current nonzero development/host-Pi audit, fixed to npm 10.9.3, the lockfile, installed vulnerable package tree, complete audit report, and a fail-closed 2026-08-19 expiry, with adversarial synthetic tests for every drift class, duplicate decoded JSON keys, tool shadowing, and npm environment overrides.
 
 ### Changed
 
-- Strict package checks reject optional or bundled runtime dependency declarations, allow only the approved release/inventory/license documents, and verify the extracted native license inventory.
-- Release preparation fails closed on the unresolved full development audit; runtime-only audit success cannot satisfy the v0.1.0 advisory gate.
+- Strict package checks reject optional or bundled runtime dependency declarations, allow only approved documents, verify the extracted native license inventory, prove no Pi package contents or `node_modules`, enforce exactly four wildcard external peers, and run extracted load/runtime/install smokes.
+- Production auditing is now named `audit:production`, explicitly gates from low severity, and invokes the npm CLI derived from the real Node installation rather than `PATH`; `check:publish` is a direct Node, no-publication readiness orchestrator combining a clean production audit, exact unexpired development acceptance, and strict package proof. npm tree/severity environment overrides are removed, duplicate decoded JSON keys are rejected, and package extraction uses verified absolute `/usr/bin/tar`. The accepted nonzero full audit is explicitly temporary and not clean.
