@@ -13,8 +13,9 @@ were imported from the independently verified Career Core workflow run
 30953471793 at commit a3cdb4c6d7f966397e93ea4664071975bca7228c,
 Copyright (c) 2026 Revaz Zakalashvili. They are tracked package inputs from a
 Career Core workflow marked not_a_public_release, not standalone/custom release
-assets, signed artifacts, or a notarized distribution. This repository remains
-Unreleased; no npm version, tag, or GitHub Release is claimed.
+assets, signed artifacts, or a notarized distribution. Version 0.1.0 distributes
+them inside the public npm package and tracked Git tree; no custom release asset,
+signature, or notarization is claimed.
 
 The reviewed runtime license copies and third-party notice are preserved under
 runtime/. docs/native-dependency-inventory.md records the exact locked
@@ -24,7 +25,7 @@ for both distributed targets. unicode-ident 1.0.24 and Rust Unicode data require
 the Unicode License V3; the exact selected license/copyright payload is
 preserved under docs/licenses/.
 
-The dependency inventory is evidence, not legal advice or legal approval.
-docs/releasing.md requires separate human license and expiring-artifact review,
-and a zero-result full development audit, before any future annotated tag and
-GitHub release-notes entry.
+The dependency inventory is evidence, not legal advice or legal approval. For
+version 0.1.0, docs/releasing.md records sole-maintainer license sign-off rather
+than independent legal review, the artifact-provenance decision, and clean
+production and full development audits.
