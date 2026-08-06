@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Streamlined post-release documentation, added npm/CI/license badges, and recorded immutable `v0.1.0` package coordinates.
+
 ## 0.1.0 - 2026-08-06
 
 ### Added

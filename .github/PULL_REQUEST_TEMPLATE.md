@@ -18,6 +18,7 @@
 - [ ] `npm run check:runtime-artifacts`
 - [ ] `npm run test:bundled-runtime`
 - [ ] `npm run audit:production`
+- [ ] `npm run audit:full`
 - [ ] `npm run check:publish`
 - [ ] `PI_OFFLINE=1 npm run test:pi-smoke`
 - [ ] `PI_OFFLINE=1 npm run test:install`

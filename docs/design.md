@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-`pi-career` is a self-contained Pi package in a publicly readable Git repository on two reviewed native targets. It owns the Pi extension, package-owned native runtime artifacts and resolver, Pi-facing Agent Skill, package/build tests, and installation guidance. Career Core remains authoritative for operations, schemas, algorithms, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics; this repository does not reimplement those contracts in TypeScript.
+`pi-career` is a self-contained public npm and Git Pi package on two reviewed native targets. It owns the Pi extension, package-owned native runtime artifacts and resolver, Pi-facing Agent Skill, package/build tests, and installation guidance. Career Core remains authoritative for operations, schemas, algorithms, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics; this repository does not reimplement those contracts in TypeScript.
 
 The stable Pi surface is exactly:
 

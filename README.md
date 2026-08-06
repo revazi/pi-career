@@ -1,113 +1,132 @@
 # pi-career
 
-Self-contained [Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows on explicitly supported native targets.
+[![npm version](https://img.shields.io/npm/v/pi-career.svg)](https://www.npmjs.com/package/pi-career)
+[![npm downloads](https://img.shields.io/npm/dm/pi-career.svg)](https://www.npmjs.com/package/pi-career)
+[![CI](https://github.com/revazi/pi-career/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-career/actions/workflows/ci.yml)
+[![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license-and-provenance)
 
-This publicly readable Git repository owns the Pi adapter, package-owned runtime artifacts and resolver, Pi package metadata, Pi-facing Agent Skill, build/package tests, and integration guidance. Career Core remains authoritative for operations, algorithms, versioned JSON schemas, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics.
+Self-contained [Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows. It bundles reviewed native runtimes, a Pi extension, deterministic slash commands, and the `career-core` Agent Skill—without a separate Career Core checkout, Cargo installation, runtime download, or provider/model call.
 
-## Surface and non-scope
+Career Core remains authoritative for operations, algorithms, schemas, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics. See [`docs/design.md`](docs/design.md) and [`docs/product-flow.md`](docs/product-flow.md).
 
-The package preserves exactly three native tools:
+## What it provides
+
+Native tools:
 
 - `career_core_discover`
 - `career_core_resume`
 - `career_core_job`
 
-On supported targets it also provides deterministic slash commands:
+Deterministic slash commands:
 
-- `/career-setup`
-- `/career-library`
-- `/career-vacancy`
-- `/career-match`
-- `/career-analyze`
+- `/career-setup` — configure reviewed resume-library roots and privacy choices
+- `/career-library` — inspect configured Markdown/text resume libraries
+- `/career-vacancy` — set or clear bounded vacancy text
+- `/career-match` — normalize a vacancy and conservatively rank eligible resumes
+- `/career-analyze` — inspect deterministic readiness details for one resume
 
-Commands call the same package-owned runtime directly through bounded argv/stdin execution; they never call an LLM-facing tool, provider, model, network, PATH, Cargo, sibling checkout, or downloaded runtime. The workflow scans only explicitly configured `.md`/`.txt` roots, excludes assisted variants and inputs over 50,000 Unicode scalar values from authoritative operations, and never overwrites source files. See [`docs/design.md`](docs/design.md), [`docs/product-flow.md`](docs/product-flow.md), and [`SECURITY.md`](SECURITY.md).
+Slash commands invoke the package-owned runtime directly. They never route through an LLM-facing tool, provider, model, network request, `PATH`, Cargo, sibling checkout, or downloaded executable.
 
-## Supported runtime targets
+## Supported platforms
 
 | Package target | Native platform |
 |---|---|
 | `darwin-arm64` | macOS on Apple silicon |
 | `linux-x64-gnu` | Linux x64 with glibc |
 
-Windows, macOS x64, Linux arm64, Linux musl, and unknown libc/platform combinations are unsupported. The package may register on an unsupported target, but deterministic operations fail closed with a payload-free `unsupported_platform` error; they never guess, download a runtime, search `PATH`, or invoke Cargo.
+Windows, macOS x64, Linux arm64, Linux musl, and unknown libc/platform combinations fail closed with a payload-free `unsupported_platform` error.
 
-The unsigned package-owned runtime artifacts were produced and natively verified from Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c` by [artifact run 30953471793](https://github.com/revazi/career-core/actions/runs/30953471793). [`runtime/manifest.json`](runtime/manifest.json) pins target paths, sizes, SHA-256 values, provenance, and bounded contract digests. Before the first bundled spawn in each process, the selected regular executable is checked for exact size, mode, and SHA-256; only successful verification is cached in memory.
+Requirements:
 
-`CAREER_CLI_PATH` remains an optional developer/recovery override. When set, it must be a bounded absolute path to a separately reviewed compatible executable and takes precedence over the bundled runtime. Normal users do not set it.
-
-## End-user prerequisites
-
+- Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
-- one of the two supported native targets above
-- a reviewed clean local checkout, public Git commit, or exact npm version of this package
+- one of the two supported native targets
 
-No separate Career Core checkout, `career` installation, Cargo, Rust toolchain, install-time build, or runtime download is required.
+## Install
 
-## Reviewed local installation
-
-Pi local-path packages are referenced in place rather than copied. Register a reviewed clean checkout at a stable absolute path:
-
-```bash
-cd /absolute/path/to/pi-career
-package_root="$(pwd -P)"
-pi install "$package_root"
-pi list
-```
-
-Restart Pi or run `/reload` after a reviewed update. A local registration follows files at that path and does not pin future changes, so update the checkout only to reviewed revisions.
-
-Remove the registration with the same resolved path:
-
-```bash
-cd /absolute/path/to/pi-career
-package_root="$(pwd -P)"
-pi remove "$package_root"
-pi list
-```
-
-## Public npm installation pinned to a version
-
-After reviewing the release metadata, install an exact published version:
+Install the exact npm release:
 
 ```bash
 pi install npm:pi-career@0.1.0
 pi list
 ```
 
-A versioned npm package is pinned and skipped by package updates. Review and install a new exact version to update. Remove it by package identity:
+A versioned npm source is pinned. Review and explicitly install a new version when updating. Remove it with:
 
 ```bash
 pi remove npm:pi-career
 ```
 
-## Public Git installation pinned to a commit
-
-After reviewing a full commit SHA, install directly from this public repository; no configured Git credentials are required:
+Alternatively, install the immutable `v0.1.0` Git commit:
 
 ```bash
-pi install git:github.com/revazi/pi-career@<full-reviewed-commit-sha>
-pi list
+pi install git:github.com/revazi/pi-career@967da62503bc8a97c070946f6506ea3471baeb34
 ```
 
-A pinned Git package is not moved by `pi update --extensions`. To update, review a new full SHA and install that explicit ref:
+A reviewed local checkout can also be registered in place:
 
 ```bash
-pi install git:github.com/revazi/pi-career@<new-full-reviewed-commit-sha>
+cd /absolute/path/to/pi-career
+pi install "$(pwd -P)"
 ```
 
-Remove it by repository identity:
+Local-path registrations follow later filesystem changes. Restart Pi or run `/reload` after a reviewed update.
+
+## Use
+
+Start with the setup flow:
+
+```text
+/career-setup
+/career-library
+```
+
+Then set a vacancy and run deterministic matching or analysis:
+
+```text
+/career-vacancy
+/career-match
+/career-analyze
+```
+
+For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available. Preserve every returned warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, and assisted/non-authoritative label.
+
+`CAREER_CLI_PATH` is an optional developer/recovery override for a separately reviewed compatible executable. Normal users do not set it.
+
+## Privacy
+
+Pi may persist native-tool arguments/results and workflow custom entries in session JSONL. Before using private resume or vacancy content, explicitly decide whether the current Pi session may persist it. Prefer a new transient run when persistence is not wanted:
 
 ```bash
-pi remove git:github.com/revazi/pi-career
+pi --no-session
 ```
 
-Version `0.1.0` is published as the public npm package `pi-career` with no lifecycle scripts, package-owned runtime npm dependencies, or bundled Pi peer contents. The npm tarball carries the same two unsigned, hash-verified, not-notarized native executables as reviewed local and Git installations; it does not build them with Cargo on the user's machine.
+This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
 
-The `v0.1.0` release consists of the exact npm version, an unsigned annotated Git tag, and a GitHub Release; the reviewed full commit SHA and exact npm version are the installation coordinates. There is no crate publication, custom release asset, signing, or notarization. Both the package-owned production audit and complete development/host-Pi audit are clean at the explicit low threshold. Native-license evidence received documented sole-maintainer review, not independent legal review; see [`docs/releasing.md`](docs/releasing.md).
+The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.md`/`.txt` roots, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files.
 
-## Contributor build and verification
+Oversized Core results fail without partial output. Full-result export is not available through this package.
 
-Node.js 22.19 or newer is required for development checks; release verification uses npm 10.9.3 from the Node 22.19 CI toolchain. TypeScript under `src/` is authoritative. `dist/index.js` is its reproducible generated bundle and is intentionally tracked with the reviewed native runtimes so clean local, public-Git, and npm packages load without development dependencies. Node build/test tooling stays as directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the package artifact. Pi-provided packages remain external peers.
+## Security and release provenance
+
+The two unsigned, not-notarized runtimes were built from Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c` by [workflow run 30953471793](https://github.com/revazi/career-core/actions/runs/30953471793). [`runtime/manifest.json`](runtime/manifest.json) pins paths, targets, provenance, sizes, modes, SHA-256 hashes, source archive identities, and bounded contract digests. The selected executable is verified before its first spawn in each process.
+
+Release `v0.1.0` coordinates:
+
+- npm: [`pi-career@0.1.0`](https://www.npmjs.com/package/pi-career/v/0.1.0)
+- Git commit: [`967da62503bc8a97c070946f6506ea3471baeb34`](https://github.com/revazi/pi-career/tree/967da62503bc8a97c070946f6506ea3471baeb34)
+- npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
+- GitHub Release: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
+
+Both the package-owned production audit and complete development/host-Pi audit were clean at the explicit low threshold. Native-license evidence received documented sole-maintainer review, not independent legal review. See [`SECURITY.md`](SECURITY.md), [`docs/releasing.md`](docs/releasing.md), and [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md).
+
+There is no crate publication, custom GitHub Release asset, signing, or notarization.
+
+## Development
+
+TypeScript under `src/` is authoritative. `dist/index.js` is the reproducible tracked bundle Pi loads. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
+
+Release verification uses Node.js 22.19.0 and npm 10.9.3:
 
 ```bash
 npm ci
@@ -120,40 +139,25 @@ npm run audit:full
 npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
+npm ls --omit=dev --depth=0
 git diff --check
 ```
 
-`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:runtime-artifacts` enforces the runtime manifest, provenance, five-file source artifact contract, target magic, exact hashes/sizes/modes, and package bounds. `npm run audit:production` requires zero package-owned production vulnerabilities and `npm run audit:full` requires zero vulnerabilities across the complete development/host-Pi tree, both from an explicit low-severity threshold. Production/full audit and package commands invoke `process.execPath` with the absolute npm CLI derived from that real Node installation, verify any inherited `npm_execpath`, and remove omit/include/audit-level/`NODE_ENV` overrides; npm and tar are never selected from `PATH`. `npm run check:publish` is a direct Node authoritative readiness orchestrator but does not publish anything: it runs both strict audits and the package checks. Strict bounded parsing rejects duplicate decoded keys in audit and pack JSON. The package check uses verified absolute `/usr/bin/tar`, proves the tarball has no `node_modules` or Pi package contents, keeps exactly `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` as wildcard external peers, extracts the artifact, loads it, executes the bundled runtime, and performs an isolated install/list/remove smoke. Any future audit finding blocks publication and requires remediation rather than a checked-in acceptance baseline.
-
-Optional local compatibility uses an explicitly supplied reviewed Career Core fixture root while still executing the bundled runtime:
+Optional compatibility against an explicitly reviewed Career Core fixture checkout:
 
 ```bash
 CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-Hosted CI needs no separate Core checkout or provider credentials. Its native matrix executes every claimed target: Ubuntu x64 GNU and macOS arm64.
-
-## Privacy before document operations
-
-Pi may persist native-tool arguments/results and workflow custom entries in session JSONL. The slash commands require the displayed session-persistence decision before the first private vacancy or compact result card is appended to a persisted session. Global config stores only canonical resume-root paths and bounded labels—never resume text, vacancy text, or Core output. Full Core JSON is not stored by the workflow, and custom workflow entries are excluded from LLM context.
-
-For direct native-tool use, make the same explicit persistence decision before placing private resume or job content in `input_json`. Prefer a new transient run when session saving is not wanted:
-
-```bash
-pi --no-session
-```
-
-This is not a secure-erasure guarantee and does not remove previous sessions, shell history, backups, provider copies, or saved output. Local Pi-context approval also does not authorize sending content to an external model/provider.
-
-Start with `career_core_discover`, invoke only capabilities reported as available, and export the exact input schema before document calls. If the adapter reports `result_too_large` or `result_too_many_lines`, do not request or use partial output. Full-result export is not yet available through pi-career.
+`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
 
 ## Maintainer and support
 
-Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use this repository's Issues for sanitized bugs and scoped feature requests, follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, and follow [`SECURITY.md`](SECURITY.md) for vulnerabilities. Never place private career content or vulnerability details in an ordinary issue.
+Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use [Issues](https://github.com/revazi/pi-career/issues) for sanitized bugs and scoped feature requests, [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, and [`SECURITY.md`](SECURITY.md) for private vulnerability-reporting guidance. Never place private career content or vulnerability details in an ordinary issue.
 
 ## License and provenance
 
-Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded runtime license/notices files under [`runtime/`](runtime/).
+Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded notices under [`runtime/`](runtime/).
 
-The locked normal/build dependency evidence for both native CLI targets is in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md). The package preserves the exact selected MIT/copyright texts for every reachable crate group, Rust 1.97.1 Standard Library evidence, and the required [`Unicode License V3`](docs/licenses/Unicode-3.0.txt) text under [`docs/licenses/`](docs/licenses/). `npm run check:native-licenses` enforces that payload. The inventory is evidence, not legal advice or automated release approval; [`docs/releasing.md`](docs/releasing.md) requires documented human sign-off and transparently records sole-maintainer review when independent review is unavailable.
+The exact native dependency and selected-license evidence is recorded in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), with required license and copyright payloads under [`docs/licenses/`](docs/licenses/).
