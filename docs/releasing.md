@@ -1,10 +1,10 @@
-# Release preparation
+# Release process
 
-This document defines the smallest possible future `v0.1.0` release process. It is a checklist, not release authorization. The repository remains **Unreleased**: no npm version, tag, GitHub Release, crate publication, custom release asset, signature, or notarization is claimed by this release-preparation change.
+This document records the bounded `v0.1.0` release process and evidence requirements.
 
-## Approved future channel boundary
+## Approved channel boundary
 
-If every gate below is closed and a maintainer separately authorizes release execution, the only planned channels are:
+After every gate below is closed, the authorized channels are:
 
 1. one public `pi-career@0.1.0` npm package;
 2. one annotated, unsigned `v0.1.0` Git tag pointing to the exact published commit; and
@@ -14,11 +14,11 @@ The npm package contains the strict allowlisted artifact tested by `npm run chec
 
 The exact npm version and reviewed full commit SHA are the canonical installation and audit coordinates. The GitHub Release notes must state that SHA and the npm package's registry integrity. A tag is a discovery label, not a substitute for immutable commit review, and README Git installation instructions must continue to use a full SHA.
 
-There is no automated publication workflow. Release execution is manual and requires separate explicit authorization after the candidate commit and hosted checks are frozen.
+There is no automated publication workflow. Release execution is manual; sole maintainer Revaz Zakalashvili explicitly authorized the coordinated `v0.1.0` npm publication, tag, and GitHub Release after the candidate gates.
 
 ## Blocking gates
 
-Every item in this section blocks the future npm publication, tag, and GitHub Release. A skipped, unknown, or merely planned result is not a pass.
+Every item in this section blocks the npm publication, tag, and GitHub Release. A skipped, unknown, or merely planned result is not a pass.
 
 ### 1. Freeze and review the exact candidate
 
@@ -52,7 +52,9 @@ The imported binaries and provenance remain tracked and hash-verified in this re
 | `8910079991` | `darwin-arm64` | `2026-08-07T21:43:37Z` |
 | `8910084163` | `linux-x64-gnu` | `2026-08-07T21:43:47Z` |
 
-Before npm publication, a human must recheck artifact availability and explicitly decide whether the tracked binaries, per-target provenance, manifest, archive identities/hashes, and public Core commit are sufficient durable provenance after expiry. If they are not sufficient, release stays blocked pending a separately approved preservation plan. This preparation does not download, copy, upload, recreate, or relabel either artifact.
+Before npm publication, a human must recheck artifact availability and explicitly decide whether the tracked binaries, per-target provenance, manifest, archive identities/hashes, and public Core commit are sufficient durable provenance after expiry. If they are not sufficient, release stays blocked pending a separately approved preservation plan. The release process does not download, copy, upload, recreate, or relabel either artifact.
+
+For `v0.1.0`, sole maintainer Revaz Zakalashvili rechecked both artifacts on 2026-08-06 and recorded **SUFFICIENT**: the tracked binaries, per-target provenance, manifest, archive identities/hashes, public Core commit, and package verification are accepted as the durable evidence after upstream expiry.
 
 ### 4. Clean production and full audits
 
@@ -92,7 +94,7 @@ Requirements:
 
 ### 6. Finalize notes only after all other gates pass
 
-This preparation intentionally leaves `CHANGELOG.md` under `Unreleased`. After every preceding gate passes, a separately reviewed finalization change must:
+After every preceding gate passes, a separately committed finalization change must:
 
 - convert the candidate notes to a dated `0.1.0` entry;
 - preserve unsigned/not-notarized runtime caveats and the two supported targets;
@@ -103,7 +105,7 @@ A commit cannot contain its own Git SHA. After the finalization commit exists, r
 
 ## Manual release execution
 
-After all blocking gates pass on the final clean commit and the maintainer explicitly authorizes execution:
+After all blocking gates pass on the final clean commit and the maintainer has explicitly authorized execution:
 
 1. Confirm `npm whoami` identifies the intended npm account and the registry is exactly `https://registry.npmjs.org/`. Never place an npm token or one-time password in repository files, Pi messages, logs, or release notes.
 2. Reconfirm that `npm view pi-career@0.1.0 version --json` returns not found. A registry name check does not reserve the name.

@@ -101,9 +101,9 @@ Remove it by repository identity:
 pi remove git:github.com/revazi/pi-career
 ```
 
-The package is prepared for public npm publication as `pi-career` with no lifecycle scripts, package-owned runtime npm dependencies, or bundled Pi peer contents. The npm tarball carries the same two unsigned, hash-verified native executables as reviewed local and Git installations; it does not build them with Cargo on the user's machine.
+Version `0.1.0` is published as the public npm package `pi-career` with no lifecycle scripts, package-owned runtime npm dependencies, or bundled Pi peer contents. The npm tarball carries the same two unsigned, hash-verified, not-notarized native executables as reviewed local and Git installations; it does not build them with Cargo on the user's machine.
 
-This repository is still **Unreleased** and claims no current npm version, tag, or GitHub Release. [`docs/releasing.md`](docs/releasing.md) prepares a possible future, separately authorized `pi-career@0.1.0` npm publication, annotated `v0.1.0` Git tag, and GitHub Release. The reviewed full commit SHA and exact npm version are the installation coordinates, with no crate publication, custom release asset, signing, or notarization. Both the package-owned production audit and complete development/host-Pi audit must be clean.
+The `v0.1.0` release consists of the exact npm version, an unsigned annotated Git tag, and a GitHub Release; the reviewed full commit SHA and exact npm version are the installation coordinates. There is no crate publication, custom release asset, signing, or notarization. Both the package-owned production audit and complete development/host-Pi audit are clean at the explicit low threshold. Native-license evidence received documented sole-maintainer review, not independent legal review; see [`docs/releasing.md`](docs/releasing.md).
 
 ## Contributor build and verification
 

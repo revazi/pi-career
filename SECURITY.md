@@ -42,4 +42,4 @@ The direct Node `check:publish` orchestrator requires both clean audits and the 
 
 A local-path registration follows later filesystem changes. Uninstalling the package only unregisters it; it does not erase Git clones, Pi sessions, shell history, backups, or document copies.
 
-Supported security fixes apply to the latest reviewed repository revision and published npm version. No npm version, tag, or GitHub Release is claimed until the release checklist is completed.
+Supported security fixes apply to the latest reviewed repository revision and published npm version. Version `0.1.0` follows the package, tag, audit, provenance, and release boundary recorded in [`docs/releasing.md`](docs/releasing.md).
