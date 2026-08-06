@@ -13,7 +13,7 @@
 - Public-repository author, ownership, issue-form, private vulnerability-reporting, Dependabot, and pull-request hygiene.
 - Synthetic process-boundary coverage adapted from Career Core commit `100774ed8bb3b39c019d64ce105af1e3f209144f`.
 - Release-candidate guidance for a separately authorized future public `pi-career@0.1.0` npm package, GitHub tag, and release notes, while exact version/full-commit installation remains canonical and no current release is claimed.
-- Exact locked normal/build `career-cli` dependency evidence for both native targets, selected third-party MIT/copyright payloads, Rust 1.97.1 Standard Library evidence, target dynamic imports, the required Unicode License V3 text, deterministic package checks, and explicit independent-review limits.
+- Exact locked normal/build `career-cli` dependency evidence for both native targets, selected third-party MIT/copyright payloads, Rust 1.97.1 Standard Library evidence, target dynamic imports, the required Unicode License V3 text, deterministic package checks, and documented sole-maintainer `v0.1.0` sign-off with no independent legal-review claim.
 - Strict zero-vulnerability production and complete development/host-Pi audit gates, with bounded duplicate-key-rejecting JSON, trusted-tool enforcement, tool-shadowing tests, and npm environment override sanitization.
 
 ### Changed

@@ -30,16 +30,18 @@ Every item in this section blocks the future npm publication, tag, and GitHub Re
 
 ### 2. Human native-license review
 
-[`native-dependency-inventory.md`](native-dependency-inventory.md) records the exact 30-package normal/build Cargo graph, selected MIT texts for all 28 crates.io packages, the two Career Core workspace packages, Rust 1.97.1 Standard Library evidence, Unicode-3.0 requirement, target dynamic imports, and the Swift/UniFFI exclusion. `npm run check:native-licenses` enforces every packaged license/notice hash, inventory coordinate, target, provenance compiler version, and file boundary. This is evidence, not legal advice, an SPDX/CycloneDX SBOM, or self-approval.
+[`native-dependency-inventory.md`](native-dependency-inventory.md) records the exact 30-package normal/build Cargo graph, selected MIT texts for all 28 crates.io packages, the two Career Core workspace packages, Rust 1.97.1 Standard Library evidence, Unicode-3.0 requirement, target dynamic imports, and the Swift/UniFFI exclusion. `npm run check:native-licenses` enforces every packaged license/notice hash, inventory coordinate, target, provenance compiler version, and file boundary. This is evidence, not legal advice, an SPDX/CycloneDX SBOM, or an automated approval.
 
-Before publication, an independent human reviewer must:
+Before publication, a human reviewer must:
 
 - verify the inventory against Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c`, Cargo.lock SHA-256 `18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609`, and both per-target provenance records;
 - confirm the documented MIT selections, exact grouped upstream texts/copyright notices, Rust Standard Library evidence, and Unicode License V3 payload satisfy the package-owned obligations for both native binaries;
 - confirm the host-supplied dynamic-library boundary and that excluded Fuchsia/Swift/UniFFI dependencies are not part of either distributed target; and
 - record an explicit approve/block decision without presenting the inventory as legal advice.
 
-No npm publication, tag, or release may proceed while this independent review is absent or blocked. Any dependency, compiler, target, binary, provenance, or notice change invalidates the evidence and requires a fresh inventory and review.
+Independent review is preferred. When the project has only one maintainer, that sole maintainer may complete and record the review, but release notes must disclose that it was maintainer self-review rather than independent legal review. No npm publication, tag, or release may proceed while the human decision is absent or blocked. Any dependency, compiler, target, binary, provenance, or notice change invalidates the evidence and requires a fresh inventory and review.
+
+For `v0.1.0`, sole maintainer Revaz Zakalashvili reviewed the evidence above and recorded **APPROVED** for both packaged targets. This is a maintainer release decision, not independent review or legal advice.
 
 ### 3. Upstream artifact-expiry decision
 
@@ -113,6 +115,6 @@ After all blocking gates pass on the final clean commit and the maintainer expli
    ```
 
 5. Verify `npm view pi-career@0.1.0 --json` reports the expected version, repository, four peers, tarball integrity, and `gitHead`; then perform an isolated `pi install npm:pi-career@0.1.0`, package load, bundled-runtime smoke, and removal on a supported target.
-6. Create the GitHub Release from `v0.1.0`. State the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized binaries, no crate/custom assets, and zero-vulnerability package-owned production and complete development/host-Pi audits at the explicit low threshold.
+6. Create the GitHub Release from `v0.1.0`. State the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized binaries, no crate/custom assets, zero-vulnerability package-owned production and complete development/host-Pi audits at the explicit low threshold, and that native-license evidence received sole-maintainer self-review rather than independent legal review.
 
 Do not sign, attach assets, change repository settings, publish another registry tag/version, or retry after an ambiguous registry response without first querying the registry. npm versions are immutable; a failed post-publication check is an incident, not permission to overwrite `0.1.0`.

@@ -15,7 +15,7 @@ const CORE_COMMIT = "a3cdb4c6d7f966397e93ea4664071975bca7228c";
 const CARGO_LOCK_SHA256 = "18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609";
 const RUST_COMMIT = "8bab26f4f68e0e26f0bb7960be334d5b520ea452";
 const RUSTC_VERSION = "rustc 1.97.1 (8bab26f4f 2026-07-14)";
-const INVENTORY_SHA256 = "49bef86729402d900ba829e2deb23488b0fd1971b047318f3f4aabb7d44e2fc1";
+const INVENTORY_SHA256 = "337fef74d8beba91d1e83fe0a8c528e2334cc963d814db991ec2e6c09d7a044e";
 
 const LICENSE_FILES = new Map([
   ["MIT-aho-corasick-memchr.txt", [1081, "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"]],
@@ -89,7 +89,7 @@ for (const [name, [size, hash]] of LICENSE_FILES) {
 
 const inventory = await exactFile(
   "docs/native-dependency-inventory.md",
-  12441,
+  12544,
   INVENTORY_SHA256,
 );
 assert.match(inventory, new RegExp(CORE_COMMIT));
