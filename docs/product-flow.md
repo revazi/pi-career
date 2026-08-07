@@ -11,7 +11,7 @@ This package preserves the three stable native tools:
 It also registers:
 
 - `/career-setup` for library and privacy onboarding—not external CLI installation
-- `/career-library` for explicitly configured Markdown/text resume roots
+- `/career-library` for explicitly configured searchable PDF, Markdown, and text resume roots, with actionable extraction notices
 - `/career-vacancy` for bounded vacancy input after session-persistence consent
 - `/career-match` for deterministic multi-resume matching and conservative ranking
 - `/career-analyze` for deterministic single-resume readiness detail
@@ -28,6 +28,7 @@ Binding boundaries:
 - assisted variants remain labeled and excluded from authoritative reranking
 - stable path/id tie-breaking; any close-cluster label is a UI heuristic, not a Core result
 - cancellation aborts the active child and stops remaining batch work
+- searchable PDF text extraction is local and isolated with fixed byte/page/time/memory/result ceilings; OCR and document rewriting remain out of scope
 - no full-result export unless a separate bounded local-file workflow is designed and tested
 
 The approved workflow specification fixes command behavior, persistence format, non-TUI behavior, bounded UI, and cancellation ownership. Print/JSON modes fail closed except for the pure `/career-vacancy clear` state action.
@@ -39,7 +40,7 @@ Model-assisted tailoring or suggestion review is intentionally deferred. A futur
 ## Non-goals in this phase
 
 - provider/model-assisted commands or full-screen UI
-- PDF/DOCX/OCR/URL ingestion
+- DOCX/OCR/URL ingestion; image-only PDFs require external OCR or export
 - model/provider integration
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation

@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -33,6 +34,7 @@ const allowed = new Set([
   "README.md",
   "SECURITY.md",
   "dist/index.js",
+  "dist/pdf-worker.js",
   "docs/design.md",
   "docs/licenses/MIT-aho-corasick-memchr.txt",
   "docs/licenses/MIT-anstyle-clap-family.txt",
@@ -48,6 +50,7 @@ const allowed = new Set([
   "docs/native-dependency-inventory.md",
   "docs/product-flow.md",
   "docs/releasing.md",
+  "docs/unpdf-LICENSE-MIT.txt",
   "package.json",
   "runtime/LICENSE-APACHE",
   "runtime/LICENSE-MIT",
@@ -85,7 +88,7 @@ function pack(args) {
   const names = new Set(parsed[0].files.map(({ path: file }) => file));
   assert.deepEqual(names, allowed);
   assert.ok(parsed[0].size < 4_000_000, "packed artifact must remain below 4 MB");
-  assert.ok(parsed[0].unpackedSize < 11_000_000, "unpacked artifact must remain below 11 MB");
+  assert.ok(parsed[0].unpackedSize < 12_500_000, "unpacked artifact must remain below 12.5 MB");
   return parsed[0];
 }
 
@@ -122,6 +125,7 @@ try {
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
+  assert.equal(packagedManifest.devDependencies?.unpdf, "1.8.0", "bundled PDF extractor must remain pinned");
   assert.equal(packagedManifest.peerDependenciesMeta, undefined);
   assert.equal(packagedManifest.dependencies, undefined);
   assert.equal(packagedManifest.optionalDependencies, undefined);
@@ -139,8 +143,20 @@ try {
     "publish",
     "postpublish",
   ]) assert.equal(packagedManifest.scripts?.[lifecycle], undefined, `lifecycle script ${lifecycle} is forbidden`);
-  const bundle = await readFile(path.join(packageRoot, "dist", "index.js"), "utf8");
-  assert.equal(bundle.includes("node_modules"), false, "bundle must not contain a bundled package tree");
+  const [bundle, pdfWorker, unpdfLicense] = await Promise.all([
+    readFile(path.join(packageRoot, "dist", "index.js"), "utf8"),
+    readFile(path.join(packageRoot, "dist", "pdf-worker.js"), "utf8"),
+    readFile(path.join(packageRoot, "docs", "unpdf-LICENSE-MIT.txt")),
+  ]);
+  assert.equal(unpdfLicense.length, 1_082, "unpdf license size");
+  assert.equal(
+    createHash("sha256").update(unpdfLicense).digest("hex"),
+    "4a57080b8ecdb3a53ec678828121849ce5df877a99b1ad8d50e165d8a2aded1b",
+    "unpdf license SHA-256",
+  );
+  assert.equal(bundle.includes("node_modules"), false, "extension bundle must not contain a package tree path");
+  assert.equal(pdfWorker.includes("node_modules"), false, "PDF worker bundle must not contain a package tree path");
+  assert.ok(pdfWorker.length > 0 && pdfWorker.length < 2_000_000, "PDF worker bundle must remain bounded");
   for (const peer of Object.keys(expectedExternalPeers)) {
     assert.ok(bundle.includes(`from \"${peer}\"`), `${peer} must remain an external bundle import`);
   }

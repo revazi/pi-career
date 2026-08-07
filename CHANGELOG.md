@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Local searchable-PDF résumé ingestion through a bounded, network-disabled worker, with explicit library notices for encrypted, image-only, malformed, oversized, or otherwise unextractable PDFs.
+
 ### Changed
 
+- Setup and library flows now rescan immediately, display indexed PDFs and actionable scan notices, and explain the searchable PDF/Markdown/text success path instead of silently showing an empty library.
 - Streamlined post-release documentation, added npm/CI/license badges, and recorded immutable `v0.1.0` package coordinates.
 
 ## 0.1.0 - 2026-08-06

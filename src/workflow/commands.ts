@@ -19,6 +19,7 @@ import {
   detailText,
   libraryIndexPreview,
   librarySummary,
+  libraryWarningPreview,
   matchDetailSections,
   oversizeResultMessage,
   plainResultCard,
@@ -63,7 +64,8 @@ import {
 const CONSENT_COPY =
   "Pi may save private vacancy/resume text and result cards in the current session JSONL. `pi-career` does not write documents outside the files you chose. Use `pi --no-session` for an ephemeral run. This is not secure erasure.";
 const TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
-const BANNER = "pi-career not configured — run /career-setup";
+const SETUP_BANNER = "pi-career not configured — run /career-setup";
+const EMPTY_LIBRARY_BANNER = "No resumes found — add a searchable PDF, Markdown, or text file to a configured root, then run /career-library.";
 const MAX_FILTER_CHARACTERS = 200;
 
 interface CommandRuntimeOptions {
@@ -146,6 +148,7 @@ function filteredResumes(records: ResumeRecord[], filter: string): ResumeRecord[
 
 function recordBadges(record: ResumeRecord): string {
   return [
+    ...(record.format === "pdf" ? ["PDF"] : []),
     ...(record.kind === "assisted_variant" ? ["assisted variant"] : []),
     ...(record.too_large_for_core_input === true ? ["too large"] : []),
   ].join(", ");
@@ -426,12 +429,14 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
       const summary = setupSummary(config, scan, persisted(ctx));
+      const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
         return;
       }
-      ctx.ui.notify(summary, "info");
-      if (config.library_roots.length === 0) ctx.ui.notify(BANNER, "warning");
+      ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
+      if (config.library_roots.length === 0) ctx.ui.notify(SETUP_BANNER, "warning");
+      else if (scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       const action = await ctx.ui.select("Career setup", ["Add root", "Rescan", "Status", "Close"]);
       owner.assert(run, ctx);
       if (action === "Add root") {
@@ -442,9 +447,20 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         owner.assert(run, ctx);
         const rescanned = await scanLibrary(updated);
-        ctx.ui.notify(setupSummary(updated, rescanned, persisted(ctx)), "info");
-      } else if (action === "Rescan" || action === "Status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([
+          setupSummary(updated, rescanned, persisted(ctx)),
+          libraryWarningPreview(updated, rescanned),
+        ].filter(Boolean).join("\n"), "info");
+        if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
+      } else if (action === "Rescan") {
+        const rescanned = await scanLibrary(config);
+        owner.assert(run, ctx);
+        ctx.ui.notify([
+          setupSummary(config, rescanned, persisted(ctx)),
+          libraryWarningPreview(config, rescanned),
+        ].filter(Boolean).join("\n"), "info");
+      } else if (action === "Status") {
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       }
     }),
   });
@@ -459,19 +475,21 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
       const summary = librarySummary(config, scan, persisted(ctx));
+      const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
         return;
       }
       const roots = config.library_roots.map(rootOption).join("\n") || "No configured roots";
-      ctx.ui.notify(`${roots}\n${libraryIndexPreview(config, scan)}\n${summary}`, "info");
+      ctx.ui.notify([roots, libraryIndexPreview(config, scan), summary, notices].filter(Boolean).join("\n"), "info");
+      if (config.library_roots.length > 0 && scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       const action = await ctx.ui.select("Career library", [
         "Browse", "Add root", "Remove root", "Rescan", "Status", "Close",
       ]);
       owner.assert(run, ctx);
       if (action === "Browse") {
         if (scan.records.length === 0) {
-          ctx.ui.notify(BANNER, "warning");
+          ctx.ui.notify(config.library_roots.length === 0 ? SETUP_BANNER : EMPTY_LIBRARY_BANNER, "warning");
           return;
         }
         const optionsByLabel = new Map(scan.records.map((record) => [recordOption(record), record]));
@@ -484,7 +502,15 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const updated = await addLibraryRoot(config, rootPath);
         owner.assert(run, ctx);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
-        ctx.ui.notify("Resume root added.", "info");
+        owner.assert(run, ctx);
+        const rescanned = await scanLibrary(updated);
+        ctx.ui.notify([
+          "Resume root added.",
+          libraryIndexPreview(updated, rescanned),
+          librarySummary(updated, rescanned, persisted(ctx)),
+          libraryWarningPreview(updated, rescanned),
+        ].filter(Boolean).join("\n"), "info");
+        if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       } else if (action === "Remove root") {
         const byOption = new Map(config.library_roots.map((root) => [rootOption(root), root]));
         const selected = await ctx.ui.select("Remove root from config", [...byOption.keys()]);
@@ -494,8 +520,16 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         owner.assert(run, ctx);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         ctx.ui.notify("Resume root removed from config; no files were changed.", "info");
-      } else if (action === "Rescan" || action === "Status") {
-        ctx.ui.notify(summary, "info");
+      } else if (action === "Rescan") {
+        const rescanned = await scanLibrary(config);
+        owner.assert(run, ctx);
+        ctx.ui.notify([
+          libraryIndexPreview(config, rescanned),
+          librarySummary(config, rescanned, persisted(ctx)),
+          libraryWarningPreview(config, rescanned),
+        ].filter(Boolean).join("\n"), "info");
+      } else if (action === "Status") {
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       }
     }),
   });
@@ -681,13 +715,15 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     transientNoticeSession = undefined;
     try {
       const { config, scan } = await refreshState(ctx);
-      if (ctx.hasUI && (config.library_roots.length === 0 || scan.records.length === 0)) {
-        ctx.ui.setWidget("pi-career-setup", [BANNER]);
+      if (ctx.hasUI && config.library_roots.length === 0) {
+        ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+      } else if (ctx.hasUI && scan.records.length === 0) {
+        ctx.ui.setWidget("pi-career-setup", [EMPTY_LIBRARY_BANNER]);
       } else if (ctx.hasUI) {
         ctx.ui.setWidget("pi-career-setup", undefined);
       }
     } catch {
-      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [BANNER]);
+      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
     }
   });
 

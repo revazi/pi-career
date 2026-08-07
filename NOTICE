@@ -25,6 +25,12 @@ for both distributed targets. unicode-ident 1.0.24 and Rust Unicode data require
 the Unicode License V3; the exact selected license/copyright payload is
 preserved under docs/licenses/.
 
+Searchable PDF text extraction bundles unpdf 1.8.0, Copyright (c) 2023-PRESENT
+Johann Schopplich, under the MIT License preserved at
+docs/unpdf-LICENSE-MIT.txt. Its bundled serverless PDF.js implementation is
+derived from Mozilla PDF.js and is distributed under the Apache License 2.0,
+preserved at LICENSE-APACHE.
+
 The dependency inventory is evidence, not legal advice or legal approval. For
 version 0.1.0, docs/releasing.md records sole-maintainer license sign-off rather
 than independent legal review, the artifact-provenance decision, and clean

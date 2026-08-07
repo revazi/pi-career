@@ -765,6 +765,64 @@ import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath2 
 import path3 from "node:path";
 import { TextDecoder as TextDecoder3 } from "node:util";
 
+// src/workflow/pdf.ts
+import { Worker } from "node:worker_threads";
+var PDF_MAX_RAW_BYTES = 10 * 1024 * 1024;
+var PDF_MAX_PAGES = 20;
+var PDF_EXTRACTION_TIMEOUT_MS = 1e4;
+var PDF_MAX_RESULT_BYTES = 512 * 1024;
+function workerUrl() {
+  return import.meta.url.endsWith("/dist/index.js") ? new URL("./pdf-worker.js", import.meta.url) : new URL("./pdf-worker.ts", import.meta.url);
+}
+function validWorkerResult(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value;
+  if (result.ok === false) return Object.keys(result).length === 1;
+  return result.ok === true && Object.keys(result).sort().join(",") === "ok,pageCount,text" && typeof result.text === "string" && Buffer.byteLength(result.text, "utf8") <= PDF_MAX_RESULT_BYTES && Number.isSafeInteger(result.pageCount) && result.pageCount > 0 && result.pageCount <= PDF_MAX_PAGES;
+}
+async function extractPdfText(bytes) {
+  if (bytes.byteLength === 0 || bytes.byteLength > PDF_MAX_RAW_BYTES) return { ok: false };
+  let worker;
+  try {
+    worker = new Worker(workerUrl(), {
+      env: {},
+      resourceLimits: {
+        maxOldGenerationSizeMb: 128,
+        maxYoungGenerationSizeMb: 32,
+        stackSizeMb: 4
+      }
+    });
+  } catch {
+    return { ok: false };
+  }
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ ok: false }), PDF_EXTRACTION_TIMEOUT_MS);
+    worker.once("message", (value) => {
+      if (!validWorkerResult(value) || value.ok === false || value.text.trim().length === 0) {
+        finish({ ok: false });
+        return;
+      }
+      finish({ ok: true, text: value.text, pageCount: value.pageCount });
+    });
+    worker.once("error", () => finish({ ok: false }));
+    worker.once("exit", () => finish({ ok: false }));
+    const transferable = Uint8Array.from(bytes);
+    try {
+      worker.postMessage(transferable, [transferable.buffer]);
+    } catch {
+      finish({ ok: false });
+    }
+  });
+}
+
 // src/workflow/text-limit.ts
 var CORE_MAX_CHARACTERS = 5e4;
 function isWithinCoreCharacterLimit(value) {
@@ -798,6 +856,7 @@ function supportedFormat(file) {
   const extension = path3.extname(file).toLowerCase();
   if (extension === ".md") return "markdown";
   if (extension === ".txt") return "text";
+  if (extension === ".pdf") return "pdf";
   return void 0;
 }
 function safeLabel(value, fallback) {
@@ -942,21 +1001,37 @@ async function scanCandidate(root, candidate, warnings) {
     warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return void 0;
   }
-  if (metadata.size > SCAN_MAX_RAW_BYTES) {
+  const rawByteLimit = candidate.format === "pdf" ? PDF_MAX_RAW_BYTES : SCAN_MAX_RAW_BYTES;
+  if (metadata.size > rawByteLimit) {
     warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
     return void 0;
   }
-  let decoded;
+  let bytes;
   try {
-    const bytes = await readFile3(canonical);
-    if (bytes.length > SCAN_MAX_RAW_BYTES || bytes.length !== metadata.size) {
+    bytes = await readFile3(canonical);
+    if (bytes.length > rawByteLimit || bytes.length !== metadata.size) {
       warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
       return void 0;
     }
-    decoded = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+    warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return void 0;
+  }
+  let decoded;
+  if (candidate.format === "pdf") {
+    const extracted = await extractPdfText(bytes);
+    if (!extracted.ok) {
+      warnings.push({ code: "pdf_text_unavailable", root_id: root.id, relative_path: candidate.relative });
+      return void 0;
+    }
+    decoded = extracted.text;
+  } else {
+    try {
+      decoded = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+      return void 0;
+    }
   }
   const text = normalizeDocumentText(decoded);
   const id = sha256(canonical);
@@ -1245,7 +1320,8 @@ function privacyDisplayPath(absolutePath) {
 function setupSummary(config, scan, persisted2) {
   const resumes = scan.records.length;
   const roots = config.library_roots.length;
-  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`;
+  const notices = scan.warnings.length;
+  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`;
 }
 function libraryIndexPreview(config, scan, maximum = 50) {
   const lines = [];
@@ -1255,6 +1331,7 @@ function libraryIndexPreview(config, scan, maximum = 50) {
     const records = scan.records.filter((record) => record.root_id === root.id);
     for (const record of records.slice(0, remaining)) {
       const labels = [
+        ...record.format === "pdf" ? ["PDF"] : [],
         ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
         ...record.too_large_for_core_input === true ? ["too large"] : []
       ];
@@ -1265,6 +1342,38 @@ function libraryIndexPreview(config, scan, maximum = 50) {
   }
   if (scan.records.length > maximum) lines.push(`Showing ${maximum} of ${scan.records.length} indexed resumes.`);
   return lines.join("\n") || "No indexed resumes";
+}
+function scanWarningMessage(code, isPdf) {
+  switch (code) {
+    case "root_stale":
+      return "root is unavailable or has moved";
+    case "root_file_cap_reached":
+      return "root scan limit reached; some files were not indexed";
+    case "total_file_cap_reached":
+      return "total scan limit reached; some files were not indexed";
+    case "raw_file_too_large":
+      return isPdf ? "PDF is over 10 MiB; reduce or export it as Markdown/text" : "file is over 256 KiB; reduce it before analysis";
+    case "pdf_text_unavailable":
+      return "PDF text could not be extracted; use a searchable, unencrypted PDF or export it as Markdown/text (OCR is not supported)";
+    case "invalid_utf8":
+      return "text file is not valid UTF-8";
+    case "invalid_assisted_sidecar":
+      return "assisted-variant sidecar is invalid; the document is treated as original";
+    case "scan_entry_unavailable":
+      return "file or directory could not be read";
+  }
+}
+function libraryWarningPreview(config, scan, maximum = 10) {
+  if (scan.warnings.length === 0) return "";
+  const labels = new Map(config.library_roots.map((root) => [root.id, root.label]));
+  const lines = scan.warnings.slice(0, maximum).map((warning) => {
+    const root = labels.get(warning.root_id) ?? "Resume root";
+    const relative = warning.relative_path?.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 160);
+    const location = relative ? `${root}/${relative}` : root;
+    return `- ${location}: ${scanWarningMessage(warning.code, relative?.toLowerCase().endsWith(".pdf") === true)}`;
+  });
+  if (scan.warnings.length > maximum) lines.push(`- ${scan.warnings.length - maximum} more notice${scan.warnings.length - maximum === 1 ? "" : "s"}`);
+  return ["Library notices:", ...lines].join("\n");
 }
 function librarySummary(config, scan, persisted2) {
   const originals = scan.records.filter((record) => record.kind === "original").length;
@@ -1277,6 +1386,7 @@ function librarySummary(config, scan, persisted2) {
     `${assisted} assisted variants`,
     `${tooLarge} too large`,
     `${staleRoots} stale roots`,
+    `${scan.warnings.length} notices`,
     `${persisted2 ? "persisted" : "transient"} session`
   ].join(" • ");
 }
@@ -1644,7 +1754,8 @@ function rankMatches(values) {
 // src/workflow/commands.ts
 var CONSENT_COPY = "Pi may save private vacancy/resume text and result cards in the current session JSONL. `pi-career` does not write documents outside the files you chose. Use `pi --no-session` for an ephemeral run. This is not secure erasure.";
 var TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
-var BANNER = "pi-career not configured — run /career-setup";
+var SETUP_BANNER = "pi-career not configured — run /career-setup";
+var EMPTY_LIBRARY_BANNER = "No resumes found — add a searchable PDF, Markdown, or text file to a configured root, then run /career-library.";
 var MAX_FILTER_CHARACTERS = 200;
 var RunOwner = class {
   constructor(uuid) {
@@ -1708,6 +1819,7 @@ ${record.id}`.toLowerCase().includes(filter)
 }
 function recordBadges(record) {
   return [
+    ...record.format === "pdf" ? ["PDF"] : [],
     ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
     ...record.too_large_for_core_input === true ? ["too large"] : []
   ].join(", ");
@@ -1905,12 +2017,14 @@ function registerCareerCommands(pi, options = {}) {
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
       const summary = setupSummary(config, scan, persisted(ctx));
+      const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
         return;
       }
-      ctx.ui.notify(summary, "info");
-      if (config.library_roots.length === 0) ctx.ui.notify(BANNER, "warning");
+      ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
+      if (config.library_roots.length === 0) ctx.ui.notify(SETUP_BANNER, "warning");
+      else if (scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       const action = await ctx.ui.select("Career setup", ["Add root", "Rescan", "Status", "Close"]);
       owner.assert(run, ctx);
       if (action === "Add root") {
@@ -1921,9 +2035,20 @@ function registerCareerCommands(pi, options = {}) {
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         owner.assert(run, ctx);
         const rescanned = await scanLibrary(updated);
-        ctx.ui.notify(setupSummary(updated, rescanned, persisted(ctx)), "info");
-      } else if (action === "Rescan" || action === "Status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([
+          setupSummary(updated, rescanned, persisted(ctx)),
+          libraryWarningPreview(updated, rescanned)
+        ].filter(Boolean).join("\n"), "info");
+        if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
+      } else if (action === "Rescan") {
+        const rescanned = await scanLibrary(config);
+        owner.assert(run, ctx);
+        ctx.ui.notify([
+          setupSummary(config, rescanned, persisted(ctx)),
+          libraryWarningPreview(config, rescanned)
+        ].filter(Boolean).join("\n"), "info");
+      } else if (action === "Status") {
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       }
     })
   });
@@ -1937,14 +2062,14 @@ function registerCareerCommands(pi, options = {}) {
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
       const summary = librarySummary(config, scan, persisted(ctx));
+      const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
-        ctx.ui.notify(summary, "info");
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
         return;
       }
       const roots = config.library_roots.map(rootOption).join("\n") || "No configured roots";
-      ctx.ui.notify(`${roots}
-${libraryIndexPreview(config, scan)}
-${summary}`, "info");
+      ctx.ui.notify([roots, libraryIndexPreview(config, scan), summary, notices].filter(Boolean).join("\n"), "info");
+      if (config.library_roots.length > 0 && scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       const action = await ctx.ui.select("Career library", [
         "Browse",
         "Add root",
@@ -1956,7 +2081,7 @@ ${summary}`, "info");
       owner.assert(run, ctx);
       if (action === "Browse") {
         if (scan.records.length === 0) {
-          ctx.ui.notify(BANNER, "warning");
+          ctx.ui.notify(config.library_roots.length === 0 ? SETUP_BANNER : EMPTY_LIBRARY_BANNER, "warning");
           return;
         }
         const optionsByLabel = new Map(scan.records.map((record2) => [recordOption(record2), record2]));
@@ -1969,7 +2094,15 @@ ${summary}`, "info");
         const updated = await addLibraryRoot(config, rootPath);
         owner.assert(run, ctx);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
-        ctx.ui.notify("Resume root added.", "info");
+        owner.assert(run, ctx);
+        const rescanned = await scanLibrary(updated);
+        ctx.ui.notify([
+          "Resume root added.",
+          libraryIndexPreview(updated, rescanned),
+          librarySummary(updated, rescanned, persisted(ctx)),
+          libraryWarningPreview(updated, rescanned)
+        ].filter(Boolean).join("\n"), "info");
+        if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
       } else if (action === "Remove root") {
         const byOption = new Map(config.library_roots.map((root2) => [rootOption(root2), root2]));
         const selected = await ctx.ui.select("Remove root from config", [...byOption.keys()]);
@@ -1979,8 +2112,16 @@ ${summary}`, "info");
         owner.assert(run, ctx);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         ctx.ui.notify("Resume root removed from config; no files were changed.", "info");
-      } else if (action === "Rescan" || action === "Status") {
-        ctx.ui.notify(summary, "info");
+      } else if (action === "Rescan") {
+        const rescanned = await scanLibrary(config);
+        owner.assert(run, ctx);
+        ctx.ui.notify([
+          libraryIndexPreview(config, rescanned),
+          librarySummary(config, rescanned, persisted(ctx)),
+          libraryWarningPreview(config, rescanned)
+        ].filter(Boolean).join("\n"), "info");
+      } else if (action === "Status") {
+        ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       }
     })
   });
@@ -2166,13 +2307,15 @@ ${summary}`, "info");
     transientNoticeSession = void 0;
     try {
       const { config, scan } = await refreshState(ctx);
-      if (ctx.hasUI && (config.library_roots.length === 0 || scan.records.length === 0)) {
-        ctx.ui.setWidget("pi-career-setup", [BANNER]);
+      if (ctx.hasUI && config.library_roots.length === 0) {
+        ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+      } else if (ctx.hasUI && scan.records.length === 0) {
+        ctx.ui.setWidget("pi-career-setup", [EMPTY_LIBRARY_BANNER]);
       } else if (ctx.hasUI) {
         ctx.ui.setWidget("pi-career-setup", void 0);
       }
     } catch {
-      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [BANNER]);
+      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
     }
   });
   pi.on("session_tree", async (_event, ctx) => {

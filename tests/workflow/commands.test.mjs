@@ -11,7 +11,15 @@ import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/con
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { createConsentEntry, createVacancyEntry } from "../../src/workflow/session-state.ts";
 import { CORE_MAX_CHARACTERS } from "../../src/workflow/text-limit.ts";
-import { makeContext, makeFakePi, matchResult, normalizationResult, resumeResult, uuidSequence } from "./helpers.mjs";
+import {
+  makeContext,
+  makeFakePi,
+  matchResult,
+  normalizationResult,
+  resumeResult,
+  syntheticTextPdf,
+  uuidSequence,
+} from "./helpers.mjs";
 
 const now = () => new Date("2026-08-04T17:56:06.000Z");
 
@@ -111,6 +119,67 @@ test("vacancy validation counts Unicode code points and preserves exact untrimme
   assert.equal(rejectedCalls, 0);
   assert.equal(rejectedFake.entries.some((entry) => entry.data.kind === "vacancy"), false);
   assert.ok(rejectedRpc.notifications.some(({ message }) => message.includes("arguments are invalid")));
+});
+
+test("library status explains why an unusable PDF was not indexed", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-notice-"));
+  try {
+    const root = path.join(temp, "library");
+    const agentDir = path.join(temp, "agent");
+    await mkdir(root);
+    await writeFile(path.join(root, "scanned-resume.pdf"), "%PDF-1.4\nnot searchable\n");
+    await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root, "Synthetic library"), uuidSequence());
+
+    const fake = makeFakePi();
+    registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    await fake.commands.get("career-library").handler("status", rpc.ctx);
+    assert.ok(rpc.notifications.some(({ message }) =>
+      message.includes("scanned-resume.pdf") &&
+      message.includes("searchable, unencrypted PDF") &&
+      message.includes("OCR is not supported")));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("searchable PDF resumes reach deterministic analysis without manual conversion", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-analyze-"));
+  try {
+    const root = path.join(temp, "library");
+    const agentDir = path.join(temp, "agent");
+    await mkdir(root);
+    await writeFile(path.join(root, "synthetic-resume.pdf"), syntheticTextPdf([
+      "Synthetic Resume",
+      "TypeScript testing experience",
+    ]));
+    await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root, "Synthetic library"), uuidSequence());
+
+    const fake = makeFakePi();
+    let analyzedText;
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: async (invocation) => {
+        analyzedText = JSON.parse(invocation.inputJson).text;
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
+    });
+    const rpc = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Close"],
+    });
+    const recordSelection = rpc.ctx.ui.select;
+    rpc.ctx.ui.select = async (title, options) => title === "Choose an original resume"
+      ? options[0]
+      : recordSelection(title, options);
+
+    await fake.commands.get("career-analyze").handler("", rpc.ctx);
+    assert.match(analyzedText, /Synthetic Resume/);
+    assert.match(analyzedText, /TypeScript testing experience/);
+    assert.equal(fake.entries.filter((entry) => entry.data.kind === "result_card").length, 1);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
 });
 
 test("match runs normalize, all analyses, then all matches sequentially with no model or network", async () => {

@@ -38,7 +38,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: git diff --exit-code -- dist/index.js
+      - run: git diff --exit-code -- dist/index.js dist/pdf-worker.js
       - run: npm run check
       - run: npm run test:bundled-runtime
       - run: npm run check:publish

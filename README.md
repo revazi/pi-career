@@ -74,12 +74,14 @@ Local-path registrations follow later filesystem changes. Restart Pi or run `/re
 
 ## Use
 
-Start with the setup flow:
+Start with the setup flow, select a directory, and place a searchable PDF, Markdown, or text résumé in it:
 
 ```text
 /career-setup
 /career-library
 ```
+
+`/career-library` immediately shows indexed files and actionable notices. Searchable, unencrypted PDFs are extracted locally in a bounded worker (10 MiB and 20 pages maximum); image-only/scanned PDFs require OCR or export to Markdown/text first.
 
 Then set a vacancy and run deterministic matching or analysis:
 
@@ -103,7 +105,7 @@ pi --no-session
 
 This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
 
-The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.md`/`.txt` roots, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files.
+The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files.
 
 Oversized Core results fail without partial output. Full-result export is not available through this package.
 
@@ -124,14 +126,14 @@ There is no crate publication, custom GitHub Release asset, signing, or notariza
 
 ## Development
 
-TypeScript under `src/` is authoritative. `dist/index.js` is the reproducible tracked bundle Pi loads. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
+TypeScript under `src/` is authoritative. `dist/index.js` and the isolated `dist/pdf-worker.js` are reproducible tracked bundles. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
 
 Release verification uses Node.js 22.19.0 and npm 10.9.3:
 
 ```bash
 npm ci
 npm run build
-git diff --exit-code -- dist/index.js
+git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
@@ -150,7 +152,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
+`npm run build` rebuilds only the generated `dist/index.js` and `dist/pdf-worker.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
 
 ## Maintainer and support
 

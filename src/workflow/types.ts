@@ -19,7 +19,7 @@ export interface CareerConfig {
 }
 
 export type ResumeKind = "original" | "assisted_variant";
-export type ResumeFormat = "markdown" | "text";
+export type ResumeFormat = "markdown" | "text" | "pdf";
 
 export interface ResumeRecord {
   id: string;
@@ -42,6 +42,7 @@ export type ScanWarningCode =
   | "root_file_cap_reached"
   | "total_file_cap_reached"
   | "raw_file_too_large"
+  | "pdf_text_unavailable"
   | "invalid_utf8"
   | "invalid_assisted_sidecar"
   | "scan_entry_unavailable";
