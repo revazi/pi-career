@@ -24,8 +24,8 @@ Workflow commands:
 - `/career-application` — isolate one company/role attempt in branch-aware session state
 - `/career-vacancy` — set or clear bounded vacancy text
 - `/career-match` — normalize a vacancy and conservatively rank eligible resumes
-- `/career-analyze` — inspect deterministic readiness details for one resume
-- `/career-workbench` — prepare a reviewable private prompt for the normal Pi editor
+- `/career-analyze` — inspect complete deterministic readiness details in a bounded, paged viewer
+- `/career-workbench` — prepare a guided, reviewable private rebuild prompt for the normal Pi editor
 
 `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
 
@@ -102,9 +102,11 @@ To continue with the selected Pi agent, prepare a reviewable workbench prompt:
 
 `/career-application` gives each company/role attempt an immutable session-scoped ID, scopes vacancy/result entries to that ID, and names an otherwise unnamed Pi session. Use `/new` before creating another application so prior company prompts never remain in the new model conversation. It does not create workspace files yet. The planned opt-in filesystem layout keeps one flat folder per company/role attempt; see [`docs/application-workspaces.md`](docs/application-workspaces.md).
 
-The workbench never sends automatically. It places the complete private source context in Pi's editor so the user can inspect it before submitting. Originals remain immutable. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and return targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics.
+The workbench never sends automatically. It offers guided score explanation, Career Core-reviewed improvement planning, a question-led rewrite interview, direct reviewed exact replacements, and—when a current vacancy exists—reviewed tailoring. The interview first reviews the deterministic priorities, then asks one small batch of factual questions and stops; only a later answer can become a bounded replacement proposal for Core review. The workbench places the complete private source context in Pi's editor so the user can inspect it before submitting. After submission, the selected Pi agent reruns the complete deterministic analysis rather than relying only on the displayed score, and every external proposal must pass the corresponding Core review. A non-PDF tailored variant can be materialized only in a later turn after the user explicitly selects canonical change IDs.
 
-For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available. Preserve every returned warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, and assisted/non-authoritative label.
+Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files.
+
+For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available, and reuse unchanged discovery/schema results within the same Pi session and Core version. Complete tool JSON remains authoritative; concise answers should not reprint an unchanged baseline embedded in each review, but must preserve exact warnings, discard codes, limitations, and the evidence/source spans used for presented findings.
 
 `CAREER_CLI_PATH` is an optional developer/recovery override for a separately reviewed compatible executable. Normal users do not set it.
 
@@ -120,7 +122,7 @@ This is not secure erasure and does not remove previous sessions, shell history,
 
 The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
 
-Oversized Core results fail without partial output. Full-result export is not available through this package.
+Successful Core results within the process limits can be inspected completely in a transient, paged detail viewer; the viewer does not store or export them. Results that exceed the process limits still fail without partial output. Full-result file export is not available through this package.
 
 ## Security and release provenance
 

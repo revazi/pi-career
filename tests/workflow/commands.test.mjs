@@ -229,7 +229,43 @@ test("searchable PDF resumes reach deterministic analysis without manual convers
   }
 });
 
-test("workbench prepares a reviewable private prompt without calling a model or Core", async () => {
+test("analyze result opens the guided workbench and asks Pi to rerun the complete analysis", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-analyze-workbench-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    let calls = 0;
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: async () => {
+        calls += 1;
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
+    });
+    const editorText = [];
+    const rpc = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Open guided Pi rebuild workbench", "Explain my score — resume only", "Prepare in editor"],
+      editors: ["Explain the complete score."],
+      editorText,
+    });
+    const select = rpc.ctx.ui.select;
+    rpc.ctx.ui.select = async (title, options) => title === "Choose an original resume"
+      ? options[0]
+      : select(title, options);
+
+    await fake.commands.get("career-analyze").handler("", rpc.ctx);
+    assert.equal(calls, 1, "the command analyzes once but the prepared model prompt performs no hidden second run");
+    assert.equal(editorText.length, 1);
+    assert.match(editorText[0], /Explain the complete score/);
+    assert.match(editorText[0], /complete result, not a prior score or card/);
+    assert.match(editorText[0], /then stop/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("workbench prepares a guided reviewed-variation prompt without calling a model or Core", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-workbench-"));
   try {
     const { agentDir } = await configuredAgent(temp);
@@ -248,7 +284,7 @@ test("workbench prepares a reviewable private prompt without calling a model or 
     const editorText = [];
     const rpc = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: ["Tailor to current vacancy", "Prepare in editor"],
+      selects: ["Create a tailored variation — current vacancy", "Prepare in editor"],
       editors: ["Show me the safest targeted changes."],
       editorText,
     });
@@ -265,8 +301,47 @@ test("workbench prepares a reviewable private prompt without calling a model or 
     assert.match(editorText[0], /Synthetic Backend Vacancy/);
     assert.match(editorText[0], /original resume is immutable/);
     assert.match(editorText[0], /career_core_discover, career_core_resume, and career_core_job/);
+    assert.match(editorText[0], /use both complete baselines/);
+    assert.match(editorText[0], /Call "variant-review" once/);
+    assert.match(editorText[0], /select retained IDs, then stop/);
+    assert.match(editorText[0], /Only after later selection/);
+    assert.match(editorText[0], /call "variant-materialize"/);
     assert.ok(rpc.notifications.some(({ message }) => message.includes("Nothing was sent automatically")));
     assert.ok(rpc.notifications.every(({ message }) => !message.includes("Synthetic resume content")));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("workbench exposes guided resume-only modes and withholds tailored variation without a vacancy", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-workbench-modes-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: async () => { throw new Error("must not run"); },
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    let modeOptions;
+    rpc.ctx.ui.select = async (title, options) => {
+      if (title === "Choose an original resume") return options[0];
+      if (title === "Career workbench") {
+        modeOptions = options;
+        return "Cancel";
+      }
+      return undefined;
+    };
+
+    await fake.commands.get("career-workbench").handler("", rpc.ctx);
+    assert.deepEqual(modeOptions, [
+      "Explain my score — resume only",
+      "Create a reviewed improvement plan — resume only",
+      "Guided rewrite interview — resume only",
+      "Draft reviewed replacements — resume only",
+      "Ask my own question — resume only",
+      "Cancel",
+    ]);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

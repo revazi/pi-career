@@ -16,6 +16,7 @@ import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput
 import {
   analyzeDetailSections,
   deriveMatchTieStateIds,
+  DetailViewer,
   detailText,
   libraryIndexPreview,
   librarySummary,
@@ -362,7 +363,21 @@ async function showDetail(
 ): Promise<void> {
   const choice = await ctx.ui.select("Career detail", [...sections.map((section) => section.label), "Close"]);
   const section = sections.find((candidate) => candidate.label === choice);
-  if (section !== undefined) ctx.ui.notify(detailText(section), "info");
+  if (section === undefined) return;
+  const text = detailText(section);
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(text, "info");
+    return;
+  }
+  await ctx.ui.custom<void>((tui, theme, keybindings, done) => new DetailViewer(
+    section.label,
+    text,
+    theme,
+    keybindings,
+    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
+    () => tui.requestRender(),
+    () => done(undefined),
+  ));
 }
 
 export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntimeOptions = {}): void {
@@ -429,10 +444,18 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     owner.assert(run, ctx);
     const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
     const modes = new Map<string, WorkbenchMode>([
-      ["Improve resume — resume only", "improve"],
+      ["Explain my score — resume only", "explain"],
+      ["Create a reviewed improvement plan — resume only", "plan"],
+      ["Guided rewrite interview — resume only", "rewrite"],
+      ["Draft reviewed replacements — resume only", "replacements"],
       ...(state.vacancy === undefined
         ? []
-        : [["Tailor to current vacancy", "tailor"] as [string, WorkbenchMode]]),
+        : [[
+          resume.format === "pdf"
+            ? "Create reviewed tailoring changes — PDF manual application"
+            : "Create a tailored variation — current vacancy",
+          "tailor",
+        ] as [string, WorkbenchMode]]),
       ["Ask my own question — resume only", "question"],
     ]);
     const selected = await ctx.ui.select("Career workbench", [...modes.keys(), "Cancel"]);
@@ -766,7 +789,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
   });
 
   pi.registerCommand("career-workbench", {
-    description: "Prepare a private, style-preserving prompt for the selected Pi agent",
+    description: "Prepare a guided private resume-rebuild prompt for the selected Pi agent",
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
@@ -829,18 +852,18 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       renderedData.set(card.state_id, card);
       ctx.ui.notify(plainResultCard(card), "info");
       const actions = [
-        "View detail",
+        "View all analysis or one section",
         ...(currentState.vacancy === undefined ? [] : ["Career match this resume"]),
-        "Prepare Pi workbench prompt",
+        "Open guided Pi rebuild workbench",
         "Close",
       ];
       const action = await ctx.ui.select("Career analyze result", actions);
-      if (action === "View detail") {
+      if (action === "View all analysis or one section") {
         await showDetail(ctx, analyzeDetailSections(result));
       } else if (action === "Career match this resume") {
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
-      } else if (action === "Prepare Pi workbench prompt") {
+      } else if (action === "Open guided Pi rebuild workbench") {
         await prepareWorkbenchPrompt(ctx, run, resume);
       }
     }),

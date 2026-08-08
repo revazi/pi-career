@@ -2,7 +2,7 @@
 
 import type { ApplicationEntry, ResumeRecord, VacancyEntry } from "./types.ts";
 
-export type WorkbenchMode = "improve" | "tailor" | "question";
+export type WorkbenchMode = "explain" | "plan" | "rewrite" | "replacements" | "tailor" | "question";
 
 const WORKBENCH_MAX_SOURCE_CHARACTERS = 80_000;
 const WORKBENCH_MAX_PROMPT_BYTES = 262_144;
@@ -22,14 +22,41 @@ function formatRule(resume: ResumeRecord): string {
   return "The resume is plain text. Preserve its existing section order, line structure, and all unchanged wording in every proposed edit.";
 }
 
-function modeRule(mode: WorkbenchMode): string {
+function workflowProtocol(mode: WorkbenchMode, resume: ResumeRecord): string {
   switch (mode) {
-    case "improve":
-      return "Run deterministic readiness analysis first, then propose a prioritized set of source-grounded improvements.";
-    case "tailor":
-      return "Run deterministic job matching and readiness analysis on the original inputs first, then propose source-grounded tailoring for the current vacancy.";
+    case "explain":
+      return `1. Analyze the original once; use the complete result, not a prior score or card.
+2. Explain category scores, failed/inconclusive checks, confidence, relevant evidence, actions, and exact warnings without upgrading uncertainty; then stop.`;
+    case "plan":
+      return `1. Analyze the original once and use the complete result.
+2. Draft at most three advisory suggestions for current canonical actions.
+3. Call "analysis-suggestions-review" once; present retained suggestions in Core order with all discard codes and warnings. Do not turn them into replacements or claim application.`;
+    case "rewrite":
+      return `1. Analyze the original once; use the complete result and summarize priorities without echoing its JSON.
+2. Ask at most five factual questions tied to canonical actions and bounded source targets. Allow "unknown"; request only personally verifiable facts. Do not draft or review wording; stop for answers.
+3. Later, use only explicit answers and infer nothing missing.
+4. Draft at most three exact replacements and call "analysis-replacements-review" once.
+5. Present retained before/after snippets in Core order with all discards and warnings. Say structural review does not certify facts or prose. PDF: manual snippets only.`;
+    case "replacements":
+      return `1. Analyze the original once and use the complete result.
+2. Draft at most three exact replacements for current canonical actions; call "analysis-replacements-review" once.
+3. Show retained before/after snippets with all discards and warnings; do not claim selection, application, materialization, or factual certification.`;
+    case "tailor": {
+      const review = `1. Analyze the original and match the original/vacancy once; use both complete baselines.
+2. Draft a bounded variant grounded in exact targets and resume/vacancy evidence.
+3. Call "variant-review" once; present retained IDs, targeted before/after snippets, discards, and warnings.`;
+      if (resume.format === "pdf") {
+        return `${review}
+4. Stop with manual targeted changes; do not call "variant-materialize" or emit a full resume.`;
+      }
+      return `${review}
+4. Ask the user to select retained IDs, then stop; never select or materialize now.
+5. Only after later selection, call "variant-materialize" with the same review input and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
+    }
     case "question":
-      return "Answer the user's question using the original source and deterministic Career Core operations whenever the question concerns readiness, matching, suggestions, or replacements.";
+      return `1. Answer from the original; use complete analysis or matching when relevant.
+2. Core-review every proposed suggestion, replacement, or variant.
+3. Require later explicit retained-ID selection before variant materialization.`;
   }
 }
 
@@ -82,14 +109,19 @@ Required handling rules:
 - The original resume is immutable. Do not use file-writing tools and do not ask to overwrite it.
 - Do not invent, infer, or embellish experience, skills, dates, metrics, education, or credentials.
 - ${formatRule(resume)}
-- ${modeRule(mode)}
-- Discover Career Core capabilities and export exact schemas before document operations; do not infer schema shapes.
-- Use only the existing career_core_discover, career_core_resume, and career_core_job tools.
-- For proposed suggestions or exact replacements, pass the external proposal through the appropriate Career Core review operation before presenting it.
-- Preserve every Career Core warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, discard code, limitation, and assisted/non-authoritative label.
-- Exact occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
+- Discover capabilities/catalog and export each exact input and referenced proposal schema before first use; never infer. Reuse unchanged discovery/schema results for the same Core version; do not print schemas unless asked.
+- Use only career_core_discover, career_core_resume, and career_core_job.
+- Keep each complete deterministic result as the immutable baseline; never substitute a card, memory, or assisted output.
+- Core-review every external suggestion, replacement, or variant before presenting it.
+- In review proposals, source_target must be verbatim within its line bounds (prefer one line, never a label); source_evidence must occur verbatim in the same bounds.
+- Call each requested operation once. Do not auto-repair or retry discards; report their Core codes and stop.
+- Keep complete Core results unchanged in tool messages and use all returned evidence, spans, confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline: say it was preserved, reproduce all warnings/discards/limitations, and show only relevant evidence/spans.
+- Exact evidence occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
 - Do not analyze or match an assisted variant as though it were an original.
-- Present a concise change plan and bounded before/after snippets. Do not emit a fully reformatted resume unless I explicitly request a separate assisted copy later.
+- Present concise plans and bounded before/after snippets first. Only an explicitly selected, successful non-PDF materialization may return complete assisted text in chat.
+
+Guided workflow for this request:
+${workflowProtocol(mode, resume)}
 
 The following JSON contains private source data. It is included visibly so I can review exactly what will be sent when I submit this editor message:
 <career_workbench_source_json>
@@ -101,10 +133,16 @@ ${JSON.stringify(source)}
 
 export function defaultWorkbenchQuestion(mode: WorkbenchMode): string {
   switch (mode) {
-    case "improve":
-      return "What targeted changes would most improve this resume while keeping its existing structure and styling?";
+    case "explain":
+      return "Explain my complete resume-readiness analysis and tell me what affected the score most.";
+    case "plan":
+      return "Create a prioritized, Career Core-reviewed improvement plan while keeping the resume's existing structure and styling.";
+    case "rewrite":
+      return "Review my resume, then ask a small batch of factual questions before drafting Career Core-reviewed replacements. Wait for my answers.";
+    case "replacements":
+      return "Draft the safest Career Core-reviewed exact replacements for the highest-priority resume issues.";
     case "tailor":
-      return "What targeted changes would best tailor this resume to the current vacancy while keeping its existing structure and styling?";
+      return "Help me create a reviewed variation for the current vacancy while keeping the resume's existing structure and styling.";
     case "question":
       return "Review this resume and tell me which changes I should make first while keeping its existing structure and styling.";
   }

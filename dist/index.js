@@ -758,7 +758,13 @@ function serializeCoreInput(value) {
 import os from "node:os";
 import path4 from "node:path";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Container, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  wrapTextWithAnsi
+} from "@earendil-works/pi-tui";
 
 // src/workflow/scan.ts
 import { createHash as createHash3 } from "node:crypto";
@@ -1371,7 +1377,6 @@ function withCurrentStaleness(state, scan) {
 }
 
 // src/workflow/renderers.ts
-var UI_TEXT_MAX = 8e3;
 function privacyDisplayPath(absolutePath) {
   const home = os.homedir();
   const relative = path4.relative(home, absolutePath);
@@ -1624,6 +1629,7 @@ function rankedRows(ranked) {
 }
 function analyzeDetailSections(result) {
   return [
+    { label: "All", value: result, completeResult: true },
     { label: "checks", value: result.checks },
     { label: "confidence_context", value: result.confidence_context },
     { label: "top_strengths", value: result.top_strengths },
@@ -1634,6 +1640,7 @@ function analyzeDetailSections(result) {
 }
 function matchDetailSections(result, vacancyText) {
   return [
+    { label: "All", value: result, completeResult: true },
     { label: "category_results", value: result.category_results },
     { label: "confidence_context", value: result.confidence_context },
     { label: "top_strengths", value: result.top_strengths },
@@ -1644,12 +1651,80 @@ function matchDetailSections(result, vacancyText) {
   ];
 }
 function detailText(section) {
-  const text = JSON.stringify({ [section.label]: section.value }, null, 2);
-  if (Buffer.byteLength(text, "utf8") > UI_TEXT_MAX) {
-    return `${section.label}: detail is too large for the bounded pane; no partial detail is shown.`;
-  }
-  return text;
+  return JSON.stringify(
+    section.completeResult === true ? section.value : { [section.label]: section.value },
+    null,
+    2
+  ) ?? "null";
 }
+var DetailViewer = class {
+  constructor(label, text, theme, keybindings, visibleLineCount, requestRender, close) {
+    this.label = label;
+    this.text = text;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.visibleLineCount = visibleLineCount;
+    this.requestRender = requestRender;
+    this.close = close;
+  }
+  label;
+  text;
+  theme;
+  keybindings;
+  visibleLineCount;
+  requestRender;
+  close;
+  offset = 0;
+  wrappedWidth;
+  wrappedLines = [];
+  maximumOffset() {
+    return Math.max(0, this.wrappedLines.length - this.visibleLineCount);
+  }
+  moveTo(offset) {
+    const next = Math.max(0, Math.min(this.maximumOffset(), offset));
+    if (next === this.offset) return;
+    this.offset = next;
+    this.requestRender();
+  }
+  handleInput(data) {
+    if (this.keybindings.matches(data, "tui.select.cancel")) {
+      this.close();
+    } else if (this.keybindings.matches(data, "tui.select.up")) {
+      this.moveTo(this.offset - 1);
+    } else if (this.keybindings.matches(data, "tui.select.down")) {
+      this.moveTo(this.offset + 1);
+    } else if (this.keybindings.matches(data, "tui.select.pageUp")) {
+      this.moveTo(this.offset - this.visibleLineCount);
+    } else if (this.keybindings.matches(data, "tui.select.pageDown")) {
+      this.moveTo(this.offset + this.visibleLineCount);
+    } else if (matchesKey(data, Key.home)) {
+      this.moveTo(0);
+    } else if (matchesKey(data, Key.end)) {
+      this.moveTo(this.maximumOffset());
+    }
+  }
+  render(width) {
+    const renderWidth = Math.max(1, width);
+    if (this.wrappedWidth !== renderWidth) {
+      this.wrappedWidth = renderWidth;
+      this.wrappedLines = wrapTextWithAnsi(this.text, renderWidth);
+      if (this.wrappedLines.length === 0) this.wrappedLines = [""];
+      this.offset = Math.min(this.offset, this.maximumOffset());
+    }
+    const visible = this.wrappedLines.slice(this.offset, this.offset + this.visibleLineCount);
+    const first = this.offset + 1;
+    const last = this.offset + visible.length;
+    return [
+      this.theme.fg("accent", this.theme.bold(`Career detail • ${this.label}`)),
+      ...visible,
+      this.theme.fg("dim", `${first}-${last} of ${this.wrappedLines.length} visual lines`),
+      this.theme.fg("dim", "↑↓ line • PgUp/PgDn page • Home/End • Esc close")
+    ].map((line) => truncateToWidth(line, renderWidth));
+  }
+  invalidate() {
+    this.wrappedWidth = void 0;
+  }
+};
 
 // src/workflow/result-projection.ts
 function isRecord3(value) {
@@ -1835,14 +1910,41 @@ function formatRule(resume) {
   }
   return "The resume is plain text. Preserve its existing section order, line structure, and all unchanged wording in every proposed edit.";
 }
-function modeRule(mode) {
+function workflowProtocol(mode, resume) {
   switch (mode) {
-    case "improve":
-      return "Run deterministic readiness analysis first, then propose a prioritized set of source-grounded improvements.";
-    case "tailor":
-      return "Run deterministic job matching and readiness analysis on the original inputs first, then propose source-grounded tailoring for the current vacancy.";
+    case "explain":
+      return `1. Analyze the original once; use the complete result, not a prior score or card.
+2. Explain category scores, failed/inconclusive checks, confidence, relevant evidence, actions, and exact warnings without upgrading uncertainty; then stop.`;
+    case "plan":
+      return `1. Analyze the original once and use the complete result.
+2. Draft at most three advisory suggestions for current canonical actions.
+3. Call "analysis-suggestions-review" once; present retained suggestions in Core order with all discard codes and warnings. Do not turn them into replacements or claim application.`;
+    case "rewrite":
+      return `1. Analyze the original once; use the complete result and summarize priorities without echoing its JSON.
+2. Ask at most five factual questions tied to canonical actions and bounded source targets. Allow "unknown"; request only personally verifiable facts. Do not draft or review wording; stop for answers.
+3. Later, use only explicit answers and infer nothing missing.
+4. Draft at most three exact replacements and call "analysis-replacements-review" once.
+5. Present retained before/after snippets in Core order with all discards and warnings. Say structural review does not certify facts or prose. PDF: manual snippets only.`;
+    case "replacements":
+      return `1. Analyze the original once and use the complete result.
+2. Draft at most three exact replacements for current canonical actions; call "analysis-replacements-review" once.
+3. Show retained before/after snippets with all discards and warnings; do not claim selection, application, materialization, or factual certification.`;
+    case "tailor": {
+      const review = `1. Analyze the original and match the original/vacancy once; use both complete baselines.
+2. Draft a bounded variant grounded in exact targets and resume/vacancy evidence.
+3. Call "variant-review" once; present retained IDs, targeted before/after snippets, discards, and warnings.`;
+      if (resume.format === "pdf") {
+        return `${review}
+4. Stop with manual targeted changes; do not call "variant-materialize" or emit a full resume.`;
+      }
+      return `${review}
+4. Ask the user to select retained IDs, then stop; never select or materialize now.
+5. Only after later selection, call "variant-materialize" with the same review input and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
+    }
     case "question":
-      return "Answer the user's question using the original source and deterministic Career Core operations whenever the question concerns readiness, matching, suggestions, or replacements.";
+      return `1. Answer from the original; use complete analysis or matching when relevant.
+2. Core-review every proposed suggestion, replacement, or variant.
+3. Require later explicit retained-ID selection before variant materialization.`;
   }
 }
 function validWorkbenchQuestion(value) {
@@ -1884,14 +1986,19 @@ Required handling rules:
 - The original resume is immutable. Do not use file-writing tools and do not ask to overwrite it.
 - Do not invent, infer, or embellish experience, skills, dates, metrics, education, or credentials.
 - ${formatRule(resume)}
-- ${modeRule(mode)}
-- Discover Career Core capabilities and export exact schemas before document operations; do not infer schema shapes.
-- Use only the existing career_core_discover, career_core_resume, and career_core_job tools.
-- For proposed suggestions or exact replacements, pass the external proposal through the appropriate Career Core review operation before presenting it.
-- Preserve every Career Core warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, discard code, limitation, and assisted/non-authoritative label.
-- Exact occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
+- Discover capabilities/catalog and export each exact input and referenced proposal schema before first use; never infer. Reuse unchanged discovery/schema results for the same Core version; do not print schemas unless asked.
+- Use only career_core_discover, career_core_resume, and career_core_job.
+- Keep each complete deterministic result as the immutable baseline; never substitute a card, memory, or assisted output.
+- Core-review every external suggestion, replacement, or variant before presenting it.
+- In review proposals, source_target must be verbatim within its line bounds (prefer one line, never a label); source_evidence must occur verbatim in the same bounds.
+- Call each requested operation once. Do not auto-repair or retry discards; report their Core codes and stop.
+- Keep complete Core results unchanged in tool messages and use all returned evidence, spans, confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline: say it was preserved, reproduce all warnings/discards/limitations, and show only relevant evidence/spans.
+- Exact evidence occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
 - Do not analyze or match an assisted variant as though it were an original.
-- Present a concise change plan and bounded before/after snippets. Do not emit a fully reformatted resume unless I explicitly request a separate assisted copy later.
+- Present concise plans and bounded before/after snippets first. Only an explicitly selected, successful non-PDF materialization may return complete assisted text in chat.
+
+Guided workflow for this request:
+${workflowProtocol(mode, resume)}
 
 The following JSON contains private source data. It is included visibly so I can review exactly what will be sent when I submit this editor message:
 <career_workbench_source_json>
@@ -1901,10 +2008,16 @@ ${JSON.stringify(source)}
 }
 function defaultWorkbenchQuestion(mode) {
   switch (mode) {
-    case "improve":
-      return "What targeted changes would most improve this resume while keeping its existing structure and styling?";
+    case "explain":
+      return "Explain my complete resume-readiness analysis and tell me what affected the score most.";
+    case "plan":
+      return "Create a prioritized, Career Core-reviewed improvement plan while keeping the resume's existing structure and styling.";
+    case "rewrite":
+      return "Review my resume, then ask a small batch of factual questions before drafting Career Core-reviewed replacements. Wait for my answers.";
+    case "replacements":
+      return "Draft the safest Career Core-reviewed exact replacements for the highest-priority resume issues.";
     case "tailor":
-      return "What targeted changes would best tailor this resume to the current vacancy while keeping its existing structure and styling?";
+      return "Help me create a reviewed variation for the current vacancy while keeping the resume's existing structure and styling.";
     case "question":
       return "Review this resume and tell me which changes I should make first while keeping its existing structure and styling.";
   }
@@ -2103,7 +2216,21 @@ function matchBatchSummary(cards, ranked, unavailable, runId) {
 async function showDetail(ctx, sections) {
   const choice = await ctx.ui.select("Career detail", [...sections.map((section2) => section2.label), "Close"]);
   const section = sections.find((candidate) => candidate.label === choice);
-  if (section !== void 0) ctx.ui.notify(detailText(section), "info");
+  if (section === void 0) return;
+  const text = detailText(section);
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(text, "info");
+    return;
+  }
+  await ctx.ui.custom((tui, theme, keybindings, done) => new DetailViewer(
+    section.label,
+    text,
+    theme,
+    keybindings,
+    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
+    () => tui.requestRender(),
+    () => done(void 0)
+  ));
 }
 function registerCareerCommands(pi, options = {}) {
   const dependencies = {
@@ -2161,8 +2288,14 @@ function registerCareerCommands(pi, options = {}) {
     owner.assert(run, ctx);
     const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
     const modes = new Map([
-      ["Improve resume — resume only", "improve"],
-      ...state.vacancy === void 0 ? [] : [["Tailor to current vacancy", "tailor"]],
+      ["Explain my score — resume only", "explain"],
+      ["Create a reviewed improvement plan — resume only", "plan"],
+      ["Guided rewrite interview — resume only", "rewrite"],
+      ["Draft reviewed replacements — resume only", "replacements"],
+      ...state.vacancy === void 0 ? [] : [[
+        resume.format === "pdf" ? "Create reviewed tailoring changes — PDF manual application" : "Create a tailored variation — current vacancy",
+        "tailor"
+      ]],
       ["Ask my own question — resume only", "question"]
     ]);
     const selected = await ctx.ui.select("Career workbench", [...modes.keys(), "Cancel"]);
@@ -2483,7 +2616,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     })
   });
   pi.registerCommand("career-workbench", {
-    description: "Prepare a private, style-preserving prompt for the selected Pi agent",
+    description: "Prepare a guided private resume-rebuild prompt for the selected Pi agent",
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
@@ -2545,18 +2678,18 @@ Application context is session-scoped; no workspace files were created.${state.v
       renderedData.set(card.state_id, card);
       ctx.ui.notify(plainResultCard(card), "info");
       const actions = [
-        "View detail",
+        "View all analysis or one section",
         ...currentState.vacancy === void 0 ? [] : ["Career match this resume"],
-        "Prepare Pi workbench prompt",
+        "Open guided Pi rebuild workbench",
         "Close"
       ];
       const action = await ctx.ui.select("Career analyze result", actions);
-      if (action === "View detail") {
+      if (action === "View all analysis or one section") {
         await showDetail(ctx, analyzeDetailSections(result));
       } else if (action === "Career match this resume") {
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
-      } else if (action === "Prepare Pi workbench prompt") {
+      } else if (action === "Open guided Pi rebuild workbench") {
         await prepareWorkbenchPrompt(ctx, run, resume);
       }
     })

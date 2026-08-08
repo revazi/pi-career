@@ -105,9 +105,9 @@ A transient `pi --no-session` run prevents Pi session JSONL persistence but does
 2. In a fresh Pi session, `/career-application` creates one consented company/role context; it does not write files or switch that session to another company.
 3. `/career-vacancy` binds the vacancy to that application.
 4. `/career-match` ranks eligible originals and records the selected original reference.
-5. `/career-workbench` prepares a visible editor prompt for targeted, style-aware changes.
-6. External suggestions/replacements are reviewed by exact Career Core schemas.
-7. The user selects canonical retained changes.
+5. `/career-workbench` prepares a visible guided editor prompt that reruns complete deterministic baselines after submission; its rewrite interview can ask one bounded batch of factual questions and wait for a later answer.
+6. External suggestions, replacements, or vacancy-specific variant changes use exact verbatim source targets and are reviewed once by exact Career Core schemas; discarded proposals are reported rather than automatically repaired or retried.
+7. For a non-PDF variant, the first assisted turn stops so the user can explicitly select canonical retained change IDs; only a later turn materializes those exact selections.
 8. A future save action separately requests local-file approval, previews exact new files, and writes only inside the selected application directory.
 9. Originals remain unchanged, and assisted variants remain excluded from authoritative reranking.
 

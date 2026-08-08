@@ -35,9 +35,42 @@ test("workbench prompt keeps private inputs visible, original immutable, and PDF
   assert.doesNotMatch(prompt, new RegExp(application.application_id));
   assert.match(prompt, /original resume is immutable/);
   assert.match(prompt, /cannot inspect its visual layout/);
-  assert.match(prompt, /appropriate Career Core review operation/);
-  assert.match(prompt, /assisted\/non-authoritative label/);
+  assert.match(prompt, /Call "variant-review" once/);
+  assert.match(prompt, /do not call "variant-materialize"/);
+  assert.doesNotMatch(prompt, /Only after a later explicit selection/);
+  assert.match(prompt, /authority labels/);
   assert.doesNotMatch(prompt, /\/private\/synthetic-resume\.pdf/);
+});
+
+test("guided modes require complete baselines and the matching Career Core review stage", () => {
+  const markdown = { ...resume, format: "markdown", path: "/private/synthetic-resume.md" };
+  const explain = buildWorkbenchPrompt(markdown, undefined, undefined, "explain", "Explain the score.");
+  const plan = buildWorkbenchPrompt(markdown, undefined, undefined, "plan", "Plan improvements.");
+  const rewrite = buildWorkbenchPrompt(markdown, undefined, undefined, "rewrite", "Interview me before rewriting.");
+  const replacements = buildWorkbenchPrompt(markdown, undefined, undefined, "replacements", "Draft replacements.");
+  const tailored = buildWorkbenchPrompt(markdown, vacancy, application, "tailor", "Create a variation.");
+
+  assert.match(explain, /complete result, not a prior score or card/);
+  assert.match(explain, /then stop/);
+  assert.match(plan, /Call "analysis-suggestions-review" once/);
+  assert.match(plan, /source_target must be verbatim/);
+  assert.match(plan, /at most three advisory suggestions/);
+  assert.match(rewrite, /Ask at most five factual questions/);
+  assert.match(rewrite, /Do not draft or review wording/);
+  assert.match(rewrite, /Later, use only explicit answers/);
+  assert.match(rewrite, /call "analysis-replacements-review" once/);
+  assert.match(replacements, /call "analysis-replacements-review" once/);
+  assert.match(replacements, /do not claim selection/);
+  assert.match(tailored, /Call "variant-review" once/);
+  assert.match(tailored, /select retained IDs, then stop/);
+  assert.match(tailored, /Only after later selection/);
+  assert.match(tailored, /call "variant-materialize"/);
+  assert.match(tailored, /Do not use file-writing tools/);
+  for (const prompt of [plan, rewrite, replacements, tailored]) {
+    assert.match(prompt, /prefer one line, never a label/);
+    assert.match(prompt, /Do not auto-repair or retry discards/);
+    assert.match(prompt, /Do not reprint an unchanged review-embedded baseline/);
+  }
 });
 
 test("workbench rejects missing vacancy, invalid questions, and oversized composite source", () => {
@@ -45,7 +78,11 @@ test("workbench rejects missing vacancy, invalid questions, and oversized compos
   assert.equal(validWorkbenchQuestion("\u0000hidden"), false);
   assert.equal(validWorkbenchQuestion(" "), false);
   assert.equal(buildWorkbenchPrompt(
-    { ...resume, text: "x".repeat(80_001) }, undefined, undefined, "improve", "Improve",
+    { ...resume, text: "x".repeat(80_001) }, undefined, undefined, "plan", "Improve",
   ), undefined);
-  assert.match(defaultWorkbenchQuestion("improve"), /keeping its existing structure and styling/);
+  assert.match(defaultWorkbenchQuestion("plan"), /reviewed improvement plan/);
+  assert.match(defaultWorkbenchQuestion("rewrite"), /ask a small batch of factual questions/);
+  assert.match(defaultWorkbenchQuestion("explain"), /complete resume-readiness analysis/);
+  assert.match(defaultWorkbenchQuestion("replacements"), /exact replacements/);
+  assert.match(defaultWorkbenchQuestion("tailor"), /reviewed variation/);
 });

@@ -30,13 +30,15 @@ Do not claim secure erasure or removal of previous sessions, backups, shell hist
 4. Export the exact input schema needed with `operation: "schema-export"` and its returned schema ID.
 5. Construct exactly one versioned input object matching that schema, serialize it as the `input_json` string, and call the relevant document tool.
 
-Do not infer input shapes from this prose. The bundled runtime embeds the reviewed Draft 2020-12 schemas and discovery performs no network request.
+Within one Pi session, reuse a capability result, schema catalog, or exact exported schema when the reported Core version is unchanged. Export each newly required input or referenced proposal schema once, and do not reproduce schema JSON in prose unless the user asks. Do not infer input shapes from this prose. The bundled runtime embeds the reviewed Draft 2020-12 schemas and discovery performs no network request.
 
 ## Deterministic slash commands
 
-On supported targets, users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same package-owned runtime directly rather than calling the native tools through the LLM; setup/library scanning remains local. `/career-application` manages branch-aware company/role identity and scopes subsequent vacancy/result entries without creating files. Keep one application per Pi session and use `/new` before another company/role so prior private prompts do not remain in the next conversation. The document commands scan only configured searchable PDF/Markdown/text roots, keep assisted variants and inputs over 50,000 Unicode scalar values out of authoritative analysis/matching, require persisted-session consent before private custom entries, and never store full Core JSON.
+On supported targets, users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same package-owned runtime directly rather than calling the native tools through the LLM; setup/library scanning remains local. `/career-application` manages branch-aware company/role identity and scopes subsequent vacancy/result entries without creating files. Keep one application per Pi session and use `/new` before another company/role so prior private prompts do not remain in the next conversation. The document commands scan only configured searchable PDF/Markdown/text roots, keep assisted variants and inputs over 50,000 Unicode scalar values out of authoritative analysis/matching, require persisted-session consent before private custom entries, and never store full Core JSON. Complete successful analysis and match results can be inspected transiently through the first **All** detail choice; focused sections remain available, and no full-result file export is created. Core runs every deterministic check before this detail selector appears—the selector only changes which completed result fields are displayed.
 
-`/career-workbench` is a separate, reviewable handoff. It places the complete selected private source in Pi's editor and never submits or invokes a provider automatically. When the user submits that ordinary message, follow its immutable-original and format-fidelity rules: PDF input is extracted text only, so provide targeted changes for manual application and never claim to inspect or preserve PDF layout; preserve Markdown/text structure and unchanged wording. Discover exact schemas and pass external suggestions/replacements through Career Core review before presenting them.
+`/career-workbench` is a separate, guided, reviewable handoff. It places the complete selected private source in Pi's editor and never submits or invokes a provider automatically. Its modes explain the score from a freshly rerun complete analysis, produce reviewed suggestions, run a question-led factual interview before reviewed exact replacements, produce direct reviewed exact replacements, or review a vacancy-specific variant. Do not rely on the compact result card as analysis input. Discover exact schemas and pass every external suggestion, replacement, or variant proposal through its corresponding Career Core review before presenting it.
+
+For non-PDF variants, present Core-assigned canonical retained change IDs and all discard codes/warnings, then stop and ask the user to explicitly select IDs. Invoke `variant-materialize` only in a later turn after that selection, with the exact same variant-review input and exactly those IDs. Keep the materialized result assisted/non-authoritative, do not save it automatically, and never feed it into analysis or matching. PDF input is extracted text only: provide reviewed targeted changes for manual application, never invoke materialization, and never claim to inspect or preserve PDF layout. Preserve Markdown/text structure and unchanged wording.
 
 Use the native tool flow below for operations not exposed by those commands or when the user explicitly requests direct schema-level work.
 
@@ -92,11 +94,11 @@ This validates an explicit, already supplied source-grounded external proposal; 
 
 ### `analysis-suggestions-review`
 
-This reruns and preserves the deterministic `baseline_analysis` while reviewing at most the schema-bounded source-targeted suggestions. Retained suggestions are assisted/non-authoritative and bound to current failed canonical actions. Exact occurrence does not prove factual entailment or rewrite safety. The v1 `suggestion` is advisory text, not a replacement. Do not create selection, mutation, export, or materialization semantics.
+This reruns and preserves the deterministic `baseline_analysis` while reviewing at most the schema-bounded source-targeted suggestions. Retained suggestions are assisted/non-authoritative and bound to current failed canonical actions. Copy each `source_target` verbatim from inside the declared source lines, never use a descriptive label, prefer one complete source line, and require each `source_evidence` item to occur verbatim within the same bounds. Make one review call; report discarded items and stop instead of automatically repairing or retrying them. Exact occurrence does not prove factual entailment or rewrite safety. The v1 `suggestion` is advisory text, not a replacement. Do not create selection, mutation, export, or materialization semantics.
 
 ### `analysis-replacements-review`
 
-This reruns and preserves `baseline_analysis` and returns canonical exact before/proposed-after values for non-authoritative diff display. Preserve action/status, evidence, discard codes, and warnings. Exact occurrence does not certify factuality or rewrite safety. It creates no candidate, selection, application, export, persistence, source mutation, or materialization path.
+This reruns and preserves `baseline_analysis` and returns canonical exact before/proposed-after values for non-authoritative diff display. Copy each `source_target` verbatim from inside the declared source lines, prefer one complete source line, and keep every `source_evidence` item inside those bounds. Make one review call; report discarded items and stop instead of automatically repairing or retrying them. Preserve action/status, evidence, discard codes, and warnings. Exact occurrence does not certify factuality or rewrite safety. User answers gathered in a prior question-led turn remain user-supplied claims, not Core-certified facts. It creates no candidate, selection, application, export, persistence, source mutation, or materialization path.
 
 ### `variant-review`
 
@@ -127,9 +129,11 @@ Use original resume and original job inputs matching the exported schema. Matchi
 
 ## Output discipline
 
-- Treat returned JSON as authoritative and complete.
-- Preserve every warning, evidence item, source span, basis ID, confidence value, uncertainty status, baseline boundary, discard code, limitation, and assisted/non-authoritative label.
-- Do not reorder, truncate, silently repair, upgrade uncertainty into fact, or claim Core generated prose it only reviewed.
+- Treat returned JSON as authoritative and complete, and keep it unchanged in the tool result.
+- Use every warning, evidence item, source span, basis ID, confidence value, uncertainty status, baseline boundary, discard code, limitation, and assisted/non-authoritative label without contradiction or silent repair.
+- Do not duplicate a complete unchanged `baseline_analysis` in prose each time a review embeds it. State that the baseline was preserved; reproduce every warning, discard code, and limitation exactly; and show only the scores, evidence, and source spans needed for the requested findings or retained items. The complete tool result remains the authoritative record in the conversation.
+- Keep operational narration minimal. Do not print discovered schema JSON, repeat private source text beyond bounded evidence snippets, or narrate repair attempts unless the user asks.
+- Do not reorder Core-retained items, truncate tool output, silently repair, upgrade uncertainty into fact, or claim Core generated prose it only reviewed.
 - Do not modify source documents unless the user separately requests and approves that change.
 - Never place API keys in tool input, output, files, or logs.
 
