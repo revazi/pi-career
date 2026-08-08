@@ -1,5 +1,7 @@
 # Product flow roadmap
 
+The planned cross-repository migration to Career Core Phase 8 managed-adapter contracts and a compact Pi `career_run` tool is specified in [`career-run-roadmap.md`](career-run-roadmap.md). It is not part of the current implemented phase.
+
 ## Current phase: deterministic tools and slash-command MVP
 
 This package preserves the three stable native tools:
