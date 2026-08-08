@@ -17,15 +17,17 @@ Native tools:
 - `career_core_resume`
 - `career_core_job`
 
-Deterministic slash commands:
+Workflow commands:
 
 - `/career-setup` — configure reviewed resume-library roots and privacy choices
-- `/career-library` — inspect configured Markdown/text resume libraries
+- `/career-library` — inspect configured searchable PDF/Markdown/text resume libraries
+- `/career-application` — isolate one company/role attempt in branch-aware session state
 - `/career-vacancy` — set or clear bounded vacancy text
 - `/career-match` — normalize a vacancy and conservatively rank eligible resumes
 - `/career-analyze` — inspect deterministic readiness details for one resume
+- `/career-workbench` — prepare a reviewable private prompt for the normal Pi editor
 
-Slash commands invoke the package-owned runtime directly. They never route through an LLM-facing tool, provider, model, network request, `PATH`, Cargo, sibling checkout, or downloaded executable.
+`/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
 
 ## Supported platforms
 
@@ -83,13 +85,24 @@ Start with the setup flow, select a directory, and place a searchable PDF, Markd
 
 `/career-library` immediately shows indexed files and actionable notices. Searchable, unencrypted PDFs are extracted locally in a bounded worker (10 MiB and 20 pages maximum); image-only/scanned PDFs require OCR or export to Markdown/text first.
 
-Then set a vacancy and run deterministic matching or analysis:
+Create a company/role context, then set its vacancy and run deterministic matching or analysis:
 
 ```text
+/career-application
 /career-vacancy
 /career-match
 /career-analyze
 ```
+
+To continue with the selected Pi agent, prepare a reviewable workbench prompt:
+
+```text
+/career-workbench
+```
+
+`/career-application` gives each company/role attempt an immutable session-scoped ID, scopes vacancy/result entries to that ID, and names an otherwise unnamed Pi session. Use `/new` before creating another application so prior company prompts never remain in the new model conversation. It does not create workspace files yet. The planned opt-in filesystem layout keeps one flat folder per company/role attempt; see [`docs/application-workspaces.md`](docs/application-workspaces.md).
+
+The workbench never sends automatically. It places the complete private source context in Pi's editor so the user can inspect it before submitting. Originals remain immutable. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and return targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics.
 
 For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available. Preserve every returned warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, and assisted/non-authoritative label.
 
@@ -105,7 +118,7 @@ pi --no-session
 
 This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
 
-The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files.
+The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
 
 Oversized Core results fail without partial output. Full-result export is not available through this package.
 

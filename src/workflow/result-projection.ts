@@ -130,6 +130,7 @@ export function projectJobMatch(result: CoreResult): ResultProjection {
 
 interface CardOptions {
   workflow: "analyze" | "match";
+  applicationId?: string;
   runId: string;
   resume: ResumeRecord;
   vacancy?: VacancyEntry;
@@ -142,6 +143,7 @@ export function createResultCard(options: CardOptions): ResultCardEntry {
   return {
     schema_version: WORKFLOW_STATE_SCHEMA,
     kind: "result_card",
+    ...(options.applicationId === undefined ? {} : { application_id: options.applicationId }),
     state_id: options.uuid(),
     created_at: options.now().toISOString(),
     workflow: options.workflow,

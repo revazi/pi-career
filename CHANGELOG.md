@@ -5,6 +5,8 @@
 ### Added
 
 - Local searchable-PDF résumé ingestion through a bounded, network-disabled worker, with explicit library notices for encrypted, image-only, malformed, oversized, or otherwise unextractable PDFs.
+- `/career-workbench` prepares a bounded, visibly reviewable ordinary Pi editor prompt for source-grounded improvements or vacancy tailoring while keeping originals immutable and stopping before any provider/model call.
+- `/career-application` adds branch-aware company/role/status identity, scopes vacancies and result cards by immutable application ID, and names otherwise unnamed Pi sessions without creating workspace files.
 
 ### Changed
 

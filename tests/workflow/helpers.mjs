@@ -117,6 +117,7 @@ export function makeFakePi() {
   const events = new Map();
   const entries = [];
   const renderers = new Map();
+  let sessionName;
   return {
     commands,
     events,
@@ -125,6 +126,8 @@ export function makeFakePi() {
     api: {
       registerCommand(name, definition) { commands.set(name, definition); },
       registerEntryRenderer(name, renderer) { renderers.set(name, renderer); },
+      getSessionName() { return sessionName; },
+      setSessionName(value) { sessionName = value; },
       appendEntry(customType, data) {
         entries.push({
           type: "custom", customType, data, id: `e${entries.length + 1}`,

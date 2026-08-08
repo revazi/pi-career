@@ -38,6 +38,8 @@ import {
 } from "./result-projection.ts";
 import { eligibleOriginals, scanLibrary } from "./scan.ts";
 import {
+  createApplicationClearEntry,
+  createApplicationEntry,
   createConsentEntry,
   createVacancyClearEntry,
   createVacancyEntry,
@@ -47,7 +49,15 @@ import {
 } from "./session-state.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
+  buildWorkbenchPrompt,
+  defaultWorkbenchQuestion,
+  validWorkbenchQuestion,
+  type WorkbenchMode,
+} from "./workbench.ts";
+import {
   CareerWorkflowError,
+  type ApplicationEntry,
+  type ApplicationStatus,
   type CareerConfig,
   type LibraryScan,
   type OwnedRun,
@@ -66,6 +76,7 @@ const CONSENT_COPY =
 const TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
 const SETUP_BANNER = "pi-career not configured — run /career-setup";
 const EMPTY_LIBRARY_BANNER = "No resumes found — add a searchable PDF, Markdown, or text file to a configured root, then run /career-library.";
+const WORKBENCH_DISCLOSURE = "This will place full private resume text and, for tailoring, the current vacancy in Pi's editor. Nothing is sent automatically. Review the prompt before submitting it; submission sends it to the model/provider selected in Pi and may persist it in the current session and at that provider. Local-session approval is not provider approval.";
 const MAX_FILTER_CHARACTERS = 200;
 
 interface CommandRuntimeOptions {
@@ -161,6 +172,17 @@ function recordOption(record: ResumeRecord): string {
 
 function rootOption(root: CareerConfig["library_roots"][number]): string {
   return `${root.label} — ${privacyDisplayPath(root.path)} — ${root.id.slice(0, 12)}`;
+}
+
+function validApplicationLabel(value: string | undefined): value is string {
+  return value !== undefined &&
+    value.trim().length > 0 &&
+    [...value.trim()].length <= 120 &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function applicationSummary(application: ApplicationEntry): string {
+  return `${application.company_label} — ${application.role_label} — ${application.status}`;
 }
 
 async function loadLibrary(dependencies: WorkflowDependencies): Promise<{
@@ -361,6 +383,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     const state = withCurrentStaleness(reconstructWorkflowState(branch), library.scan);
     renderedData.clear();
     for (const entry of [
+      ...(state.application === undefined ? [] : [state.application]),
       ...(state.vacancy === undefined ? [] : [state.vacancy]),
       ...(state.consent === undefined ? [] : [state.consent]),
       ...state.result_cards,
@@ -396,6 +419,51 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     const granted = choice === "Continue in this session";
     appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies));
     if (!granted) throw workflowError("consent_required");
+  };
+
+  const prepareWorkbenchPrompt = async (
+    ctx: ExtensionCommandContext,
+    run: OwnedRun,
+    resume: ResumeRecord,
+  ): Promise<void> => {
+    owner.assert(run, ctx);
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    const modes = new Map<string, WorkbenchMode>([
+      ["Improve resume — resume only", "improve"],
+      ...(state.vacancy === undefined
+        ? []
+        : [["Tailor to current vacancy", "tailor"] as [string, WorkbenchMode]]),
+      ["Ask my own question — resume only", "question"],
+    ]);
+    const selected = await ctx.ui.select("Career workbench", [...modes.keys(), "Cancel"]);
+    const mode = selected === undefined ? undefined : modes.get(selected);
+    if (mode === undefined) return;
+    owner.assert(run, ctx);
+
+    if (resume.format === "pdf") {
+      ctx.ui.notify(
+        "PDF workbench uses extracted text only; Pi cannot inspect visual layout. The original styled PDF remains unchanged.",
+        "warning",
+      );
+    }
+    const question = await ctx.ui.editor("Question for Pi", defaultWorkbenchQuestion(mode));
+    if (question === undefined) return;
+    if (!validWorkbenchQuestion(question)) throw workflowError("invalid_command_arguments");
+    owner.assert(run, ctx);
+    const approved = await ctx.ui.select(WORKBENCH_DISCLOSURE, ["Prepare in editor", "Cancel"]);
+    if (approved !== "Prepare in editor") return;
+    owner.assert(run, ctx);
+    await ensureConsent(ctx, run);
+
+    const vacancy = mode === "tailor" ? state.vacancy : undefined;
+    const prompt = buildWorkbenchPrompt(resume, vacancy, state.application, mode, question);
+    if (prompt === undefined) throw workflowError("workbench_too_large");
+    owner.assert(run, ctx);
+    ctx.ui.setEditorText(prompt);
+    ctx.ui.notify(
+      "Career workbench prompt prepared. Review it, then submit it normally to ask the selected Pi agent. Nothing was sent automatically.",
+      "info",
+    );
   };
 
   const handle = async (
@@ -534,6 +602,109 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     }),
   });
 
+  pi.registerCommand("career-application", {
+    description: "Create or manage the active company/role application context",
+    getArgumentCompletions: (prefix) => ["status", "clear"]
+      .filter((value) => value.startsWith(prefix))
+      .map((value) => ({ value, label: value })),
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const argument = args.trim();
+      if (argument !== "" && argument !== "status" && argument !== "clear") {
+        throw workflowError("invalid_command_arguments");
+      }
+      const run = owner.start(ctx);
+      const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      const application = state.application;
+      if (argument === "status") {
+        ctx.ui.notify(
+          application === undefined ? "No active career application." : applicationSummary(application),
+          "info",
+        );
+        return;
+      }
+      if (argument === "clear") {
+        if (application === undefined) return;
+        if (state.vacancy !== undefined) {
+          appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+        }
+        appendData(pi, owner, run, ctx, createApplicationClearEntry(application, dependencies));
+        ctx.ui.notify("Active application and its current vacancy were cleared; no files were changed. Use /new before creating another application.", "info");
+        return;
+      }
+      if (application === undefined && state.application_context_seen === true) {
+        ctx.ui.notify("This session already contained an application. Run /new, then /career-application, to keep company contexts separate.", "warning");
+        return;
+      }
+
+      const action = await ctx.ui.select(
+        application === undefined ? "Career application" : applicationSummary(application),
+        application === undefined
+          ? ["Create application", "Close"]
+          : ["View", "Update status", "Clear", "Close"],
+      );
+      owner.assert(run, ctx);
+      if (action === "View" && application !== undefined) {
+        ctx.ui.notify(applicationSummary(application), "info");
+        return;
+      }
+      if (action === "Clear" && application !== undefined) {
+        if (state.vacancy !== undefined) {
+          appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+        }
+        appendData(pi, owner, run, ctx, createApplicationClearEntry(application, dependencies));
+        ctx.ui.notify("Active application and its current vacancy were cleared; no files were changed. Use /new before creating another application.", "info");
+        return;
+      }
+      if (action === "Update status" && application !== undefined) {
+        const statuses = new Map<string, ApplicationStatus>([
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"],
+        ]);
+        const selected = await ctx.ui.select("Application status", [...statuses.keys()]);
+        const status = selected === undefined ? undefined : statuses.get(selected);
+        if (status === undefined) return;
+        owner.assert(run, ctx);
+        await ensureConsent(ctx, run);
+        const updated = createApplicationEntry(
+          application.company_label,
+          application.role_label,
+          status,
+          dependencies,
+          application.application_id,
+        );
+        appendData(pi, owner, run, ctx, updated);
+        ctx.ui.notify(applicationSummary(updated), "info");
+        return;
+      }
+      if (action !== "Create application") return;
+
+      const company = await ctx.ui.input("Company", "Company name");
+      if (!validApplicationLabel(company)) throw workflowError("invalid_command_arguments");
+      const role = await ctx.ui.input("Role", "Role title");
+      if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
+      owner.assert(run, ctx);
+      await ensureConsent(ctx, run);
+      const created = createApplicationEntry(company, role, "preparing", dependencies);
+      appendData(pi, owner, run, ctx, created);
+      if (state.vacancy !== undefined) {
+        appendData(pi, owner, run, ctx, createVacancyEntry(state.vacancy.vacancy_text, "replace", {
+          ...dependencies,
+          applicationId: created.application_id,
+        }));
+      }
+      if (pi.getSessionName() === undefined) {
+        pi.setSessionName(`${created.company_label} — ${created.role_label}`);
+      }
+      ctx.ui.notify(
+        `${applicationSummary(created)}\nApplication context is session-scoped; no workspace files were created.${state.vacancy === undefined ? "" : " The current vacancy was retained in this application."}`,
+        "info",
+      );
+    }),
+  });
+
   pi.registerCommand("career-vacancy", {
     description: "Set, view, replace, or clear the current vacancy",
     getArgumentCompletions: (prefix) => "clear".startsWith(prefix) ? [{ value: "clear", label: "clear" }] : null,
@@ -577,7 +748,10 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         throw workflowError("invalid_command_arguments");
       }
       await ensureConsent(ctx, run);
-      const vacancy = createVacancyEntry(text, source, dependencies);
+      const vacancy = createVacancyEntry(text, source, {
+        ...dependencies,
+        ...(state.application === undefined ? {} : { applicationId: state.application.application_id }),
+      });
       await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
         const result = await dependencies.invoke(
           { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
@@ -588,6 +762,23 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       });
       appendData(pi, owner, run, ctx, vacancy);
       ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
+    }),
+  });
+
+  pi.registerCommand("career-workbench", {
+    description: "Prepare a private, style-preserving prompt for the selected Pi agent",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      requireInteractive(ctx);
+      const filter = parseFilter(args);
+      const run = owner.start(ctx);
+      const { scan } = await refreshState(ctx);
+      const candidates = filteredResumes(eligibleOriginals(scan), filter);
+      if (candidates.length === 0) throw workflowError("library_empty");
+      const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
+      const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+      const resume = selected === undefined ? undefined : byOption.get(selected);
+      if (resume === undefined) return;
+      await prepareWorkbenchPrompt(ctx, run, resume);
     }),
   });
 
@@ -625,17 +816,22 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         throw error;
       }
       const projection = projectResumeAnalysis(result);
+      const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
       const card = createResultCard({
-        workflow: "analyze", runId: run.runId, resume, projection,
+        workflow: "analyze",
+        ...(currentState.application === undefined
+          ? {}
+          : { applicationId: currentState.application.application_id }),
+        runId: run.runId, resume, projection,
         uuid: dependencies.uuid, now: dependencies.now,
       });
       appendData(pi, owner, run, ctx, card);
       renderedData.set(card.state_id, card);
       ctx.ui.notify(plainResultCard(card), "info");
-      const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
       const actions = [
         "View detail",
         ...(currentState.vacancy === undefined ? [] : ["Career match this resume"]),
+        "Prepare Pi workbench prompt",
         "Close",
       ];
       const action = await ctx.ui.select("Career analyze result", actions);
@@ -644,6 +840,8 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       } else if (action === "Career match this resume") {
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
+      } else if (action === "Prepare Pi workbench prompt") {
+        await prepareWorkbenchPrompt(ctx, run, resume);
       }
     }),
   });
@@ -691,7 +889,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       owner.assert(run, ctx);
       const ranked = rankMatches(queue.matches);
       const cards: ResultCardEntry[] = ranked.map((item) => createResultCard({
-        workflow: "match", runId: run.runId, resume: item.resume, vacancy,
+        workflow: "match",
+        ...(state.application === undefined ? {} : { applicationId: state.application.application_id }),
+        runId: run.runId, resume: item.resume, vacancy,
         projection: item.projection, uuid: dependencies.uuid, now: dependencies.now,
       }));
       for (const card of cards) appendData(pi, owner, run, ctx, card);

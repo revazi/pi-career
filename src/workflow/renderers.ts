@@ -180,6 +180,8 @@ export function plainResultCard(card: ResultCardEntry, tie = false): string {
 
 function stateEntryText(data: Exclude<WorkflowEntryData, ResultCardEntry>): string {
   switch (data.kind) {
+    case "application": return `Career application: ${data.company_label} — ${data.role_label} — ${data.status}`;
+    case "application_clear": return "Career application cleared";
     case "vacancy": return `Career vacancy: ${data.vacancy_label}`;
     case "vacancy_clear": return "Career vacancy cleared";
     case "consent": return `Career session-persistence consent: ${data.granted ? "granted" : "declined"}`;
