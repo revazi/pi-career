@@ -3,10 +3,19 @@
 import os from "node:os";
 import path from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
-import { Container, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import {
+  Container,
+  Key,
+  matchesKey,
+  Text,
+  truncateToWidth,
+  wrapTextWithAnsi,
+  type Component,
+} from "@earendil-works/pi-tui";
 
+import { suggestedGeneratedVariantsRoot } from "./config.ts";
 import type { CoreResult, RankedMatch } from "./result-projection.ts";
 import { parseWorkflowEntryData } from "./session-state.ts";
 import type {
@@ -16,8 +25,6 @@ import type {
   ResultProjection,
   WorkflowEntryData,
 } from "./types.ts";
-
-const UI_TEXT_MAX = 8_000;
 
 export function privacyDisplayPath(absolutePath: string): string {
   const home = os.homedir();
@@ -31,7 +38,15 @@ export function privacyDisplayPath(absolutePath: string): string {
 export function setupSummary(config: CareerConfig, scan: LibraryScan, persisted: boolean): string {
   const resumes = scan.records.length;
   const roots = config.library_roots.length;
-  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • session ${persisted ? "persisted" : "transient"}`;
+  const notices = scan.warnings.length;
+  const variantsRoot = suggestedGeneratedVariantsRoot(config);
+  const variants = variantsRoot === undefined
+    ? "Resume variation suggestion: unavailable until a resume root is configured"
+    : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === undefined ? "default under the first configured root" : "configured"})`;
+  return [
+    `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted ? "persisted" : "transient"}`,
+    variants,
+  ].join("\n");
 }
 
 export function libraryIndexPreview(config: CareerConfig, scan: LibraryScan, maximum = 50): string {
@@ -42,6 +57,7 @@ export function libraryIndexPreview(config: CareerConfig, scan: LibraryScan, max
     const records = scan.records.filter((record) => record.root_id === root.id);
     for (const record of records.slice(0, remaining)) {
       const labels = [
+        ...(record.format === "pdf" ? ["PDF"] : []),
         ...(record.kind === "assisted_variant" ? ["assisted variant"] : []),
         ...(record.too_large_for_core_input === true ? ["too large"] : []),
       ];
@@ -52,6 +68,34 @@ export function libraryIndexPreview(config: CareerConfig, scan: LibraryScan, max
   }
   if (scan.records.length > maximum) lines.push(`Showing ${maximum} of ${scan.records.length} indexed resumes.`);
   return lines.join("\n") || "No indexed resumes";
+}
+
+function scanWarningMessage(code: LibraryScan["warnings"][number]["code"], isPdf: boolean): string {
+  switch (code) {
+    case "root_stale": return "root is unavailable or has moved";
+    case "root_file_cap_reached": return "root scan limit reached; some files were not indexed";
+    case "total_file_cap_reached": return "total scan limit reached; some files were not indexed";
+    case "raw_file_too_large": return isPdf
+      ? "PDF is over 10 MiB; reduce or export it as Markdown/text"
+      : "file is over 256 KiB; reduce it before analysis";
+    case "pdf_text_unavailable": return "PDF text could not be extracted; use a searchable, unencrypted PDF or export it as Markdown/text (OCR is not supported)";
+    case "invalid_utf8": return "text file is not valid UTF-8";
+    case "invalid_assisted_sidecar": return "assisted-variant sidecar is invalid; the document is treated as original";
+    case "scan_entry_unavailable": return "file or directory could not be read";
+  }
+}
+
+export function libraryWarningPreview(config: CareerConfig, scan: LibraryScan, maximum = 10): string {
+  if (scan.warnings.length === 0) return "";
+  const labels = new Map(config.library_roots.map((root) => [root.id, root.label]));
+  const lines = scan.warnings.slice(0, maximum).map((warning) => {
+    const root = labels.get(warning.root_id) ?? "Resume root";
+    const relative = warning.relative_path?.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 160);
+    const location = relative ? `${root}/${relative}` : root;
+    return `- ${location}: ${scanWarningMessage(warning.code, relative?.toLowerCase().endsWith(".pdf") === true)}`;
+  });
+  if (scan.warnings.length > maximum) lines.push(`- ${scan.warnings.length - maximum} more notice${scan.warnings.length - maximum === 1 ? "" : "s"}`);
+  return ["Library notices:", ...lines].join("\n");
 }
 
 export function librarySummary(config: CareerConfig, scan: LibraryScan, persisted: boolean): string {
@@ -65,6 +109,7 @@ export function librarySummary(config: CareerConfig, scan: LibraryScan, persiste
     `${assisted} assisted variants`,
     `${tooLarge} too large`,
     `${staleRoots} stale roots`,
+    `${scan.warnings.length} notices`,
     `${persisted ? "persisted" : "transient"} session`,
   ].join(" • ");
 }
@@ -149,6 +194,8 @@ export function plainResultCard(card: ResultCardEntry, tie = false): string {
 
 function stateEntryText(data: Exclude<WorkflowEntryData, ResultCardEntry>): string {
   switch (data.kind) {
+    case "application": return `Career application: ${data.company_label} — ${data.role_label} — ${data.status}`;
+    case "application_clear": return "Career application cleared";
     case "vacancy": return `Career vacancy: ${data.vacancy_label}`;
     case "vacancy_clear": return "Career vacancy cleared";
     case "consent": return `Career session-persistence consent: ${data.granted ? "granted" : "declined"}`;
@@ -254,10 +301,12 @@ export function rankedRows(ranked: RankedMatch[]): string[] {
 export interface DetailSection {
   label: string;
   value: unknown;
+  completeResult?: boolean;
 }
 
 export function analyzeDetailSections(result: CoreResult): DetailSection[] {
   return [
+    { label: "All", value: result, completeResult: true },
     { label: "checks", value: result.checks },
     { label: "confidence_context", value: result.confidence_context },
     { label: "top_strengths", value: result.top_strengths },
@@ -269,6 +318,7 @@ export function analyzeDetailSections(result: CoreResult): DetailSection[] {
 
 export function matchDetailSections(result: CoreResult, vacancyText: string): DetailSection[] {
   return [
+    { label: "All", value: result, completeResult: true },
     { label: "category_results", value: result.category_results },
     { label: "confidence_context", value: result.confidence_context },
     { label: "top_strengths", value: result.top_strengths },
@@ -280,9 +330,78 @@ export function matchDetailSections(result: CoreResult, vacancyText: string): De
 }
 
 export function detailText(section: DetailSection): string {
-  const text = JSON.stringify({ [section.label]: section.value }, null, 2);
-  if (Buffer.byteLength(text, "utf8") > UI_TEXT_MAX) {
-    return `${section.label}: detail is too large for the bounded pane; no partial detail is shown.`;
+  return JSON.stringify(
+    section.completeResult === true ? section.value : { [section.label]: section.value },
+    null,
+    2,
+  ) ?? "null";
+}
+
+export class DetailViewer implements Component {
+  private offset = 0;
+  private wrappedWidth: number | undefined;
+  private wrappedLines: string[] = [];
+
+  constructor(
+    private readonly label: string,
+    private readonly text: string,
+    private readonly theme: Theme,
+    private readonly keybindings: KeybindingsManager,
+    private readonly visibleLineCount: number,
+    private readonly requestRender: () => void,
+    private readonly close: () => void,
+  ) {}
+
+  private maximumOffset(): number {
+    return Math.max(0, this.wrappedLines.length - this.visibleLineCount);
   }
-  return text;
+
+  private moveTo(offset: number): void {
+    const next = Math.max(0, Math.min(this.maximumOffset(), offset));
+    if (next === this.offset) return;
+    this.offset = next;
+    this.requestRender();
+  }
+
+  handleInput(data: string): void {
+    if (this.keybindings.matches(data, "tui.select.cancel")) {
+      this.close();
+    } else if (this.keybindings.matches(data, "tui.select.up")) {
+      this.moveTo(this.offset - 1);
+    } else if (this.keybindings.matches(data, "tui.select.down")) {
+      this.moveTo(this.offset + 1);
+    } else if (this.keybindings.matches(data, "tui.select.pageUp")) {
+      this.moveTo(this.offset - this.visibleLineCount);
+    } else if (this.keybindings.matches(data, "tui.select.pageDown")) {
+      this.moveTo(this.offset + this.visibleLineCount);
+    } else if (matchesKey(data, Key.home)) {
+      this.moveTo(0);
+    } else if (matchesKey(data, Key.end)) {
+      this.moveTo(this.maximumOffset());
+    }
+  }
+
+  render(width: number): string[] {
+    const renderWidth = Math.max(1, width);
+    if (this.wrappedWidth !== renderWidth) {
+      this.wrappedWidth = renderWidth;
+      this.wrappedLines = wrapTextWithAnsi(this.text, renderWidth);
+      if (this.wrappedLines.length === 0) this.wrappedLines = [""];
+      this.offset = Math.min(this.offset, this.maximumOffset());
+    }
+
+    const visible = this.wrappedLines.slice(this.offset, this.offset + this.visibleLineCount);
+    const first = this.offset + 1;
+    const last = this.offset + visible.length;
+    return [
+      this.theme.fg("accent", this.theme.bold(`Career detail • ${this.label}`)),
+      ...visible,
+      this.theme.fg("dim", `${first}-${last} of ${this.wrappedLines.length} visual lines`),
+      this.theme.fg("dim", "↑↓ line • PgUp/PgDn page • Home/End • Esc close"),
+    ].map((line) => truncateToWidth(line, renderWidth));
+  }
+
+  invalidate(): void {
+    this.wrappedWidth = undefined;
+  }
 }

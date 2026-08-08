@@ -19,7 +19,7 @@ export interface CareerConfig {
 }
 
 export type ResumeKind = "original" | "assisted_variant";
-export type ResumeFormat = "markdown" | "text";
+export type ResumeFormat = "markdown" | "text" | "pdf";
 
 export interface ResumeRecord {
   id: string;
@@ -42,6 +42,7 @@ export type ScanWarningCode =
   | "root_file_cap_reached"
   | "total_file_cap_reached"
   | "raw_file_too_large"
+  | "pdf_text_unavailable"
   | "invalid_utf8"
   | "invalid_assisted_sidecar"
   | "scan_entry_unavailable";
@@ -74,8 +75,24 @@ interface WorkflowEntryBase {
   created_at: string;
 }
 
+export type ApplicationStatus = "preparing" | "applied" | "interviewing" | "closed";
+
+export interface ApplicationEntry extends WorkflowEntryBase {
+  kind: "application";
+  application_id: string;
+  company_label: string;
+  role_label: string;
+  status: ApplicationStatus;
+}
+
+export interface ApplicationClearEntry extends WorkflowEntryBase {
+  kind: "application_clear";
+  clears_state_id: string;
+}
+
 export interface VacancyEntry extends WorkflowEntryBase {
   kind: "vacancy";
+  application_id?: string;
   vacancy_label: string;
   vacancy_text: string;
   vacancy_text_sha256: string;
@@ -115,6 +132,7 @@ export interface ResultProjection {
 
 export interface ResultCardEntry extends WorkflowEntryBase {
   kind: "result_card";
+  application_id?: string;
   workflow: "analyze" | "match";
   run_id: string;
   resume_id: string;
@@ -128,6 +146,8 @@ export interface ResultCardEntry extends WorkflowEntryBase {
 }
 
 export type WorkflowEntryData =
+  | ApplicationEntry
+  | ApplicationClearEntry
   | VacancyEntry
   | VacancyClearEntry
   | ConsentEntry
@@ -135,6 +155,8 @@ export type WorkflowEntryData =
   | ResultCardEntry;
 
 export interface ReconstructedWorkflowState {
+  application_context_seen?: true;
+  application?: ApplicationEntry;
   vacancy?: VacancyEntry;
   consent?: ConsentEntry;
   result_cards: ResultCardEntry[];
@@ -162,6 +184,7 @@ export type WorkflowErrorCode =
   | "consent_required"
   | "workflow_cancelled"
   | "workflow_stale"
+  | "workbench_too_large"
   | "core_result_invalid"
   | "workflow_failed";
 
@@ -175,6 +198,7 @@ const WORKFLOW_ERROR_MESSAGES: Readonly<Record<WorkflowErrorCode, string>> = {
   consent_required: "Session-persistence consent was not granted.",
   workflow_cancelled: "The career workflow was cancelled.",
   workflow_stale: "A newer career workflow owns this session.",
+  workbench_too_large: "The combined private workbench prompt is too large for a bounded Pi handoff.",
   core_result_invalid: "Career Core returned an unexpected result shape.",
   workflow_failed: "The career workflow failed.",
 };

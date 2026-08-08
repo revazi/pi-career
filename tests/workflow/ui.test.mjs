@@ -7,17 +7,24 @@ import path from "node:path";
 import test from "node:test";
 
 import { BorderedLoader, initTheme } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
+import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 
 import { adapterError } from "../../src/errors.ts";
 import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
+import {
+  analyzeDetailSections,
+  DetailViewer,
+  detailText,
+  matchDetailSections,
+} from "../../src/workflow/renderers.ts";
 import { createResultCard, projectJobMatch } from "../../src/workflow/result-projection.ts";
 import { sha256 } from "../../src/workflow/scan.ts";
 import { makeContext, makeFakePi, matchResult, resumeResult, uuidSequence } from "./helpers.mjs";
 
 const now = () => new Date("2026-08-04T17:56:06.000Z");
-setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS));
+const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
+setKeybindings(keybindings);
 initTheme("dark", false);
 
 async function fixture() {
@@ -55,6 +62,55 @@ test("TUI analyze uses BorderedLoader and stores a bounded transcript card", asy
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
+});
+
+test("complete and oversized successful detail remains available through the bounded viewer", () => {
+  const result = resumeResult();
+  const sections = analyzeDetailSections(result);
+  const complete = sections.find((section) => section.label === "All");
+  assert.ok(complete);
+  assert.deepEqual(JSON.parse(detailText(complete)), result);
+  const match = matchResult();
+  const fullMatch = matchDetailSections(match, "Synthetic vacancy")[0];
+  assert.equal(fullMatch?.label, "All");
+  assert.deepEqual(JSON.parse(detailText(fullMatch)), match);
+
+  const oversized = detailText({
+    label: "checks",
+    value: [{ body: "x".repeat(9_000), tail: "final marker" }],
+  });
+  assert.ok(Buffer.byteLength(oversized, "utf8") > 8_000);
+  assert.match(oversized, /final marker/);
+  assert.doesNotMatch(oversized, /detail is too large/);
+
+  let renderRequests = 0;
+  let closed = false;
+  const theme = {
+    fg(_color, text) { return text; }, bold(text) { return text; },
+  };
+  const viewer = new DetailViewer(
+    "checks",
+    oversized,
+    theme,
+    keybindings,
+    6,
+    () => { renderRequests += 1; },
+    () => { closed = true; },
+  );
+  const firstPage = viewer.render(48);
+  assert.ok(firstPage.every((line) => visibleWidth(line) <= 48));
+  assert.equal(firstPage.length, 9);
+  assert.doesNotMatch(firstPage.join("\n"), /final marker/);
+
+  viewer.handleInput("\x1b[F");
+  const lastPage = viewer.render(48);
+  assert.match(lastPage.join("\n"), /final marker/);
+  assert.ok(renderRequests > 0);
+
+  viewer.handleInput("\x1b[H");
+  assert.doesNotMatch(viewer.render(48).join("\n"), /final marker/);
+  viewer.handleInput("\x1b");
+  assert.equal(closed, true);
 });
 
 test("result cards remain understandable at narrow terminal widths", () => {

@@ -37,7 +37,7 @@ Every item in this section was required before npm publication, tagging, and the
 - Start from synchronized public `main` and identify one full candidate SHA.
 - Ensure the candidate contains no private career content, credentials, sessions, provider output, generated local paths, or unreviewed runtime bytes.
 - Review the complete diff and confirm `package.json` remains `0.1.0`, explicitly public only at `https://registry.npmjs.org/`, peer-only at runtime, and free of lifecycle/publication scripts.
-- Confirm `src/`, `dist/index.js`, runtime manifest/provenance, package contents, supported targets, and the exact three native tools remain aligned.
+- Confirm `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, runtime manifest/provenance, package contents, supported targets, and the exact three native tools remain aligned.
 - Do not move the candidate after its local and hosted evidence is recorded. Any content change creates a new candidate and requires the gate again.
 
 ### 2. Human native-license review
@@ -83,7 +83,7 @@ Run with Node.js 22.19 or newer:
 ```bash
 npm ci
 npm run build
-git diff --exit-code -- dist/index.js
+git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
@@ -98,7 +98,7 @@ git diff --check
 
 Requirements:
 
-- `npm run build` may reproduce tracked `dist/index.js`; it must not alter runtime artifacts. The immediate dist diff must pass.
+- `npm run build` may reproduce tracked `dist/index.js` and `dist/pdf-worker.js`; it must not alter runtime artifacts. The immediate dist diff must pass.
 - All project/runtime/package/offline checks and both zero-vulnerability audits must pass, the runtime npm tree must remain empty, and `npm run check:publish` must pass.
 - Compatibility must execute against an explicitly reviewed fixture checkout; a skip is not release evidence.
 - No audit acceptance or not-clean full-audit claim is permitted.

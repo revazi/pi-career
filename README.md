@@ -17,15 +17,17 @@ Native tools:
 - `career_core_resume`
 - `career_core_job`
 
-Deterministic slash commands:
+Workflow commands:
 
-- `/career-setup` — configure reviewed resume-library roots and privacy choices
-- `/career-library` — inspect configured Markdown/text resume libraries
+- `/career-setup` — configure reviewed resume-library roots, privacy choices, and the preferred variation-directory suggestion
+- `/career-library` — inspect configured searchable PDF/Markdown/text resume libraries
+- `/career-application` — isolate one company/role attempt in branch-aware session state
 - `/career-vacancy` — set or clear bounded vacancy text
 - `/career-match` — normalize a vacancy and conservatively rank eligible resumes
-- `/career-analyze` — inspect deterministic readiness details for one resume
+- `/career-analyze` — inspect complete deterministic readiness details in a bounded, paged viewer
+- `/career-workbench` — prepare a guided, reviewable private rebuild prompt for the normal Pi editor
 
-Slash commands invoke the package-owned runtime directly. They never route through an LLM-facing tool, provider, model, network request, `PATH`, Cargo, sibling checkout, or downloaded executable.
+`/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
 
 ## Supported platforms
 
@@ -74,22 +76,39 @@ Local-path registrations follow later filesystem changes. Restart Pi or run `/re
 
 ## Use
 
-Start with the setup flow:
+Start with the setup flow, select a directory, and place a searchable PDF, Markdown, or text résumé in it:
 
 ```text
 /career-setup
 /career-library
 ```
 
-Then set a vacancy and run deterministic matching or analysis:
+`/career-library` immediately shows indexed files and actionable notices. Searchable, unencrypted PDFs are extracted locally in a bounded worker (10 MiB and 20 pages maximum); image-only/scanned PDFs require OCR or export to Markdown/text first.
+
+Setup also displays a suggestion-only destination for assisted resume variations. Unless explicitly overridden through **Set resume variations directory**, the preferred destination is `variants/` under the configured root for the selected original (the setup summary uses the first configured root). This preference creates no directory or file and never authorizes a write.
+
+Create a company/role context, then set its vacancy and run deterministic matching or analysis:
 
 ```text
+/career-application
 /career-vacancy
 /career-match
 /career-analyze
 ```
 
-For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available. Preserve every returned warning, evidence item, source span, confidence value, uncertainty status, baseline boundary, and assisted/non-authoritative label.
+To continue with the selected Pi agent, prepare a reviewable workbench prompt:
+
+```text
+/career-workbench
+```
+
+`/career-application` gives each company/role attempt an immutable session-scoped ID, scopes vacancy/result entries to that ID, and names an otherwise unnamed Pi session. Use `/new` before creating another application so prior company prompts never remain in the new model conversation. It does not create workspace files yet. The planned opt-in filesystem layout keeps one flat folder per company/role attempt; see [`docs/application-workspaces.md`](docs/application-workspaces.md).
+
+The workbench never sends automatically. It offers guided score explanation, Career Core-reviewed improvement planning, a question-led rewrite interview, direct reviewed exact replacements, and—when a current vacancy exists—reviewed tailoring. The interview first reviews the deterministic priorities, then asks one small batch of factual questions and stops; only a later answer can become a bounded replacement proposal for Core review. The workbench places the complete private source context in Pi's editor so the user can inspect it before submitting. After submission, the selected Pi agent reruns the complete deterministic analysis rather than relying only on the displayed score, and every external proposal must pass the corresponding Core review. A non-PDF tailored variant can be materialized only in a later turn after the user explicitly selects canonical change IDs.
+
+Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files. When `/career-workbench` prepares a prompt, it includes the privacy-reduced preferred variation destination as suggestion-only local guidance so the selected Pi agent can recommend it first after a separate user request; exact path/file approval is still required before any external file-writing action.
+
+For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available, and reuse unchanged discovery/schema results within the same Pi session and Core version. Complete tool JSON remains authoritative; concise answers should not reprint an unchanged baseline embedded in each review, but must preserve exact warnings, discard codes, limitations, and the evidence/source spans used for presented findings.
 
 `CAREER_CLI_PATH` is an optional developer/recovery override for a separately reviewed compatible executable. Normal users do not set it.
 
@@ -103,9 +122,9 @@ pi --no-session
 
 This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
 
-The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.md`/`.txt` roots, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files.
+The workflow stores only canonical resume-root paths, bounded labels, and an optional bounded absolute variation-directory suggestion in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
 
-Oversized Core results fail without partial output. Full-result export is not available through this package.
+Successful Core results within the process limits can be inspected completely in a transient, paged detail viewer; the viewer does not store or export them. Results that exceed the process limits still fail without partial output. Full-result file export is not available through this package.
 
 ## Security and release provenance
 
@@ -124,14 +143,14 @@ There is no crate publication, custom GitHub Release asset, signing, or notariza
 
 ## Development
 
-TypeScript under `src/` is authoritative. `dist/index.js` is the reproducible tracked bundle Pi loads. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
+TypeScript under `src/` is authoritative. `dist/index.js` and the isolated `dist/pdf-worker.js` are reproducible tracked bundles. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
 
 Release verification uses Node.js 22.19.0 and npm 10.9.3:
 
 ```bash
 npm ci
 npm run build
-git diff --exit-code -- dist/index.js
+git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
@@ -150,7 +169,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-`npm run build` rebuilds only `dist/index.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
+`npm run build` rebuilds only the generated `dist/index.js` and `dist/pdf-worker.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
 
 ## Maintainer and support
 

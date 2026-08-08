@@ -18,6 +18,33 @@ export function uuidSequence() {
   return () => UUIDS[index++] ?? `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 }
 
+export function syntheticTextPdf(lines) {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  const escaped = lines.map((line) => line.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)"));
+  const stream = ["BT", "/F1 14 Tf", "72 720 Td", ...escaped.flatMap((line, index) => [
+    ...(index === 0 ? [] : ["0 -24 Td"]),
+    `(${line}) Tj`,
+  ]), "ET", ""].join("\n");
+  objects.push(`<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}endstream`);
+
+  let body = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const offsets = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(body, "latin1"));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(body, "latin1");
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
+
 export function resumeResult(score = 82, adjusted = false) {
   return {
     schema_version: "career.resume_analysis.v1",
@@ -90,6 +117,7 @@ export function makeFakePi() {
   const events = new Map();
   const entries = [];
   const renderers = new Map();
+  let sessionName;
   return {
     commands,
     events,
@@ -98,6 +126,8 @@ export function makeFakePi() {
     api: {
       registerCommand(name, definition) { commands.set(name, definition); },
       registerEntryRenderer(name, renderer) { renderers.set(name, renderer); },
+      getSessionName() { return sessionName; },
+      setSessionName(value) { sessionName = value; },
       appendEntry(customType, data) {
         entries.push({
           type: "custom", customType, data, id: `e${entries.length + 1}`,

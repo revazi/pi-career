@@ -6,6 +6,8 @@ import test from "node:test";
 import { createResultCard, projectResumeAnalysis } from "../../src/workflow/result-projection.ts";
 import { sha256 } from "../../src/workflow/scan.ts";
 import {
+  createApplicationClearEntry,
+  createApplicationEntry,
   createConsentClearEntry,
   createConsentEntry,
   createVacancyClearEntry,
@@ -54,6 +56,39 @@ test("active-branch replay reconstructs consent, vacancy clears, and compact car
   const alternate = reconstructWorkflowState([entry(consent, 1), entry(vacancy, 2)]);
   assert.equal(alternate.consent.granted, true);
   assert.equal(alternate.vacancy.state_id, vacancy.state_id);
+});
+
+test("application scope isolates vacancies and cards between company-role contexts", () => {
+  const uuid = uuidSequence();
+  const factory = { uuid, now };
+  const legacyVacancy = createVacancyEntry("Legacy vacancy", "paste", factory);
+  const legacyCard = createResultCard({
+    workflow: "analyze", runId: uuid(), resume: syntheticResume(),
+    projection: projectResumeAnalysis(resumeResult()), uuid, now,
+  });
+  const application = createApplicationEntry("Synthetic Company", "Engineer", "preparing", factory);
+  const scopedVacancy = createVacancyEntry("Scoped vacancy", "paste", {
+    ...factory, applicationId: application.application_id,
+  });
+  const scopedCard = createResultCard({
+    workflow: "analyze", applicationId: application.application_id, runId: uuid(),
+    resume: syntheticResume(), projection: projectResumeAnalysis(resumeResult()), uuid, now,
+  });
+  const branch = [legacyVacancy, legacyCard, application, scopedVacancy, scopedCard].map(entry);
+  const state = reconstructWorkflowState(branch);
+  assert.equal(state.application.application_id, application.application_id);
+  assert.equal(state.vacancy.state_id, scopedVacancy.state_id);
+  assert.deepEqual(state.result_cards.map((card) => card.state_id), [scopedCard.state_id]);
+  assert.ok(branch.every((item) => parseWorkflowEntryData(item.data)));
+
+  const cleared = reconstructWorkflowState([
+    ...branch,
+    entry(createVacancyClearEntry(scopedVacancy, factory), 6),
+    entry(createApplicationClearEntry(application, factory), 7),
+  ]);
+  assert.equal(cleared.application, undefined);
+  assert.equal(cleared.vacancy, undefined);
+  assert.deepEqual(cleared.result_cards, []);
 });
 
 test("current file digests mark reconstructed cards stale without mutating stored data", () => {

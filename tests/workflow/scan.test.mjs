@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { addLibraryRoot, emptyConfig } from "../../src/workflow/config.ts";
+import { libraryIndexPreview, libraryWarningPreview } from "../../src/workflow/renderers.ts";
 import {
   CORE_MAX_CHARACTERS,
   eligibleOriginals,
@@ -14,6 +15,34 @@ import {
   SCAN_MAX_FILES_PER_ROOT,
   SCAN_MAX_RAW_BYTES,
 } from "../../src/workflow/scan.ts";
+import { syntheticTextPdf } from "./helpers.mjs";
+
+test("scan extracts bounded searchable PDFs and reports unusable PDFs", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-pdf-"));
+  try {
+    const root = path.join(temp, "library");
+    await mkdir(root);
+    await writeFile(path.join(root, "synthetic-resume.pdf"), syntheticTextPdf([
+      "Synthetic Resume",
+      "Experience with TypeScript and testing.",
+    ]));
+    await writeFile(path.join(root, "unusable.pdf"), "%PDF-1.4\nnot a complete PDF\n");
+
+    const scan = await scanLibrary(await addLibraryRoot(emptyConfig(), root, "Synthetic"));
+    assert.equal(scan.records.length, 1);
+    assert.equal(scan.records[0].relative_path, "synthetic-resume.pdf");
+    assert.equal(scan.records[0].format, "pdf");
+    assert.match(libraryIndexPreview(await addLibraryRoot(emptyConfig(), root, "Synthetic"), scan), /synthetic-resume — PDF/);
+    assert.match(libraryWarningPreview(await addLibraryRoot(emptyConfig(), root, "Synthetic"), scan), /searchable, unencrypted PDF/);
+    assert.match(scan.records[0].text, /Synthetic Resume/);
+    assert.match(scan.records[0].text, /TypeScript and testing/);
+    assert.deepEqual(eligibleOriginals(scan).map((record) => record.relative_path), ["synthetic-resume.pdf"]);
+    assert.ok(scan.warnings.some((warning) =>
+      warning.code === "pdf_text_unavailable" && warning.relative_path === "unusable.pdf"));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
 
 test("scan is ordered, UTF-8 strict, symlink-free, sidecar-aware, and Core-bounded", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-"));

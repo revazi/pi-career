@@ -8,10 +8,13 @@ import test from "node:test";
 
 import {
   addLibraryRoot,
+  clearGeneratedVariantsRoot,
   configPath,
   emptyConfig,
   loadConfig,
   removeLibraryRoot,
+  setGeneratedVariantsRoot,
+  suggestedGeneratedVariantsRoot,
   writeConfig,
 } from "../../src/workflow/config.ts";
 import { uuidSequence } from "./helpers.mjs";
@@ -31,6 +34,22 @@ test("config uses injected agentDir, exact schema, private modes, and atomic rep
     assert.equal((await lstat(path.dirname(file))).mode & 0o777, 0o700);
     assert.equal((await lstat(file)).mode & 0o777, 0o600);
     assert.deepEqual(await loadConfig(agentDir), configured);
+    assert.equal(
+      suggestedGeneratedVariantsRoot(configured),
+      path.join(configured.library_roots[0].path, "variants"),
+    );
+
+    const variants = setGeneratedVariantsRoot(configured, path.join(root, "generated", "..", "generated"));
+    assert.equal(variants.generated_variants_root, path.join(root, "generated"));
+    assert.equal(suggestedGeneratedVariantsRoot(variants, configured.library_roots[0].id), path.join(root, "generated"));
+    await writeConfig(agentDir, variants, uuidSequence());
+    assert.deepEqual(await loadConfig(agentDir), variants);
+    assert.equal(
+      suggestedGeneratedVariantsRoot(clearGeneratedVariantsRoot(variants)),
+      path.join(configured.library_roots[0].path, "variants"),
+    );
+    assert.throws(() => setGeneratedVariantsRoot(configured, configured.library_roots[0].path), /root_invalid/);
+
     const text = await readFile(file, "utf8");
     assert.doesNotMatch(text, /resume text|vacancy text|provider/i);
     assert.deepEqual((await readdir(path.dirname(file))).sort(), ["config.v1.json"]);
@@ -56,6 +75,8 @@ test("root and config validation reject symlinks and malformed fields", async ()
     const file = configPath(agentDir);
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     await writeFile(file, '{"schema_version":"pi.career.config.v1","library_roots":[],"extra":true}\n', { mode: 0o600 });
+    await assert.rejects(loadConfig(agentDir), /config_invalid/);
+    await writeFile(file, '{"schema_version":"pi.career.config.v1","library_roots":[],"generated_variants_root":"relative"}\n', { mode: 0o600 });
     await assert.rejects(loadConfig(agentDir), /config_invalid/);
     await assert.rejects(writeConfig(agentDir, emptyConfig(), () => "../escape"), /config_invalid/);
   } finally {

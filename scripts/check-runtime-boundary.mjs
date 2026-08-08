@@ -16,9 +16,16 @@ const workflowFiles = (await readdir(path.join(root, "src", "workflow")))
   .filter((file) => file.endsWith(".ts"))
   .sort();
 const workflowSource = (await Promise.all(workflowFiles.map((file) => source(`src/workflow/${file}`)))).join("\n");
+const deterministicWorkflowSource = (await Promise.all(
+  workflowFiles.filter((file) => file !== "workbench.ts").map((file) => source(`src/workflow/${file}`)),
+)).join("\n");
+const workbenchSource = await source("src/workflow/workbench.ts");
+const pdfSource = await source("src/workflow/pdf.ts");
+const pdfWorkerSource = await source("src/workflow/pdf-worker.ts");
 const processBoundarySource = `${processSource}\n${runtimeResolverSource}\n${errorSource}`;
 const completeSource = `${indexSource}\n${processBoundarySource}\n${workflowSource}`;
 const bundle = await source("dist/index.js");
+const pdfWorkerBundle = await source("dist/pdf-worker.js");
 const packageManifest = JSON.parse(await source("package.json"));
 
 assert.match(processSource, /spawn\(executable, prepared\.args, \{/);
@@ -41,12 +48,23 @@ assert.match(indexSource, /registerCareerCommands\(pi\)/);
 assert.match(workflowSource, /invokeCareerCli/);
 assert.match(workflowSource, /registerCommand\("career-setup"/);
 assert.match(workflowSource, /registerCommand\("career-library"/);
+assert.match(workflowSource, /registerCommand\("career-application"/);
 assert.match(workflowSource, /registerCommand\("career-vacancy"/);
 assert.match(workflowSource, /registerCommand\("career-match"/);
 assert.match(workflowSource, /registerCommand\("career-analyze"/);
-assert.doesNotMatch(workflowSource, /career_core_(?:discover|resume|job)/);
+assert.match(workflowSource, /registerCommand\("career-workbench"/);
+assert.doesNotMatch(deterministicWorkflowSource, /career_core_(?:discover|resume|job)/);
+assert.match(workbenchSource, /career_core_discover, career_core_resume, and career_core_job/);
 assert.doesNotMatch(workflowSource, /\bfetch\s*\(|registerProvider|modelRegistry|sendMessage|sendUserMessage|before_provider|console\./i);
 assert.doesNotMatch(workflowSource, /node:child_process|\bexec\s*\(|\bexecFile\s*\(|\bspawn\s*\(|\bcargo\b|process\.env\.PATH/i);
+assert.match(pdfSource, /new Worker\(workerUrl\(\)/);
+assert.match(pdfSource, /env:\s*\{\}/);
+assert.match(pdfWorkerSource, /Object\.defineProperty\(globalThis, "fetch", \{ value: undefined/);
+assert.match(pdfWorkerSource, /isEvalSupported:\s*false/);
+assert.match(pdfWorkerSource, /useWasm:\s*false/);
+assert.match(pdfWorkerSource, /disableAutoFetch:\s*true/);
+assert.doesNotMatch(pdfWorkerSource, /node:(?:http|https|net|tls)|XMLHttpRequest|\bfetch\s*\(/);
+assert.doesNotMatch(pdfWorkerBundle, /from["']unpdf|node_modules/);
 assert.doesNotMatch(completeSource, /console\.(?:log|error|warn|debug)/);
 assert.doesNotMatch(bundle, /\bfetch\s*\(|registerProvider|modelRegistry|sendUserMessage|before_provider/);
 assert.equal(packageManifest.dependencies, undefined);

@@ -70,10 +70,12 @@ try {
   assert.deepEqual(names, ["career_core_discover", "career_core_job", "career_core_resume"]);
   assert.deepEqual([...loaded[0].commands.keys()].sort(), [
     "career-analyze",
+    "career-application",
     "career-library",
     "career-match",
     "career-setup",
     "career-vacancy",
+    "career-workbench",
   ]);
   assert.ok(loaded[0].entryRenderers?.has("career.workflow"));
   for (const tool of tools) {

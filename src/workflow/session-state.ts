@@ -6,6 +6,9 @@ import { sha256 } from "./scan.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
   RESULT_PROJECTION_SCHEMA,
+  type ApplicationClearEntry,
+  type ApplicationEntry,
+  type ApplicationStatus,
   type ConsentClearEntry,
   type ConsentEntry,
   type LibraryScan,
@@ -28,12 +31,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function exactKeys(value: Record<string, unknown>, required: string[]): boolean {
-  return Object.keys(value).sort().join(",") === [...required].sort().join(",");
+function exactKeys(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
+  const allowed = new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key));
 }
 
 function boundedText(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
+}
+
+function boundedLabel(value: unknown): value is string {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    [...value].length <= 120 &&
+    !/[\u0000-\u001f\u007f]/.test(value);
 }
 
 function validBase(value: Record<string, unknown>): boolean {
@@ -78,11 +90,35 @@ function isSha256(value: unknown): value is string {
   return typeof value === "string" && SHA256.test(value);
 }
 
+const APPLICATION_STATUSES = new Set<ApplicationStatus>(["preparing", "applied", "interviewing", "closed"]);
+
+function parseApplication(value: Record<string, unknown>): ApplicationEntry | undefined {
+  if (!exactKeys(value, [
+    "schema_version", "kind", "state_id", "created_at", "application_id", "company_label",
+    "role_label", "status",
+  ])) return undefined;
+  if (
+    !isUuid(value.application_id) ||
+    !boundedLabel(value.company_label) ||
+    !boundedLabel(value.role_label) ||
+    typeof value.status !== "string" ||
+    !APPLICATION_STATUSES.has(value.status as ApplicationStatus)
+  ) return undefined;
+  return value as unknown as ApplicationEntry;
+}
+
+function parseApplicationClear(value: Record<string, unknown>): ApplicationClearEntry | undefined {
+  const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
+  return exactKeys(value, keys) && isUuid(value.clears_state_id)
+    ? value as unknown as ApplicationClearEntry
+    : undefined;
+}
+
 function parseVacancy(value: Record<string, unknown>): VacancyEntry | undefined {
   if (!exactKeys(value, [
     "schema_version", "kind", "state_id", "created_at", "vacancy_label", "vacancy_text",
     "vacancy_text_sha256", "source",
-  ])) return undefined;
+  ], ["application_id"])) return undefined;
   if (
     !boundedText(value.vacancy_label, 120) ||
     typeof value.vacancy_text !== "string" ||
@@ -93,6 +129,7 @@ function parseVacancy(value: Record<string, unknown>): VacancyEntry | undefined 
     return undefined;
   }
   if (value.source !== "paste" && value.source !== "replace") return undefined;
+  if (value.application_id !== undefined && !isUuid(value.application_id)) return undefined;
   return value as unknown as VacancyEntry;
 }
 
@@ -132,7 +169,7 @@ function parseResultCard(value: Record<string, unknown>): ResultCardEntry | unde
   if (!exactKeys(value, [
     "schema_version", "kind", "state_id", "created_at", "workflow", "run_id", "resume_id",
     "resume_label", "resume_path_fingerprint", "input_digests", "projection",
-  ])) return undefined;
+  ], ["application_id"])) return undefined;
   if (value.workflow !== "analyze" && value.workflow !== "match") return undefined;
   if (!isUuid(value.run_id) || !isSha256(value.resume_id) || !boundedText(value.resume_label, 120)) {
     return undefined;
@@ -140,12 +177,15 @@ function parseResultCard(value: Record<string, unknown>): ResultCardEntry | unde
   if (!isSha256(value.resume_path_fingerprint) || !validInputDigests(value.input_digests)) {
     return undefined;
   }
+  if (value.application_id !== undefined && !isUuid(value.application_id)) return undefined;
   return validProjection(value.projection) ? value as unknown as ResultCardEntry : undefined;
 }
 
 export function parseWorkflowEntryData(value: unknown): WorkflowEntryData | undefined {
   if (!isRecord(value) || !validBase(value)) return undefined;
   switch (value.kind) {
+    case "application": return parseApplication(value);
+    case "application_clear": return parseApplicationClear(value);
     case "vacancy": return parseVacancy(value);
     case "vacancy_clear": return parseVacancyClear(value);
     case "consent": return parseConsent(value);
@@ -174,12 +214,21 @@ export function workflowResultCards(entries: readonly SessionEntry[]): ResultCar
 export function reconstructWorkflowState(
   entries: readonly SessionEntry[],
 ): ReconstructedWorkflowState {
+  let application: ApplicationEntry | undefined;
+  let applicationContextSeen = false;
   let vacancy: VacancyEntry | undefined;
   let consent: ConsentEntry | undefined;
   const cards = new Map<string, ResultCardEntry>();
 
   for (const data of workflowDataFromEntries(entries)) {
     switch (data.kind) {
+      case "application":
+        applicationContextSeen = true;
+        application = data;
+        break;
+      case "application_clear":
+        if (application?.state_id === data.clears_state_id) application = undefined;
+        break;
       case "vacancy":
         vacancy = data;
         break;
@@ -193,15 +242,23 @@ export function reconstructWorkflowState(
         if (consent?.state_id === data.clears_state_id) consent = undefined;
         break;
       case "result_card":
-        cards.set(`${data.workflow}:${data.resume_id}`, data);
+        cards.set(`${data.application_id ?? "legacy"}:${data.workflow}:${data.resume_id}`, data);
         break;
     }
   }
 
+  const applicationId = application?.application_id;
+  const hasActiveScope = application !== undefined || !applicationContextSeen;
+  const scopedVacancy = hasActiveScope && vacancy?.application_id === applicationId ? vacancy : undefined;
+  const scopedCards = hasActiveScope
+    ? [...cards.values()].filter((card) => card.application_id === applicationId)
+    : [];
   return {
-    ...(vacancy === undefined ? {} : { vacancy }),
+    ...(applicationContextSeen ? { application_context_seen: true as const } : {}),
+    ...(application === undefined ? {} : { application }),
+    ...(scopedVacancy === undefined ? {} : { vacancy: scopedVacancy }),
     ...(consent === undefined ? {} : { consent }),
-    result_cards: [...cards.values()],
+    result_cards: scopedCards,
   };
 }
 
@@ -218,15 +275,45 @@ function base(options: EntryFactoryOptions) {
   };
 }
 
+function cleanApplicationLabel(value: string): string {
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  return [...cleaned].slice(0, 120).join("");
+}
+
+export function createApplicationEntry(
+  company: string,
+  role: string,
+  status: ApplicationStatus,
+  options: EntryFactoryOptions,
+  applicationId?: string,
+): ApplicationEntry {
+  return {
+    ...base(options),
+    kind: "application",
+    application_id: applicationId ?? options.uuid(),
+    company_label: cleanApplicationLabel(company),
+    role_label: cleanApplicationLabel(role),
+    status,
+  };
+}
+
+export function createApplicationClearEntry(
+  application: ApplicationEntry,
+  options: EntryFactoryOptions,
+): ApplicationClearEntry {
+  return { ...base(options), kind: "application_clear", clears_state_id: application.state_id };
+}
+
 export function createVacancyEntry(
   text: string,
   source: "paste" | "replace",
-  options: EntryFactoryOptions,
+  options: EntryFactoryOptions & { applicationId?: string },
 ): VacancyEntry {
   const label = text.split("\n").find((line) => line.trim().length > 0)?.trim() || "Current vacancy";
   return {
     ...base(options),
     kind: "vacancy",
+    ...(options.applicationId === undefined ? {} : { application_id: options.applicationId }),
     vacancy_label: label.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 120),
     vacancy_text: text,
     vacancy_text_sha256: sha256(text),

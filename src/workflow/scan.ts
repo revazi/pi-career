@@ -6,6 +6,7 @@ import type { Dirent } from "node:fs";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 
+import { extractPdfText, PDF_MAX_RAW_BYTES } from "./pdf.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import type {
   CareerConfig,
@@ -44,6 +45,7 @@ function supportedFormat(file: string): ResumeFormat | undefined {
   const extension = path.extname(file).toLowerCase();
   if (extension === ".md") return "markdown";
   if (extension === ".txt") return "text";
+  if (extension === ".pdf") return "pdf";
   return undefined;
 }
 
@@ -245,22 +247,39 @@ async function scanCandidate(
     return undefined;
   }
 
-  if (metadata.size > SCAN_MAX_RAW_BYTES) {
+  const rawByteLimit = candidate.format === "pdf" ? PDF_MAX_RAW_BYTES : SCAN_MAX_RAW_BYTES;
+  if (metadata.size > rawByteLimit) {
     warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
     return undefined;
   }
 
-  let decoded: string;
+  let bytes: Buffer;
   try {
-    const bytes = await readFile(canonical);
-    if (bytes.length > SCAN_MAX_RAW_BYTES || bytes.length !== metadata.size) {
+    bytes = await readFile(canonical);
+    if (bytes.length > rawByteLimit || bytes.length !== metadata.size) {
       warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
       return undefined;
     }
-    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+    warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return undefined;
+  }
+
+  let decoded: string;
+  if (candidate.format === "pdf") {
+    const extracted = await extractPdfText(bytes);
+    if (!extracted.ok) {
+      warnings.push({ code: "pdf_text_unavailable", root_id: root.id, relative_path: candidate.relative });
+      return undefined;
+    }
+    decoded = extracted.text;
+  } else {
+    try {
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+      return undefined;
+    }
   }
 
   const text = normalizeDocumentText(decoded);
