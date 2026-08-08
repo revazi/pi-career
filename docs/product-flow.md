@@ -10,7 +10,7 @@ This package preserves the three stable native tools:
 
 It also registers:
 
-- `/career-setup` for library and privacy onboarding—not external CLI installation
+- `/career-setup` for library/privacy onboarding and a suggestion-only preferred variation directory—not external CLI installation
 - `/career-library` for explicitly configured searchable PDF, Markdown, and text resume roots, with actionable extraction notices
 - `/career-application` for session-scoped company/role identity and vacancy/result isolation
 - `/career-vacancy` for bounded vacancy input after session-persistence consent
@@ -23,8 +23,8 @@ On supported targets the three native tools plus `/career-vacancy`, `/career-mat
 Binding boundaries:
 
 - no provider/model calls in package commands; the workbench stops at a reviewable editor prompt
-- agent-directory-relative non-sensitive config only
-- no resume or vacancy text in global config
+- agent-directory-relative non-sensitive config only; it may contain canonical library roots and one bounded absolute preferred variation-directory suggestion
+- no resume or vacancy text in global config; a variation-directory preference is destination guidance, not write approval
 - session entries only after explicit persistence consent; entries persist to JSONL even when excluded from model context
 - one company/role per Pi session; application IDs scope vacancy/result state and `/new` prevents prior company prompts from remaining in the next application conversation
 - original resumes only for deterministic analyze/match
@@ -34,6 +34,7 @@ Binding boundaries:
 - complete successful Core results remain transient but can be inspected through a read-only pager with bounded visible lines; no full JSON is added to session state or written to a file
 - searchable PDF text extraction is local and isolated with fixed byte/page/time/memory/result ceilings; OCR and document rewriting remain out of scope
 - workbench prompts keep originals immutable, omit absolute source paths, treat document text as untrusted data, rerun complete deterministic baselines after submission, and require Career Core review of external suggestions, replacements, and variant changes
+- workbench prompts may include a privacy-reduced preferred variation-directory display path from setup; the selected agent recommends it first only after a separate user request and receives no automatic write authority
 - review proposals use verbatim source targets and in-range evidence, prefer single-line targets, make one review attempt, and surface discard codes instead of model-led repair/retry loops
 - complete tool JSON remains authoritative, while prose avoids duplicating unchanged review-embedded baselines and limits source repetition to requested evidence and retained items
 - PDF workbench output is suggestion-only because extracted text cannot expose or preserve visual layout; Markdown/text prompts require existing structure and unchanged wording to remain intact
@@ -47,7 +48,7 @@ The current workbench prepares private context in Pi's editor only. It does not 
 
 For a non-PDF vacancy-specific variant, the first assisted turn must stop after review and ask the user to explicitly select Core-assigned canonical change IDs. Only a later turn may invoke deterministic materialization with exactly those selected IDs. The result remains assisted/non-authoritative and cannot enter authoritative analysis or matching. PDF workbenches stop after reviewed targeted changes for manual application and never materialize extracted text as a styled resume.
 
-Automatic variant saving remains deferred. A future phase may save a newly materialized immutable assisted file only after separate local-file approval. It must not add provider fallback, automatic repair/retry, overwrite originals, auto-apply changes, or feed assisted output back into authoritative analysis/matching.
+Automatic variant saving remains deferred. Setup now records or derives only a preferred destination suggestion: an explicit override wins, otherwise `variants/` under the selected original's configured root is recommended. It creates no directory or file. A future phase may save a newly materialized immutable assisted file only after separate local-file approval. It must not add provider fallback, automatic repair/retry, overwrite originals, auto-apply changes, or feed assisted output back into authoritative analysis/matching.
 
 ## Non-goals in this phase
 

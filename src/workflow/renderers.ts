@@ -15,6 +15,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 
+import { suggestedGeneratedVariantsRoot } from "./config.ts";
 import type { CoreResult, RankedMatch } from "./result-projection.ts";
 import { parseWorkflowEntryData } from "./session-state.ts";
 import type {
@@ -38,7 +39,14 @@ export function setupSummary(config: CareerConfig, scan: LibraryScan, persisted:
   const resumes = scan.records.length;
   const roots = config.library_roots.length;
   const notices = scan.warnings.length;
-  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted ? "persisted" : "transient"}`;
+  const variantsRoot = suggestedGeneratedVariantsRoot(config);
+  const variants = variantsRoot === undefined
+    ? "Resume variation suggestion: unavailable until a resume root is configured"
+    : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === undefined ? "default under the first configured root" : "configured"})`;
+  return [
+    `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted ? "persisted" : "transient"}`,
+    variants,
+  ].join("\n");
 }
 
 export function libraryIndexPreview(config: CareerConfig, scan: LibraryScan, maximum = 50): string {

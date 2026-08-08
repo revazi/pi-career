@@ -25,7 +25,14 @@ const vacancy = {
 };
 
 test("workbench prompt keeps private inputs visible, original immutable, and PDF styling claims bounded", () => {
-  const prompt = buildWorkbenchPrompt(resume, vacancy, application, "tailor", "Suggest safe targeted edits.");
+  const prompt = buildWorkbenchPrompt(
+    resume,
+    vacancy,
+    application,
+    "tailor",
+    "Suggest safe targeted edits.",
+    "~/synthetic/variants",
+  );
   assert.ok(prompt);
   assert.match(prompt, /Suggest safe targeted edits/);
   assert.match(prompt, /Synthetic resume content/);
@@ -39,6 +46,11 @@ test("workbench prompt keeps private inputs visible, original immutable, and PDF
   assert.match(prompt, /do not call "variant-materialize"/);
   assert.doesNotMatch(prompt, /Only after a later explicit selection/);
   assert.match(prompt, /authority labels/);
+  assert.match(prompt, /local_save_guidance/);
+  assert.match(prompt, /preferred_variants_directory/);
+  assert.match(prompt, /~\/synthetic\/variants/);
+  assert.match(prompt, /destination guidance only/);
+  assert.match(prompt, /require separate explicit approval/);
   assert.doesNotMatch(prompt, /\/private\/synthetic-resume\.pdf/);
 });
 
@@ -75,6 +87,10 @@ test("guided modes require complete baselines and the matching Career Core revie
 
 test("workbench rejects missing vacancy, invalid questions, and oversized composite source", () => {
   assert.equal(buildWorkbenchPrompt(resume, undefined, undefined, "tailor", "Tailor this"), undefined);
+  assert.doesNotMatch(
+    buildWorkbenchPrompt(resume, undefined, undefined, "plan", "Improve", "bad\npath"),
+    /"local_save_guidance"/,
+  );
   assert.equal(validWorkbenchQuestion("\u0000hidden"), false);
   assert.equal(validWorkbenchQuestion(" "), false);
   assert.equal(buildWorkbenchPrompt(

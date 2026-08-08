@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { adapterError } from "../../src/errors.ts";
-import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   createConsentEntry,
@@ -168,6 +168,42 @@ test("application context scopes a new vacancy and names an unnamed session", as
   assert.equal(fake.api.getSessionName(), "Synthetic Company — Senior Engineer");
 });
 
+test("setup suggests a variants directory under the first root and stores an explicit suggestion without creating it", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-variants-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const preferred = path.join(temp, "preferred-variants");
+    const fake = makeFakePi();
+    registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
+
+    const status = makeContext(fake, { mode: "rpc", persisted: false });
+    await fake.commands.get("career-setup").handler("status", status.ctx);
+    assert.ok(status.notifications.some(({ message }) =>
+      message.includes("Resume variation suggestion") && message.includes("variants") &&
+      message.includes("default under the first configured root")));
+
+    const configure = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Set resume variations directory"],
+      inputs: [preferred],
+    });
+    const configuredRoot = (await loadConfig(agentDir)).library_roots[0].path;
+    const input = configure.ctx.ui.input;
+    configure.ctx.ui.input = async (title, placeholder) => {
+      assert.equal(title, "Resume variations directory");
+      assert.equal(placeholder, path.join(configuredRoot, "variants"));
+      return input(title, placeholder);
+    };
+    await fake.commands.get("career-setup").handler("", configure.ctx);
+    assert.equal((await loadConfig(agentDir)).generated_variants_root, preferred);
+    await assert.rejects(lstat(preferred), (error) => error?.code === "ENOENT");
+    assert.ok(configure.notifications.some(({ message }) =>
+      message.includes("No directory or resume file was created")));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("library status explains why an unusable PDF was not indexed", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-notice-"));
   try {
@@ -306,6 +342,9 @@ test("workbench prepares a guided reviewed-variation prompt without calling a mo
     assert.match(editorText[0], /select retained IDs, then stop/);
     assert.match(editorText[0], /Only after later selection/);
     assert.match(editorText[0], /call "variant-materialize"/);
+    assert.match(editorText[0], /local_save_guidance/);
+    assert.match(editorText[0], /preferred_variants_directory/);
+    assert.match(editorText[0], /destination guidance only/);
     assert.ok(rpc.notifications.some(({ message }) => message.includes("Nothing was sent automatically")));
     assert.ok(rpc.notifications.every(({ message }) => !message.includes("Synthetic resume content")));
   } finally {

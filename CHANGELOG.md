@@ -8,6 +8,7 @@
 - `/career-workbench` prepares a bounded, visibly reviewable ordinary Pi editor prompt for complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, or vacancy-specific variant review while keeping originals immutable and stopping before any provider/model call. Non-PDF materialization requires explicit canonical change-ID selection in a later turn; PDFs stop at manual targeted changes.
 - `/career-application` adds branch-aware company/role/status identity, scopes vacancies and result cards by immutable application ID, and names otherwise unnamed Pi sessions without creating workspace files.
 - `/career-analyze` and `/career-match` expose complete successful Core results plus focused sections through a transient read-only pager, without storing or exporting full result JSON.
+- `/career-setup` records or derives a suggestion-only preferred resume-variation directory. Workbench prompts recommend that privacy-reduced destination first after a separate user request, while creating no directory or file and granting no automatic write authority.
 
 ### Changed
 

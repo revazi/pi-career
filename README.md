@@ -19,7 +19,7 @@ Native tools:
 
 Workflow commands:
 
-- `/career-setup` — configure reviewed resume-library roots and privacy choices
+- `/career-setup` — configure reviewed resume-library roots, privacy choices, and the preferred variation-directory suggestion
 - `/career-library` — inspect configured searchable PDF/Markdown/text resume libraries
 - `/career-application` — isolate one company/role attempt in branch-aware session state
 - `/career-vacancy` — set or clear bounded vacancy text
@@ -85,6 +85,8 @@ Start with the setup flow, select a directory, and place a searchable PDF, Markd
 
 `/career-library` immediately shows indexed files and actionable notices. Searchable, unencrypted PDFs are extracted locally in a bounded worker (10 MiB and 20 pages maximum); image-only/scanned PDFs require OCR or export to Markdown/text first.
 
+Setup also displays a suggestion-only destination for assisted resume variations. Unless explicitly overridden through **Set resume variations directory**, the preferred destination is `variants/` under the configured root for the selected original (the setup summary uses the first configured root). This preference creates no directory or file and never authorizes a write.
+
 Create a company/role context, then set its vacancy and run deterministic matching or analysis:
 
 ```text
@@ -104,7 +106,7 @@ To continue with the selected Pi agent, prepare a reviewable workbench prompt:
 
 The workbench never sends automatically. It offers guided score explanation, Career Core-reviewed improvement planning, a question-led rewrite interview, direct reviewed exact replacements, and—when a current vacancy exists—reviewed tailoring. The interview first reviews the deterministic priorities, then asks one small batch of factual questions and stops; only a later answer can become a bounded replacement proposal for Core review. The workbench places the complete private source context in Pi's editor so the user can inspect it before submitting. After submission, the selected Pi agent reruns the complete deterministic analysis rather than relying only on the displayed score, and every external proposal must pass the corresponding Core review. A non-PDF tailored variant can be materialized only in a later turn after the user explicitly selects canonical change IDs.
 
-Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files.
+Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files. When `/career-workbench` prepares a prompt, it includes the privacy-reduced preferred variation destination as suggestion-only local guidance so the selected Pi agent can recommend it first after a separate user request; exact path/file approval is still required before any external file-writing action.
 
 For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available, and reuse unchanged discovery/schema results within the same Pi session and Core version. Complete tool JSON remains authoritative; concise answers should not reprint an unchanged baseline embedded in each review, but must preserve exact warnings, discard codes, limitations, and the evidence/source spans used for presented findings.
 
@@ -120,7 +122,7 @@ pi --no-session
 
 This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
 
-The workflow stores only canonical resume-root paths and bounded labels in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
+The workflow stores only canonical resume-root paths, bounded labels, and an optional bounded absolute variation-directory suggestion in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
 
 Successful Core results within the process limits can be inspected completely in a transient, paged detail viewer; the viewer does not store or export them. Results that exceed the process limits still fail without partial output. Full-result file export is not available through this package.
 

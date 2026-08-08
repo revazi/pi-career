@@ -25,6 +25,7 @@ import {
 const CONFIG_SCHEMA = "pi.career.config.v1";
 const CONFIG_MAX_BYTES = 65_536;
 const LABEL_MAX_CHARACTERS = 80;
+const PATH_MAX_BYTES = 4_096;
 const SHA256 = /^[a-f0-9]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -58,6 +59,18 @@ function validLabel(value: unknown): value is string {
     value.length <= LABEL_MAX_CHARACTERS &&
     !/[\u0000-\u001f\u007f]/.test(value)
   );
+}
+
+function normalizeGeneratedVariantsRoot(value: unknown): string | undefined {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES ||
+    !path.isAbsolute(value) ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) return undefined;
+  const normalized = path.normalize(value);
+  return path.dirname(normalized) === normalized ? undefined : normalized;
 }
 
 function parseRoot(value: unknown): LibraryRoot | undefined {
@@ -94,19 +107,20 @@ function parseConfig(value: unknown): CareerConfig {
     roots.push(root);
   }
 
+  const generatedVariantsRoot = value.generated_variants_root === undefined
+    ? undefined
+    : normalizeGeneratedVariantsRoot(value.generated_variants_root);
   if (
     value.generated_variants_root !== undefined &&
-    (typeof value.generated_variants_root !== "string" ||
-      !path.isAbsolute(value.generated_variants_root) ||
-      value.generated_variants_root.length === 0)
+    (generatedVariantsRoot === undefined || roots.some((root) => root.path === generatedVariantsRoot))
   ) throw workflowError("config_invalid");
 
   return {
     schema_version: CONFIG_SCHEMA,
     library_roots: roots,
-    ...(typeof value.generated_variants_root === "string"
-      ? { generated_variants_root: value.generated_variants_root }
-      : {}),
+    ...(generatedVariantsRoot === undefined
+      ? {}
+      : { generated_variants_root: generatedVariantsRoot }),
   };
 }
 
@@ -177,6 +191,33 @@ export async function addLibraryRoot(
 
 export function removeLibraryRoot(config: CareerConfig, id: string): CareerConfig {
   return { ...config, library_roots: config.library_roots.filter((root) => root.id !== id) };
+}
+
+export function suggestedGeneratedVariantsRoot(
+  config: CareerConfig,
+  selectedRootId?: string,
+): string | undefined {
+  if (config.generated_variants_root !== undefined) return config.generated_variants_root;
+  const selectedRoot = selectedRootId === undefined
+    ? config.library_roots[0]
+    : config.library_roots.find((root) => root.id === selectedRootId);
+  return selectedRoot === undefined ? undefined : path.join(selectedRoot.path, "variants");
+}
+
+export function setGeneratedVariantsRoot(
+  config: CareerConfig,
+  inputPath: string,
+): CareerConfig & { generated_variants_root: string } {
+  const normalized = normalizeGeneratedVariantsRoot(inputPath);
+  if (normalized === undefined || config.library_roots.some((root) => root.path === normalized)) {
+    throw workflowError("root_invalid");
+  }
+  return { ...config, generated_variants_root: normalized };
+}
+
+export function clearGeneratedVariantsRoot(config: CareerConfig): CareerConfig {
+  const { generated_variants_root: _discarded, ...remaining } = config;
+  return remaining;
 }
 
 export async function writeConfig(

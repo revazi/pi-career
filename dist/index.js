@@ -588,6 +588,7 @@ function workflowErrorMessage(code) {
 var CONFIG_SCHEMA = "pi.career.config.v1";
 var CONFIG_MAX_BYTES = 65536;
 var LABEL_MAX_CHARACTERS = 80;
+var PATH_MAX_BYTES = 4096;
 var SHA256 = /^[a-f0-9]{64}$/;
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function emptyConfig() {
@@ -610,6 +611,11 @@ function exactKeys(value, required, optional = []) {
 function validLabel(value) {
   return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
 }
+function normalizeGeneratedVariantsRoot(value) {
+  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES || !path2.isAbsolute(value) || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
+  const normalized = path2.normalize(value);
+  return path2.dirname(normalized) === normalized ? void 0 : normalized;
+}
 function parseRoot(value) {
   if (!isPlainRecord(value) || !exactKeys(value, ["id", "path", "label"])) return void 0;
   if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
@@ -629,11 +635,12 @@ function parseConfig(value) {
     paths.add(root.path);
     roots.push(root);
   }
-  if (value.generated_variants_root !== void 0 && (typeof value.generated_variants_root !== "string" || !path2.isAbsolute(value.generated_variants_root) || value.generated_variants_root.length === 0)) throw workflowError("config_invalid");
+  const generatedVariantsRoot = value.generated_variants_root === void 0 ? void 0 : normalizeGeneratedVariantsRoot(value.generated_variants_root);
+  if (value.generated_variants_root !== void 0 && (generatedVariantsRoot === void 0 || roots.some((root) => root.path === generatedVariantsRoot))) throw workflowError("config_invalid");
   return {
     schema_version: CONFIG_SCHEMA,
     library_roots: roots,
-    ...typeof value.generated_variants_root === "string" ? { generated_variants_root: value.generated_variants_root } : {}
+    ...generatedVariantsRoot === void 0 ? {} : { generated_variants_root: generatedVariantsRoot }
   };
 }
 async function loadConfig(agentDir) {
@@ -689,6 +696,22 @@ async function addLibraryRoot(config, inputPath, label) {
 }
 function removeLibraryRoot(config, id) {
   return { ...config, library_roots: config.library_roots.filter((root) => root.id !== id) };
+}
+function suggestedGeneratedVariantsRoot(config, selectedRootId) {
+  if (config.generated_variants_root !== void 0) return config.generated_variants_root;
+  const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
+  return selectedRoot === void 0 ? void 0 : path2.join(selectedRoot.path, "variants");
+}
+function setGeneratedVariantsRoot(config, inputPath) {
+  const normalized = normalizeGeneratedVariantsRoot(inputPath);
+  if (normalized === void 0 || config.library_roots.some((root) => root.path === normalized)) {
+    throw workflowError("root_invalid");
+  }
+  return { ...config, generated_variants_root: normalized };
+}
+function clearGeneratedVariantsRoot(config) {
+  const { generated_variants_root: _discarded, ...remaining } = config;
+  return remaining;
 }
 async function writeConfig(agentDir, config, uuid = randomUUID) {
   const validated = parseConfig(config);
@@ -1389,7 +1412,12 @@ function setupSummary(config, scan, persisted2) {
   const resumes = scan.records.length;
   const roots = config.library_roots.length;
   const notices = scan.warnings.length;
-  return `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`;
+  const variantsRoot = suggestedGeneratedVariantsRoot(config);
+  const variants = variantsRoot === void 0 ? "Resume variation suggestion: unavailable until a resume root is configured" : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === void 0 ? "default under the first configured root" : "configured"})`;
+  return [
+    `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`,
+    variants
+  ].join("\n");
 }
 function libraryIndexPreview(config, scan, maximum = 50) {
   const lines = [];
@@ -1950,7 +1978,10 @@ function workflowProtocol(mode, resume) {
 function validWorkbenchQuestion(value) {
   return value.trim().length > 0 && characterCount(value) <= WORKBENCH_MAX_QUESTION_CHARACTERS && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 }
-function buildWorkbenchPrompt(resume, vacancy, application, mode, question) {
+function validVariantDestination(value) {
+  return value !== void 0 && value.trim().length > 0 && characterCount(value) <= 4096 && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function buildWorkbenchPrompt(resume, vacancy, application, mode, question, variantDestination) {
   if (!validWorkbenchQuestion(question)) return void 0;
   if (mode === "tailor" && vacancy === void 0) return void 0;
   const sourceCharacters = characterCount(resume.text) + characterCount(vacancy?.vacancy_text ?? "");
@@ -1962,6 +1993,12 @@ function buildWorkbenchPrompt(resume, vacancy, application, mode, question) {
       format: resume.format,
       text: resume.text
     },
+    ...validVariantDestination(variantDestination) ? {
+      local_save_guidance: {
+        preferred_variants_directory: variantDestination,
+        mode: "suggestion_only"
+      }
+    } : {},
     ...application === void 0 ? {} : {
       application: {
         company: application.company_label,
@@ -1995,6 +2032,7 @@ Required handling rules:
 - Keep complete Core results unchanged in tool messages and use all returned evidence, spans, confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline: say it was preserved, reproduce all warnings/discards/limitations, and show only relevant evidence/spans.
 - Exact evidence occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
 - Do not analyze or match an assisted variant as though it were an original.
+- If the source-data JSON includes local_save_guidance and I later ask where to save an assisted resume variation, suggest its preferred_variants_directory first. It is destination guidance only: never save automatically, never overwrite an original, and require separate explicit approval of the exact path and files.
 - Present concise plans and bounded before/after snippets first. Only an explicitly selected, successful non-PDF materialization may return complete assisted text in chat.
 
 Guided workflow for this request:
@@ -2284,7 +2322,7 @@ function registerCareerCommands(pi, options = {}) {
     appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies));
     if (!granted) throw workflowError("consent_required");
   };
-  const prepareWorkbenchPrompt = async (ctx, run, resume) => {
+  const prepareWorkbenchPrompt = async (ctx, run, resume, config) => {
     owner.assert(run, ctx);
     const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
     const modes = new Map([
@@ -2317,7 +2355,15 @@ function registerCareerCommands(pi, options = {}) {
     owner.assert(run, ctx);
     await ensureConsent(ctx, run);
     const vacancy = mode === "tailor" ? state.vacancy : void 0;
-    const prompt = buildWorkbenchPrompt(resume, vacancy, state.application, mode, question);
+    const variantsRoot = suggestedGeneratedVariantsRoot(config, resume.root_id);
+    const prompt = buildWorkbenchPrompt(
+      resume,
+      vacancy,
+      state.application,
+      mode,
+      question,
+      variantsRoot === void 0 ? void 0 : privacyDisplayPath(variantsRoot)
+    );
     if (prompt === void 0) throw workflowError("workbench_too_large");
     owner.assert(run, ctx);
     ctx.ui.setEditorText(prompt);
@@ -2361,7 +2407,14 @@ function registerCareerCommands(pi, options = {}) {
       ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       if (config.library_roots.length === 0) ctx.ui.notify(SETUP_BANNER, "warning");
       else if (scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
-      const action = await ctx.ui.select("Career setup", ["Add root", "Rescan", "Status", "Close"]);
+      const action = await ctx.ui.select("Career setup", [
+        "Add root",
+        "Set resume variations directory",
+        ...config.generated_variants_root === void 0 ? [] : ["Clear resume variations directory"],
+        "Rescan",
+        "Status",
+        "Close"
+      ]);
       owner.assert(run, ctx);
       if (action === "Add root") {
         const rootPath = await ctx.ui.input("Resume root", "Absolute path");
@@ -2376,6 +2429,29 @@ function registerCareerCommands(pi, options = {}) {
           libraryWarningPreview(updated, rescanned)
         ].filter(Boolean).join("\n"), "info");
         if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
+      } else if (action === "Set resume variations directory") {
+        const suggested = suggestedGeneratedVariantsRoot(config);
+        const variantsPath = await ctx.ui.input(
+          "Resume variations directory",
+          suggested === void 0 ? "Absolute path" : suggested
+        );
+        if (variantsPath === void 0) return;
+        const updated = setGeneratedVariantsRoot(config, variantsPath);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify(
+          `Resume variation suggestion set to ${privacyDisplayPath(updated.generated_variants_root)}. No directory or resume file was created.`,
+          "info"
+        );
+      } else if (action === "Clear resume variations directory") {
+        const updated = clearGeneratedVariantsRoot(config);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        const fallback = suggestedGeneratedVariantsRoot(updated);
+        ctx.ui.notify(
+          fallback === void 0 ? "Configured resume variation suggestion cleared. Add a resume root to get a default suggestion." : `Configured resume variation suggestion cleared. The default is now ${privacyDisplayPath(fallback)}.`,
+          "info"
+        );
       } else if (action === "Rescan") {
         const rescanned = await scanLibrary(config);
         owner.assert(run, ctx);
@@ -2621,14 +2697,14 @@ Application context is session-scoped; no workspace files were created.${state.v
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
-      const { scan } = await refreshState(ctx);
+      const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
       const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
       const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
       const resume = selected === void 0 ? void 0 : byOption.get(selected);
       if (resume === void 0) return;
-      await prepareWorkbenchPrompt(ctx, run, resume);
+      await prepareWorkbenchPrompt(ctx, run, resume, config);
     })
   });
   pi.registerCommand("career-analyze", {
@@ -2637,7 +2713,7 @@ Application context is session-scoped; no workspace files were created.${state.v
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
-      const { scan } = await refreshState(ctx);
+      const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
       const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
@@ -2690,7 +2766,7 @@ Application context is session-scoped; no workspace files were created.${state.v
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
       } else if (action === "Open guided Pi rebuild workbench") {
-        await prepareWorkbenchPrompt(ctx, run, resume);
+        await prepareWorkbenchPrompt(ctx, run, resume, config);
       }
     })
   });

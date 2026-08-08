@@ -34,7 +34,7 @@ try {
   assert.deepEqual(firstWorkerBytes, secondWorkerBytes, "two clean PDF worker builds must be byte-equivalent");
   assert.deepEqual(trackedIndex, firstIndexBytes, "dist/index.js is stale; run npm run build");
   assert.deepEqual(trackedWorker, firstWorkerBytes, "dist/pdf-worker.js is stale; run npm run build");
-  assert.ok(trackedIndex.length > 0 && trackedIndex.length < 125_000, "extension bundle must remain bounded");
+  assert.ok(trackedIndex.length > 0 && trackedIndex.length < 132_000, "extension bundle must remain bounded");
   assert.ok(trackedWorker.length > 0 && trackedWorker.length < 2_000_000, "PDF worker bundle must remain bounded");
   process.stdout.write(
     `Reproducible dist/index.js (${trackedIndex.length} bytes) and dist/pdf-worker.js (${trackedWorker.length} bytes)\n`,

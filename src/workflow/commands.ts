@@ -11,7 +11,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { CareerInvocationError, invokeCareerCli } from "../process.ts";
-import { addLibraryRoot, loadConfig, removeLibraryRoot, writeConfig } from "./config.ts";
+import {
+  addLibraryRoot,
+  clearGeneratedVariantsRoot,
+  loadConfig,
+  removeLibraryRoot,
+  setGeneratedVariantsRoot,
+  suggestedGeneratedVariantsRoot,
+  writeConfig,
+} from "./config.ts";
 import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput } from "./core-input.ts";
 import {
   analyzeDetailSections,
@@ -440,6 +448,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     ctx: ExtensionCommandContext,
     run: OwnedRun,
     resume: ResumeRecord,
+    config: CareerConfig,
   ): Promise<void> => {
     owner.assert(run, ctx);
     const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
@@ -479,7 +488,15 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     await ensureConsent(ctx, run);
 
     const vacancy = mode === "tailor" ? state.vacancy : undefined;
-    const prompt = buildWorkbenchPrompt(resume, vacancy, state.application, mode, question);
+    const variantsRoot = suggestedGeneratedVariantsRoot(config, resume.root_id);
+    const prompt = buildWorkbenchPrompt(
+      resume,
+      vacancy,
+      state.application,
+      mode,
+      question,
+      variantsRoot === undefined ? undefined : privacyDisplayPath(variantsRoot),
+    );
     if (prompt === undefined) throw workflowError("workbench_too_large");
     owner.assert(run, ctx);
     ctx.ui.setEditorText(prompt);
@@ -528,7 +545,14 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
       if (config.library_roots.length === 0) ctx.ui.notify(SETUP_BANNER, "warning");
       else if (scan.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
-      const action = await ctx.ui.select("Career setup", ["Add root", "Rescan", "Status", "Close"]);
+      const action = await ctx.ui.select("Career setup", [
+        "Add root",
+        "Set resume variations directory",
+        ...(config.generated_variants_root === undefined ? [] : ["Clear resume variations directory"]),
+        "Rescan",
+        "Status",
+        "Close",
+      ]);
       owner.assert(run, ctx);
       if (action === "Add root") {
         const rootPath = await ctx.ui.input("Resume root", "Absolute path");
@@ -543,6 +567,31 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
           libraryWarningPreview(updated, rescanned),
         ].filter(Boolean).join("\n"), "info");
         if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
+      } else if (action === "Set resume variations directory") {
+        const suggested = suggestedGeneratedVariantsRoot(config);
+        const variantsPath = await ctx.ui.input(
+          "Resume variations directory",
+          suggested === undefined ? "Absolute path" : suggested,
+        );
+        if (variantsPath === undefined) return;
+        const updated = setGeneratedVariantsRoot(config, variantsPath);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify(
+          `Resume variation suggestion set to ${privacyDisplayPath(updated.generated_variants_root)}. No directory or resume file was created.`,
+          "info",
+        );
+      } else if (action === "Clear resume variations directory") {
+        const updated = clearGeneratedVariantsRoot(config);
+        owner.assert(run, ctx);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        const fallback = suggestedGeneratedVariantsRoot(updated);
+        ctx.ui.notify(
+          fallback === undefined
+            ? "Configured resume variation suggestion cleared. Add a resume root to get a default suggestion."
+            : `Configured resume variation suggestion cleared. The default is now ${privacyDisplayPath(fallback)}.`,
+          "info",
+        );
       } else if (action === "Rescan") {
         const rescanned = await scanLibrary(config);
         owner.assert(run, ctx);
@@ -794,14 +843,14 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
-      const { scan } = await refreshState(ctx);
+      const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
       const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
       const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
       const resume = selected === undefined ? undefined : byOption.get(selected);
       if (resume === undefined) return;
-      await prepareWorkbenchPrompt(ctx, run, resume);
+      await prepareWorkbenchPrompt(ctx, run, resume, config);
     }),
   });
 
@@ -811,7 +860,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
-      const { scan } = await refreshState(ctx);
+      const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
       const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
@@ -864,7 +913,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
       } else if (action === "Open guided Pi rebuild workbench") {
-        await prepareWorkbenchPrompt(ctx, run, resume);
+        await prepareWorkbenchPrompt(ctx, run, resume, config);
       }
     }),
   });

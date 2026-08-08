@@ -6,6 +6,8 @@ A single active vacancy on a Pi session branch is not enough to organize a real 
 
 This document defines the target workspace contract. The current package does not create these private files yet; that requires a separately reviewed, explicit persistence workflow.
 
+The current `/career-setup` preferred resume-variation directory is narrower and suggestion-only. It gives the selected Pi agent a primary destination to recommend after a separate user request, defaults to `variants/` under the selected original's configured root, and creates nothing. It is not the future application workspace root and does not relax the persistence requirements below.
+
 ## Directory model
 
 Resume originals and application work must be separate roots:

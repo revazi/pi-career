@@ -66,12 +66,20 @@ export function validWorkbenchQuestion(value: string): boolean {
     !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 }
 
+function validVariantDestination(value: string | undefined): value is string {
+  return value !== undefined &&
+    value.trim().length > 0 &&
+    characterCount(value) <= 4_096 &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
 export function buildWorkbenchPrompt(
   resume: ResumeRecord,
   vacancy: VacancyEntry | undefined,
   application: ApplicationEntry | undefined,
   mode: WorkbenchMode,
   question: string,
+  variantDestination?: string,
 ): string | undefined {
   if (!validWorkbenchQuestion(question)) return undefined;
   if (mode === "tailor" && vacancy === undefined) return undefined;
@@ -85,6 +93,12 @@ export function buildWorkbenchPrompt(
       format: resume.format,
       text: resume.text,
     },
+    ...(validVariantDestination(variantDestination) ? {
+      local_save_guidance: {
+        preferred_variants_directory: variantDestination,
+        mode: "suggestion_only",
+      },
+    } : {}),
     ...(application === undefined ? {} : {
       application: {
         company: application.company_label,
@@ -118,6 +132,7 @@ Required handling rules:
 - Keep complete Core results unchanged in tool messages and use all returned evidence, spans, confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline: say it was preserved, reproduce all warnings/discards/limitations, and show only relevant evidence/spans.
 - Exact evidence occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
 - Do not analyze or match an assisted variant as though it were an original.
+- If the source-data JSON includes local_save_guidance and I later ask where to save an assisted resume variation, suggest its preferred_variants_directory first. It is destination guidance only: never save automatically, never overwrite an original, and require separate explicit approval of the exact path and files.
 - Present concise plans and bounded before/after snippets first. Only an explicitly selected, successful non-PDF materialization may return complete assisted text in chat.
 
 Guided workflow for this request:

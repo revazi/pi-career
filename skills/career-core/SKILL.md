@@ -40,6 +40,8 @@ On supported targets, users can run `/career-setup`, `/career-library`, `/career
 
 For non-PDF variants, present Core-assigned canonical retained change IDs and all discard codes/warnings, then stop and ask the user to explicitly select IDs. Invoke `variant-materialize` only in a later turn after that selection, with the exact same variant-review input and exactly those IDs. Keep the materialized result assisted/non-authoritative, do not save it automatically, and never feed it into analysis or matching. PDF input is extracted text only: provide reviewed targeted changes for manual application, never invoke materialization, and never claim to inspect or preserve PDF layout. Preserve Markdown/text structure and unchanged wording.
 
+A workbench source may contain `local_save_guidance` with a suggestion-only `preferred_variants_directory` derived from `/career-setup`. If the user later asks where to save an assisted resume variation, recommend that destination first; absent an explicit override, the package derives `variants/` under the configured root for the selected original. This is not write approval. Never save automatically or place assisted output under `originals/`; require separate approval of the exact destination and files. Before any separately approved write inside a scanned library root, inspect and follow the current package-owned assisted-variant sidecar contract so the artifact cannot become an authoritative original.
+
 Use the native tool flow below for operations not exposed by those commands or when the user explicitly requests direct schema-level work.
 
 ## Native tool surface
