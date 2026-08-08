@@ -9,7 +9,7 @@ Treat every Career Core checkout as read-only reference material. Do not add run
 ## Working rules
 
 - State a short plan before editing.
-- Preserve the exact three tool names and reviewed process boundary in [`docs/design.md`](docs/design.md).
+- Preserve `career_run` as the primary managed tool, preserve the exact raw compatibility names `career_core_discover`, `career_core_resume`, and `career_core_job`, and preserve the reviewed process/privacy boundary in [`docs/design.md`](docs/design.md).
 - Keep TypeScript in `src/` authoritative. Generated `dist/index.js` and `dist/pdf-worker.js` are tracked only for clean Git/local/npm Pi loading and must reproduce with `npm run check:dist`.
 - Keep runtime targets exactly `darwin-arm64` and `linux-x64-gnu`; verify manifest/provenance/hash/size/mode before changing imported artifacts and fail every other target closed.
 - Pi-provided packages remain exactly four wildcard external peer dependencies. Development versions and tooling stay lockfile-pinned; package tarballs must contain neither peer package contents nor `node_modules`.
@@ -25,6 +25,7 @@ Run before review:
 ```bash
 npm ci
 npm run build
+npm run bench:tokens
 npm run check
 npm run test:bundled-runtime
 npm run audit:production

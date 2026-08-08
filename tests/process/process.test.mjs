@@ -92,6 +92,13 @@ test("builds bounded discovery argv without document stdin", async () => {
   );
   assert.deepEqual(JSON.parse(capabilities.json).args, ["capabilities", "--format", "json-compact"]);
 
+  const operations = await invokeCareerCli(
+    { kind: "discovery", operation: "operations" },
+    undefined,
+    { executable },
+  );
+  assert.deepEqual(JSON.parse(operations.json).args, ["operations", "--format", "json-compact"]);
+
   const schema = await invokeCareerCli(
     { kind: "discovery", operation: "schema-export", schemaId: "career.job_match.v1" },
     undefined,
@@ -102,6 +109,20 @@ test("builds bounded discovery argv without document stdin", async () => {
     "export",
     "--id",
     "career.job_match.v1",
+    "--format",
+    "json-compact",
+  ]);
+
+  const bundle = await invokeCareerCli(
+    { kind: "discovery", operation: "schema-bundle", schemaId: "career.job_match_input.v1" },
+    undefined,
+    { executable },
+  );
+  assert.deepEqual(JSON.parse(bundle.json).args, [
+    "schema",
+    "bundle",
+    "--id",
+    "career.job_match_input.v1",
     "--format",
     "json-compact",
   ]);

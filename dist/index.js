@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // src/index.ts
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { StringEnum as StringEnum2 } from "@earendil-works/pi-ai";
+import { Type as Type2 } from "typebox";
 
 // src/process.ts
 import { spawn } from "node:child_process";
@@ -136,7 +136,7 @@ async function readRuntimeManifest(manifestPath) {
   }
 }
 function manifestHeaderIsValid(manifest) {
-  return manifest.schema_version === "pi.career.runtime_manifest.v1" && typeof manifest.career_core?.commit === "string" && /^[a-f0-9]{40}$/.test(manifest.career_core.commit);
+  return manifest.schema_version === "pi.career.runtime_manifest.v2" && typeof manifest.career_core?.commit === "string" && /^[a-f0-9]{40}$/.test(manifest.career_core.commit);
 }
 function targetMatchesLayout(target, layout) {
   if (!isRecord(target)) return false;
@@ -287,17 +287,23 @@ function prepareDiscoveryInvocation(invocation) {
     case "capabilities":
       if (invocation.schemaId !== void 0) throw adapterError("invalid_request");
       return { args: ["capabilities", "--format", "json-compact"], operation: "capabilities" };
+    case "operations":
+      if (invocation.schemaId !== void 0) throw adapterError("invalid_request");
+      return { args: ["operations", "--format", "json-compact"], operation: "core.operations" };
     case "schema-list":
       if (invocation.schemaId !== void 0) throw adapterError("invalid_request");
       return { args: ["schema", "list", "--format", "json-compact"], operation: "schema.list" };
     case "schema-export":
+    case "schema-bundle": {
       if (typeof invocation.schemaId !== "string" || invocation.schemaId.length > 100 || !/^career\.[a-z0-9_.-]+\.v[0-9]+$/.test(invocation.schemaId)) {
         throw adapterError("invalid_request");
       }
+      const schemaOperation = invocation.operation === "schema-export" ? "export" : "bundle";
       return {
-        args: ["schema", "export", "--id", invocation.schemaId, "--format", "json-compact"],
-        operation: "schema.export"
+        args: ["schema", schemaOperation, "--id", invocation.schemaId, "--format", "json-compact"],
+        operation: `schema.${schemaOperation}`
       };
+    }
     default:
       throw adapterError("invalid_request");
   }
@@ -521,12 +527,10 @@ async function invokeCareerCli(invocation, signal, options = {}) {
   });
 }
 
-// src/workflow/commands.ts
+// src/managed/tool.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import {
-  BorderedLoader,
-  getAgentDir
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 // src/workflow/config.ts
 import { createHash as createHash2, randomUUID } from "node:crypto";
@@ -777,18 +781,6 @@ function serializeCoreInput(value) {
   return JSON.stringify(value);
 }
 
-// src/workflow/renderers.ts
-import os from "node:os";
-import path4 from "node:path";
-import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import {
-  Container,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  wrapTextWithAnsi
-} from "@earendil-works/pi-tui";
-
 // src/workflow/scan.ts
 import { createHash as createHash3 } from "node:crypto";
 import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath2 } from "node:fs/promises";
@@ -947,7 +939,7 @@ async function scanRootIsCurrent(root) {
     return false;
   }
 }
-async function directoryChildren(current, rootId2, warnings, maximumEntries) {
+async function directoryChildren(current, rootId2, warnings2, maximumEntries) {
   const entries = [];
   try {
     const directory = await opendir(current.absolute);
@@ -958,7 +950,7 @@ async function directoryChildren(current, rootId2, warnings, maximumEntries) {
       }
     }
   } catch {
-    warnings.push({ code: "scan_entry_unavailable", root_id: rootId2 });
+    warnings2.push({ code: "scan_entry_unavailable", root_id: rootId2 });
     return { children: [], entryCount: 0, overflow: false };
   }
   entries.sort((left, right) => compareText(left.name, right.name));
@@ -980,9 +972,9 @@ function candidateFromPending(current) {
   const format = supportedFormat(current.absolute);
   return format === void 0 ? void 0 : { absolute: current.absolute, relative: current.relative, format };
 }
-async function collectCandidates(root, maximum, warnings) {
+async function collectCandidates(root, maximum, warnings2) {
   if (!await scanRootIsCurrent(root)) {
-    warnings.push({ code: "root_stale", root_id: root.id });
+    warnings2.push({ code: "root_stale", root_id: root.id });
     return { candidates: [], capped: false, stale: true };
   }
   const pending = [{ absolute: root.path, relative: "", depth: 0, kind: "directory" }];
@@ -1003,7 +995,7 @@ async function collectCandidates(root, maximum, warnings) {
     const { children, entryCount, overflow } = await directoryChildren(
       current,
       root.id,
-      warnings,
+      warnings2,
       remainingEntryBudget
     );
     if (overflow) {
@@ -1020,7 +1012,7 @@ async function collectCandidates(root, maximum, warnings) {
   });
   return { candidates, capped, stale: false };
 }
-async function scanCandidate(root, candidate, warnings) {
+async function scanCandidate(root, candidate, warnings2) {
   let metadata;
   let canonical;
   try {
@@ -1028,30 +1020,30 @@ async function scanCandidate(root, candidate, warnings) {
     canonical = await realpath2(candidate.absolute);
     if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== candidate.absolute || !canonical.startsWith(`${root.path}${path3.sep}`)) return void 0;
   } catch {
-    warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
+    warnings2.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return void 0;
   }
   const rawByteLimit = candidate.format === "pdf" ? PDF_MAX_RAW_BYTES : SCAN_MAX_RAW_BYTES;
   if (metadata.size > rawByteLimit) {
-    warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
+    warnings2.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
     return void 0;
   }
   let bytes;
   try {
     bytes = await readFile3(canonical);
     if (bytes.length > rawByteLimit || bytes.length !== metadata.size) {
-      warnings.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
+      warnings2.push({ code: "raw_file_too_large", root_id: root.id, relative_path: candidate.relative });
       return void 0;
     }
   } catch {
-    warnings.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
+    warnings2.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return void 0;
   }
   let decoded;
   if (candidate.format === "pdf") {
     const extracted = await extractPdfText(bytes);
     if (!extracted.ok) {
-      warnings.push({ code: "pdf_text_unavailable", root_id: root.id, relative_path: candidate.relative });
+      warnings2.push({ code: "pdf_text_unavailable", root_id: root.id, relative_path: candidate.relative });
       return void 0;
     }
     decoded = extracted.text;
@@ -1059,7 +1051,7 @@ async function scanCandidate(root, candidate, warnings) {
     try {
       decoded = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
     } catch {
-      warnings.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
+      warnings2.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
       return void 0;
     }
   }
@@ -1067,7 +1059,7 @@ async function scanCandidate(root, candidate, warnings) {
   const id = sha256(canonical);
   const sidecar = await readSidecar(canonical);
   if (sidecar.invalid) {
-    warnings.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+    warnings2.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
   }
   return {
     id,
@@ -1086,7 +1078,7 @@ async function scanCandidate(root, candidate, warnings) {
   };
 }
 async function scanLibrary(config) {
-  const warnings = [];
+  const warnings2 = [];
   const records = [];
   const roots = [];
   let totalCapped = false;
@@ -1094,7 +1086,7 @@ async function scanLibrary(config) {
   for (const root of config.library_roots) {
     const remaining = SCAN_MAX_FILES_TOTAL - scannedCandidateCount;
     if (remaining <= 0) {
-      warnings.push({ code: "total_file_cap_reached", root_id: root.id });
+      warnings2.push({ code: "total_file_cap_reached", root_id: root.id });
       totalCapped = true;
       roots.push({
         root_id: root.id,
@@ -1107,16 +1099,16 @@ async function scanLibrary(config) {
       continue;
     }
     const maximum = Math.min(SCAN_MAX_FILES_PER_ROOT, remaining);
-    const collected = await collectCandidates(root, maximum, warnings);
+    const collected = await collectCandidates(root, maximum, warnings2);
     scannedCandidateCount += collected.candidates.length;
     const rootRecords = [];
     for (const candidate of collected.candidates) {
-      const record = await scanCandidate(root, candidate, warnings);
+      const record = await scanCandidate(root, candidate, warnings2);
       if (record !== void 0) rootRecords.push(record);
     }
     records.push(...rootRecords);
     if (collected.capped) {
-      warnings.push({ code: "root_file_cap_reached", root_id: root.id });
+      warnings2.push({ code: "root_file_cap_reached", root_id: root.id });
       if (maximum < SCAN_MAX_FILES_PER_ROOT) totalCapped = true;
     }
     roots.push({
@@ -1128,7 +1120,7 @@ async function scanLibrary(config) {
       capped: collected.capped
     });
   }
-  return { records, warnings, roots, total_capped: totalCapped };
+  return { records, warnings: warnings2, roots, total_capped: totalCapped };
 }
 function eligibleOriginals(scan) {
   return scan.records.filter(
@@ -1136,12 +1128,180 @@ function eligibleOriginals(scan) {
   );
 }
 
+// src/workflow/result-projection.ts
+function isRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function numberField(value, field) {
+  const found = value[field];
+  if (typeof found !== "number" || !Number.isFinite(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function recordField(value, field) {
+  const found = value[field];
+  if (!isRecord2(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function arrayField(value, field) {
+  const found = value[field];
+  if (!Array.isArray(found)) throw workflowError("core_result_invalid");
+  return found;
+}
+function compactObjects(value, fields, maximum) {
+  return value.slice(0, maximum).flatMap((candidate) => {
+    if (!isRecord2(candidate)) return [];
+    const selected = {};
+    for (const field of fields) {
+      if (candidate[field] !== void 0) selected[field] = candidate[field];
+    }
+    return [selected];
+  });
+}
+function compactWarnings(value) {
+  return compactObjects(value, ["code", "message", "related_fields", "related_categories"], 3);
+}
+function parseConfidencePreview(value) {
+  if (!isRecord2(value) || typeof value.label !== "string" || typeof value.score !== "number") {
+    throw workflowError("core_result_invalid");
+  }
+  return { label: value.label, score: value.score };
+}
+function parseCoreJson(json) {
+  try {
+    const value = JSON.parse(json);
+    if (!isRecord2(value)) throw workflowError("core_result_invalid");
+    return value;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("core_result_invalid");
+  }
+}
+function projectResumeAnalysis(result) {
+  if (result.schema_version !== "career.resume_analysis.v1") throw workflowError("core_result_invalid");
+  const checks = arrayField(result, "checks");
+  const confidence = recordField(result, "confidence_context");
+  const parseConfidence = parseConfidencePreview(confidence.parse_confidence);
+  const adjusted = checks.some((check) => isRecord2(check) && check.score_adjusted === true);
+  return {
+    schema_version: RESULT_PROJECTION_SCHEMA,
+    core_schema_version: "career.resume_analysis.v1",
+    summary: {
+      overall_score: numberField(result, "overall_score"),
+      category_scores: recordField(result, "category_scores"),
+      confidence_context: { parse_confidence: parseConfidence },
+      top_strengths: compactObjects(arrayField(result, "top_strengths"), ["area", "title", "status"], 2),
+      top_weaknesses: compactObjects(arrayField(result, "top_weaknesses"), ["area", "title", "status"], 2),
+      improvement_actions: compactObjects(
+        arrayField(result, "improvement_actions"),
+        ["priority", "area", "action", "basis_check_id", "status"],
+        2
+      ),
+      warnings: compactWarnings(arrayField(result, "warnings"))
+    },
+    ui_flags: { adjusted, provisional: false, close_cluster: false, stale: false }
+  };
+}
+function projectJobMatch(result) {
+  if (result.schema_version !== "career.job_match.v1") throw workflowError("core_result_invalid");
+  const categories = arrayField(result, "category_results");
+  const confidence = recordField(result, "confidence_context");
+  const recommendation = recordField(result, "recommendation");
+  if (typeof recommendation.label !== "string") throw workflowError("core_result_invalid");
+  const provisional = confidence.is_uncertain === true;
+  const adjusted = categories.some((category) => isRecord2(category) && category.score_adjusted === true);
+  return {
+    schema_version: RESULT_PROJECTION_SCHEMA,
+    core_schema_version: "career.job_match.v1",
+    summary: {
+      overall_score: numberField(result, "overall_score"),
+      category_scores: recordField(result, "category_scores"),
+      confidence_context: {
+        resume_parse_confidence: parseConfidencePreview(confidence.resume_parse_confidence),
+        job_parse_confidence: parseConfidencePreview(confidence.job_parse_confidence),
+        is_uncertain: provisional
+      },
+      top_strengths: compactObjects(
+        arrayField(result, "top_strengths"),
+        ["category", "item", "status", "match_type"],
+        2
+      ),
+      top_gaps: compactObjects(arrayField(result, "top_gaps"), ["category", "item", "status"], 2),
+      recommendation: compactObjects([recommendation], ["label", "status"], 1)[0] ?? {},
+      warnings: compactWarnings(arrayField(result, "warnings"))
+    },
+    ui_flags: { adjusted, provisional, close_cluster: false, stale: false }
+  };
+}
+function createResultCard(options) {
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    kind: "result_card",
+    ...options.applicationId === void 0 ? {} : { application_id: options.applicationId },
+    state_id: options.uuid(),
+    created_at: options.now().toISOString(),
+    workflow: options.workflow,
+    run_id: options.runId,
+    resume_id: options.resume.id,
+    resume_label: options.resume.label,
+    resume_path_fingerprint: sha256(options.resume.path),
+    input_digests: {
+      resume_text_sha256: options.resume.text_sha256,
+      vacancy_text_sha256: options.vacancy?.vacancy_text_sha256 ?? sha256("")
+    },
+    projection: options.projection
+  };
+}
+var RECOMMENDATION_BUCKET = {
+  apply_now: 3,
+  apply_after_small_edits: 2,
+  improve_first: 1
+};
+function recommendationLabel(result) {
+  const recommendation = recordField(result, "recommendation").label;
+  if (recommendation !== "apply_now" && recommendation !== "apply_after_small_edits" && recommendation !== "improve_first") throw workflowError("core_result_invalid");
+  return recommendation;
+}
+function compareText2(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function rankMatches(values) {
+  const ranked = values.map(({ resume, result, projection }) => ({
+    resume,
+    result,
+    projection: projection ?? projectJobMatch(result),
+    overallScore: numberField(result, "overall_score"),
+    recommendation: recommendationLabel(result),
+    tie: false,
+    closeCluster: false
+  }));
+  ranked.sort((left, right) => {
+    if (left.overallScore !== right.overallScore) return right.overallScore - left.overallScore;
+    const bucket = RECOMMENDATION_BUCKET[right.recommendation] - RECOMMENDATION_BUCKET[left.recommendation];
+    if (bucket !== 0) return bucket;
+    const pathOrder = compareText2(left.resume.path, right.resume.path);
+    return pathOrder !== 0 ? pathOrder : compareText2(left.resume.id, right.resume.id);
+  });
+  const topScore = ranked[0]?.overallScore;
+  const secondScore = ranked[1]?.overallScore;
+  const tie = topScore !== void 0 && secondScore === topScore;
+  const close = topScore !== void 0 && secondScore !== void 0 && topScore - secondScore <= 3;
+  for (const [index, item] of ranked.entries()) {
+    item.tie = tie && item.overallScore === topScore;
+    item.closeCluster = close && index < 2;
+    item.projection = {
+      ...item.projection,
+      ui_flags: { ...item.projection.ui_flags, close_cluster: item.closeCluster }
+    };
+  }
+  return ranked;
+}
+
 // src/workflow/session-state.ts
 var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var SHA2563 = /^[a-f0-9]{64}$/;
 var ISO_UTC2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 var CARD_MAX_BYTES = 16384;
-function isRecord2(value) {
+function isRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function exactKeys2(value, required, optional = []) {
@@ -1158,7 +1318,7 @@ function validBase(value) {
   return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
 }
 function validFlags(value) {
-  if (!isRecord2(value) || !exactKeys2(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
+  if (!isRecord3(value) || !exactKeys2(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
     return false;
   }
   return [value.adjusted, value.provisional, value.close_cluster, value.stale].every(
@@ -1166,10 +1326,10 @@ function validFlags(value) {
   );
 }
 function validProjection(value) {
-  if (!isRecord2(value) || !exactKeys2(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
+  if (!isRecord3(value) || !exactKeys2(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
     return false;
   }
-  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord2(value.summary) || !validFlags(value.ui_flags)) return false;
+  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord3(value.summary) || !validFlags(value.ui_flags)) return false;
   return Buffer.byteLength(JSON.stringify(value), "utf8") <= CARD_MAX_BYTES;
 }
 function isUuid(value) {
@@ -1229,7 +1389,7 @@ function parseConsentClear(value) {
   return exactKeys2(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
 }
 function validInputDigests(value) {
-  return isRecord2(value) && exactKeys2(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha2562(value.resume_text_sha256) && isSha2562(value.vacancy_text_sha256);
+  return isRecord3(value) && exactKeys2(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha2562(value.resume_text_sha256) && isSha2562(value.vacancy_text_sha256);
 }
 function parseResultCard(value) {
   if (!exactKeys2(value, [
@@ -1256,7 +1416,7 @@ function parseResultCard(value) {
   return validProjection(value.projection) ? value : void 0;
 }
 function parseWorkflowEntryData(value) {
-  if (!isRecord2(value) || !validBase(value)) return void 0;
+  if (!isRecord3(value) || !validBase(value)) return void 0;
   switch (value.kind) {
     case "application":
       return parseApplication(value);
@@ -1399,7 +1559,1207 @@ function withCurrentStaleness(state, scan) {
   return { ...state, result_cards: cards };
 }
 
+// src/managed/catalog.ts
+var MANAGED_OUTPUT_MAX_BYTES = 33554432;
+var MANAGED_STDOUT_CAPTURE_MAX_BYTES = MANAGED_OUTPUT_MAX_BYTES + 1;
+var MANAGED_RESULT_MAX_LINES = 2;
+var MANAGED_INVOKE_OPTIONS = {
+  stdoutCaptureMaxBytes: MANAGED_STDOUT_CAPTURE_MAX_BYTES,
+  toolResultMaxBytes: MANAGED_OUTPUT_MAX_BYTES,
+  toolResultMaxLines: MANAGED_RESULT_MAX_LINES
+};
+var EXPECTED_OPERATIONS = {
+  "core.capabilities": {
+    path: ["capabilities"],
+    input: null,
+    output: "career.capabilities.v1",
+    inputBytes: null
+  },
+  "core.operations": {
+    path: ["operations"],
+    input: null,
+    output: "career.operation_catalog.v1",
+    inputBytes: null
+  },
+  "schema.list": {
+    path: ["schema", "list"],
+    input: null,
+    output: "career.schema_catalog.v1",
+    inputBytes: null
+  },
+  "schema.export": {
+    path: ["schema", "export"],
+    input: null,
+    output: "https://json-schema.org/draft/2020-12/schema",
+    inputBytes: null
+  },
+  "schema.bundle": {
+    path: ["schema", "bundle"],
+    input: null,
+    output: "https://json-schema.org/draft/2020-12/schema",
+    inputBytes: null
+  },
+  "resume.evaluate": {
+    path: ["resume", "evaluate"],
+    input: "career.resume_input.v1",
+    output: "career.resume_evaluation.v1",
+    inputBytes: 262144
+  },
+  "resume.analyze": {
+    path: ["resume", "analyze"],
+    input: "career.resume_input.v1",
+    output: "career.resume_analysis.v1",
+    inputBytes: 262144
+  },
+  "resume.normalize": {
+    path: ["resume", "normalize"],
+    input: "career.resume_input.v1",
+    output: "career.resume_normalization.v1",
+    inputBytes: 262144
+  },
+  "resume.enrich": {
+    path: ["resume", "enrich"],
+    input: "career.resume_enrichment_input.v1",
+    output: "career.resume_enrichment_result.v1",
+    inputBytes: 262144
+  },
+  "resume.analysis-suggestions.review": {
+    path: ["resume", "analysis-suggestions-review"],
+    input: "career.resume_analysis_suggestion_review_input.v1",
+    output: "career.resume_analysis_suggestion_review.v1",
+    inputBytes: 262144
+  },
+  "resume.analysis-replacements.review": {
+    path: ["resume", "analysis-replacements-review"],
+    input: "career.resume_analysis_replacement_review_input.v1",
+    output: "career.resume_analysis_replacement_review.v1",
+    inputBytes: 262144
+  },
+  "resume.variant.review": {
+    path: ["resume", "variant-review"],
+    input: "career.resume_variant_review_input.v1",
+    output: "career.resume_variant_review.v1",
+    inputBytes: 1048576
+  },
+  "resume.variant.materialize": {
+    path: ["resume", "variant-materialize"],
+    input: "career.resume_variant_materialization_input.v1",
+    output: "career.resume_variant.v1",
+    inputBytes: 1048576
+  },
+  "job.normalize": {
+    path: ["job", "normalize"],
+    input: "career.job_input.v1",
+    output: "career.job_normalization.v1",
+    inputBytes: 262144
+  },
+  "job.match": {
+    path: ["job", "match"],
+    input: "career.job_match_input.v1",
+    output: "career.job_match.v1",
+    inputBytes: 1048576
+  }
+};
+var REQUIRED_BUNDLES = [
+  ["career.resume_analysis_suggestion_review_input.v1", "resume-analysis-suggestion-review-input-v1.schema.json"],
+  ["career.resume_analysis_replacement_review_input.v1", "resume-analysis-replacement-review-input-v1.schema.json"],
+  ["career.resume_variant_review_input.v1", "resume-variant-review-input-v1.schema.json"],
+  ["career.resume_variant_materialization_input.v1", "resume-variant-materialization-input-v1.schema.json"]
+];
+function isRecord4(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function parseObject(json) {
+  const value = JSON.parse(json);
+  if (!isRecord4(value)) throw new Error("managed_contract_invalid");
+  return value;
+}
+function exactKeys3(value, expected) {
+  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+function parseDescriptor(value) {
+  if (!isRecord4(value) || !exactKeys3(value, [
+    "operation_id",
+    "capability_id",
+    "availability",
+    "cli_path",
+    "input_transport",
+    "input_schema_id",
+    "output_schema_id",
+    "maximum_input_bytes",
+    "maximum_successful_machine_output_bytes"
+  ])) throw new Error("managed_contract_invalid");
+  if (typeof value.operation_id !== "string" || value.capability_id !== null && typeof value.capability_id !== "string" || value.availability !== "available" || !Array.isArray(value.cli_path) || value.cli_path.length === 0 || !value.cli_path.every((part) => typeof part === "string" && /^[a-z-]+$/.test(part)) || value.input_transport !== "none" && value.input_transport !== "cli_arguments" && value.input_transport !== "json_file_or_stdin" || value.input_schema_id !== null && typeof value.input_schema_id !== "string" || typeof value.output_schema_id !== "string" || value.maximum_input_bytes !== null && !Number.isSafeInteger(value.maximum_input_bytes) || value.maximum_successful_machine_output_bytes !== MANAGED_OUTPUT_MAX_BYTES) throw new Error("managed_contract_invalid");
+  return value;
+}
+function verifyDescriptor(descriptor, expected) {
+  const documentOperation = expected.input !== null;
+  if (descriptor.cli_path.join("\0") !== expected.path.join("\0") || descriptor.input_schema_id !== expected.input || descriptor.output_schema_id !== expected.output || descriptor.maximum_input_bytes !== expected.inputBytes || descriptor.input_transport !== (documentOperation ? "json_file_or_stdin" : descriptor.operation_id.startsWith("schema.") && descriptor.operation_id !== "schema.list" ? "cli_arguments" : "none")) throw new Error("managed_contract_invalid");
+}
+function inspectReferences(value, root) {
+  if (Array.isArray(value)) {
+    for (const item of value) inspectReferences(item, root);
+    return;
+  }
+  if (!isRecord4(value)) return;
+  const reference = value.$ref;
+  if (reference !== void 0) {
+    if (typeof reference !== "string" || !reference.startsWith("#/")) {
+      throw new Error("managed_contract_invalid");
+    }
+    let current = root;
+    for (const rawPart of reference.slice(2).split("/")) {
+      const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+      if (!isRecord4(current) || !Object.hasOwn(current, part)) {
+        throw new Error("managed_contract_invalid");
+      }
+      current = current[part];
+    }
+  }
+  for (const nested of Object.values(value)) inspectReferences(nested, root);
+}
+function verifyBundle(json, fileName) {
+  const bundle = parseObject(json);
+  if (bundle.$schema !== "https://json-schema.org/draft/2020-12/schema" || typeof bundle.$id !== "string" || !bundle.$id.endsWith(`/${fileName}`)) throw new Error("managed_contract_invalid");
+  inspectReferences(bundle, bundle);
+}
+var ManagedContractCache = class {
+  cached;
+  loading;
+  async load(invoke, signal) {
+    if (this.cached !== void 0) return this.cached;
+    if (this.loading !== void 0) return this.loading;
+    this.loading = this.discover(invoke, signal);
+    try {
+      const contracts = await this.loading;
+      if (!signal?.aborted) this.cached = contracts;
+      return contracts;
+    } finally {
+      this.loading = void 0;
+    }
+  }
+  async discover(invoke, signal) {
+    const catalogResult = await invoke(
+      { kind: "discovery", operation: "operations" },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const catalog = parseObject(catalogResult.json);
+    if (!exactKeys3(catalog, ["schema_version", "core_version", "operations"]) || catalog.schema_version !== "career.operation_catalog.v1" || typeof catalog.core_version !== "string" || catalog.core_version.length === 0 || catalog.core_version.length > 64 || !Array.isArray(catalog.operations)) throw new Error("managed_contract_invalid");
+    const operations = /* @__PURE__ */ new Map();
+    for (const value of catalog.operations) {
+      const descriptor = parseDescriptor(value);
+      if (operations.has(descriptor.operation_id)) throw new Error("managed_contract_invalid");
+      operations.set(descriptor.operation_id, descriptor);
+    }
+    if (operations.size !== Object.keys(EXPECTED_OPERATIONS).length) {
+      throw new Error("managed_contract_invalid");
+    }
+    for (const [operationId, expected] of Object.entries(EXPECTED_OPERATIONS)) {
+      const descriptor = operations.get(operationId);
+      if (descriptor === void 0) throw new Error("managed_contract_invalid");
+      verifyDescriptor(descriptor, expected);
+    }
+    const bundles = await Promise.all(REQUIRED_BUNDLES.map(async ([schemaId, fileName]) => ({
+      fileName,
+      result: await invoke(
+        { kind: "discovery", operation: "schema-bundle", schemaId },
+        signal,
+        MANAGED_INVOKE_OPTIONS
+      )
+    })));
+    for (const bundle of bundles) verifyBundle(bundle.result.json, bundle.fileName);
+    return { coreVersion: catalog.core_version, operations };
+  }
+};
+
+// src/managed/errors.ts
+var MESSAGES = {
+  invalid_request: "The career_run request is invalid.",
+  consent_required: "Explicit Pi session-persistence consent is required before loading private career context.",
+  consent_declined: "Session persistence was declined. Start a new `pi --no-session` run for a transient workflow.",
+  context_required: "Run career_run context first to obtain current ephemeral handles.",
+  resume_not_found: "The requested original-resume handle is unavailable or stale.",
+  vacancy_not_found: "The requested current-vacancy handle is unavailable or stale.",
+  result_not_found: "The requested ephemeral result handle is unavailable or expired.",
+  review_not_found: "The requested ephemeral review handle is unavailable or expired.",
+  selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
+  managed_contract_invalid: "The bundled Career Core managed-adapter contracts are incompatible.",
+  managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
+  managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
+  detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
+  session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles."
+};
+var CareerRunError = class extends Error {
+  code;
+  constructor(code) {
+    super(JSON.stringify({
+      schema_version: "pi.career.run_error.v1",
+      code,
+      message: MESSAGES[code]
+    }));
+    this.name = "CareerRunError";
+    this.code = code;
+  }
+};
+function careerRunError(code) {
+  return new CareerRunError(code);
+}
+function managedFailure(error) {
+  if (error instanceof CareerRunError) return error;
+  if (error instanceof Error && error.message === "managed_contract_invalid") {
+    return careerRunError("managed_contract_invalid");
+  }
+  if (error instanceof Error && error.message === "managed_payload_invalid") {
+    return careerRunError("invalid_request");
+  }
+  return careerRunError("managed_result_invalid");
+}
+
+// src/managed/proposals.ts
+var SECTIONS = /* @__PURE__ */ new Set([
+  "contact",
+  "summary",
+  "experience",
+  "education",
+  "skills",
+  "projects",
+  "certifications",
+  "other"
+]);
+function isRecord5(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function hasExactKeys(value, keys) {
+  return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+function boundedString(value, minimum, maximum) {
+  if (typeof value !== "string") return false;
+  const length = [...value].length;
+  return length >= minimum && length <= maximum;
+}
+function boundedInteger(value, minimum, maximum) {
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+function stringList(value, minimum, maximum, itemMaximum) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) return void 0;
+  if (!value.every((item) => boundedString(item, 1, itemMaximum))) return void 0;
+  const strings = value;
+  return new Set(strings).size === strings.length ? [...strings] : void 0;
+}
+function parseVariantChange(value) {
+  if (!isRecord5(value) || !hasExactKeys(value, [
+    "section",
+    "start_line",
+    "end_line",
+    "original_text",
+    "proposed_text",
+    "resume_evidence",
+    "vacancy_evidence"
+  ])) return void 0;
+  const resumeEvidence = stringList(value.resume_evidence, 1, 5, 300);
+  const vacancyEvidence = stringList(value.vacancy_evidence, 1, 5, 300);
+  if (typeof value.section !== "string" || !SECTIONS.has(value.section) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.original_text, 1, 1e4) || !boundedString(value.proposed_text, 0, 1e4) || resumeEvidence === void 0 || vacancyEvidence === void 0) return void 0;
+  return {
+    section: value.section,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    original_text: value.original_text,
+    proposed_text: value.proposed_text,
+    resume_evidence: resumeEvidence,
+    vacancy_evidence: vacancyEvidence
+  };
+}
+function parseAnalysisSuggestion(value) {
+  if (!isRecord5(value) || !hasExactKeys(value, [
+    "basis_check_id",
+    "start_line",
+    "end_line",
+    "source_target",
+    "source_evidence",
+    "suggestion"
+  ])) return void 0;
+  const evidence = stringList(value.source_evidence, 1, 2, 240);
+  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.suggestion, 1, 600)) return void 0;
+  return {
+    basis_check_id: value.basis_check_id,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    source_target: value.source_target,
+    source_evidence: evidence,
+    suggestion: value.suggestion
+  };
+}
+function parseAnalysisReplacement(value) {
+  if (!isRecord5(value) || !hasExactKeys(value, [
+    "basis_check_id",
+    "start_line",
+    "end_line",
+    "source_target",
+    "source_evidence",
+    "proposed_replacement"
+  ])) return void 0;
+  const evidence = stringList(value.source_evidence, 1, 2, 240);
+  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.proposed_replacement, 0, 600)) return void 0;
+  return {
+    basis_check_id: value.basis_check_id,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    source_target: value.source_target,
+    source_evidence: evidence,
+    proposed_replacement: value.proposed_replacement
+  };
+}
+function parseVariantChanges(payload) {
+  if (!isRecord5(payload) || !hasExactKeys(payload, ["changes"]) || !Array.isArray(payload.changes) || payload.changes.length > 50) {
+    throw new Error("managed_payload_invalid");
+  }
+  const changes = payload.changes.map(parseVariantChange);
+  if (changes.some((change) => change === void 0)) throw new Error("managed_payload_invalid");
+  return changes;
+}
+function parseAnalysisSuggestions(payload) {
+  if (!isRecord5(payload) || !hasExactKeys(payload, ["suggestions"]) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 3) {
+    throw new Error("managed_payload_invalid");
+  }
+  const suggestions = payload.suggestions.map(parseAnalysisSuggestion);
+  if (suggestions.some((suggestion) => suggestion === void 0)) {
+    throw new Error("managed_payload_invalid");
+  }
+  return suggestions;
+}
+function parseAnalysisReplacements(payload) {
+  if (!isRecord5(payload) || !hasExactKeys(payload, ["replacements"]) || !Array.isArray(payload.replacements) || payload.replacements.length > 3) {
+    throw new Error("managed_payload_invalid");
+  }
+  const replacements = payload.replacements.map(parseAnalysisReplacement);
+  if (replacements.some((replacement) => replacement === void 0)) {
+    throw new Error("managed_payload_invalid");
+  }
+  return replacements;
+}
+function parseSelectedChangeIds(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 50 || !value.every((item) => typeof item === "string" && /^change-[0-9]{4}$/.test(item)) || new Set(value).size !== value.length) throw new Error("managed_payload_invalid");
+  return [...value];
+}
+
+// src/managed/registry.ts
+var MAX_ENTRY_COUNT = 16;
+var MAX_TOTAL_BYTES = 67108864;
+var HANDLE_SUFFIX_PATTERN = /^[a-f0-9-]{8,64}$/;
+function handlePrefix(kind) {
+  return kind === "review" ? "review" : kind === "variant" ? "variant" : "result";
+}
+function entryBytes(entry) {
+  return Buffer.byteLength(entry.json, "utf8") + (entry.reviewInput === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8"));
+}
+var ManagedRegistry = class {
+  constructor(uuid, now) {
+    this.uuid = uuid;
+    this.now = now;
+  }
+  uuid;
+  now;
+  sessionId;
+  contextReady = false;
+  entries = /* @__PURE__ */ new Map();
+  totalBytes = 0;
+  enterSession(sessionId) {
+    if (this.sessionId === sessionId) return;
+    this.clear();
+    this.sessionId = sessionId;
+  }
+  resetSession(sessionId) {
+    this.clear();
+    this.sessionId = sessionId;
+  }
+  markContextReady(sessionId) {
+    this.enterSession(sessionId);
+    this.contextReady = true;
+  }
+  hasContext(sessionId) {
+    return this.sessionId === sessionId && this.contextReady;
+  }
+  store(entry) {
+    const bytes = entryBytes(entry);
+    if (bytes > MAX_TOTAL_BYTES) throw new Error("managed_result_capacity");
+    while (this.entries.size >= MAX_ENTRY_COUNT || this.totalBytes + bytes > MAX_TOTAL_BYTES) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === void 0) break;
+      this.delete(oldest);
+    }
+    let handle;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const suffix = this.uuid().toLowerCase().replace(/[^a-f0-9-]/g, "").slice(0, 24);
+      if (!HANDLE_SUFFIX_PATTERN.test(suffix)) throw new Error("managed_result_capacity");
+      const candidate = `${handlePrefix(entry.kind)}:${suffix}`;
+      if (!this.entries.has(candidate)) {
+        handle = candidate;
+        break;
+      }
+    }
+    if (handle === void 0) throw new Error("managed_result_capacity");
+    const stored = {
+      ...entry,
+      handle,
+      createdAt: this.now().getTime(),
+      bytes
+    };
+    this.entries.set(handle, stored);
+    this.totalBytes += bytes;
+    return stored;
+  }
+  get(handle, kind) {
+    const entry = this.entries.get(handle);
+    if (entry === void 0 || kind !== void 0 && entry.kind !== kind) return void 0;
+    return entry;
+  }
+  clear() {
+    this.entries.clear();
+    this.totalBytes = 0;
+    this.contextReady = false;
+    this.sessionId = void 0;
+  }
+  delete(handle) {
+    const entry = this.entries.get(handle);
+    if (entry === void 0) return;
+    this.totalBytes -= entry.bytes;
+    this.entries.delete(handle);
+  }
+};
+
+// src/managed/schema.ts
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+var RAW_TOOL_NAMES = [
+  "career_core_discover",
+  "career_core_resume",
+  "career_core_job"
+];
+var MANAGED_TOOL_NAME = "career_run";
+var CAREER_RUN_COMMANDS = [
+  "context",
+  "consent",
+  "analyze",
+  "match",
+  "suggestion-review",
+  "replacement-review",
+  "variant-review",
+  "materialize",
+  "detail"
+];
+var DETAIL_SECTIONS = [
+  "summary",
+  "warnings",
+  "checks",
+  "evidence",
+  "changes",
+  "document",
+  "raw"
+];
+var careerRunParameters = Type.Object({
+  command: StringEnum(CAREER_RUN_COMMANDS),
+  handle: Type.Optional(Type.String({
+    pattern: "^(resume|result|review|variant):[a-f0-9-]{8,64}$",
+    maxLength: 80
+  })),
+  payload: Type.Optional(Type.Unknown({
+    description: "Native command payload; never a JSON string or complete Core envelope."
+  }))
+}, { additionalProperties: false });
+
+// src/managed/engine.ts
+var MODEL_DETAIL_MAX_BYTES = 5e4;
+function isRecord6(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function arrayField2(value, field) {
+  const found = value[field];
+  if (!Array.isArray(found)) throw careerRunError("managed_result_invalid");
+  return found;
+}
+function warnings(value) {
+  return arrayField2(value, "warnings");
+}
+function exactDefinedKeys(params, allowed) {
+  const keys = Object.entries(params).filter(([, value]) => value !== void 0).map(([key]) => key);
+  if (keys.some((key) => !allowed.includes(key))) throw careerRunError("invalid_request");
+}
+function parseConsentDecision(payload) {
+  if (payload !== "approve" && payload !== "decline") throw careerRunError("invalid_request");
+  return payload;
+}
+function parseMaterializeRequest(payload) {
+  if (!isRecord6(payload) || Object.keys(payload).join("") !== "selected_change_ids") {
+    throw careerRunError("invalid_request");
+  }
+  return parseSelectedChangeIds(payload.selected_change_ids);
+}
+function parseDetailRequest(payload) {
+  if (!isRecord6(payload)) throw careerRunError("invalid_request");
+  const keys = Object.keys(payload).sort().join("\0");
+  if (keys !== "section" && keys !== "item\0section") throw careerRunError("invalid_request");
+  if (!DETAIL_SECTIONS.includes(payload.section)) {
+    throw careerRunError("invalid_request");
+  }
+  if (payload.item !== void 0 && (typeof payload.item !== "string" || !/^(change|suggestion|replacement)-[0-9]{4}$/.test(payload.item))) {
+    throw careerRunError("invalid_request");
+  }
+  return {
+    section: payload.section,
+    ...payload.item === void 0 ? {} : { item: payload.item }
+  };
+}
+function resultEnvelope(command, body, details) {
+  const text = JSON.stringify({ schema_version: "pi.career.run_result.v1", command, ...body });
+  if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
+    throw careerRunError("detail_too_large");
+  }
+  return {
+    content: [{ type: "text", text }],
+    details: { schema_version: "pi.career.run_details.v1", command, ...details }
+  };
+}
+function resumeHandles(records) {
+  const shortCounts = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    const short = record.id.slice(0, 16);
+    shortCounts.set(short, (shortCounts.get(short) ?? 0) + 1);
+  }
+  return new Map(records.map((record) => {
+    const short = record.id.slice(0, 16);
+    const suffix = shortCounts.get(short) === 1 ? short : record.id.slice(0, 24);
+    return [`resume:${suffix}`, record];
+  }));
+}
+function persisted(ctx) {
+  return ctx.sessionManager.getSessionFile() !== void 0;
+}
+function persistenceConsent(ctx) {
+  if (!persisted(ctx)) return "not_required";
+  const consent = reconstructWorkflowState(ctx.sessionManager.getBranch()).consent;
+  if (consent?.granted === true) return "approved";
+  if (consent?.granted === false) return "declined";
+  return "required";
+}
+function requireConsent(ctx) {
+  const consent = persistenceConsent(ctx);
+  if (consent === "required") throw careerRunError("consent_required");
+  if (consent === "declined") throw careerRunError("consent_declined");
+}
+async function currentResumes(agentDir) {
+  const config = await loadConfig(agentDir);
+  const scan = await scanLibrary(config);
+  return resumeHandles(eligibleOriginals(scan));
+}
+async function resolveResume(agentDir, ctx, registry, handle) {
+  if (!registry.hasContext(ctx.sessionManager.getSessionId())) throw careerRunError("context_required");
+  if (handle === void 0) throw careerRunError("invalid_request");
+  const resume = (await currentResumes(agentDir)).get(handle);
+  if (resume === void 0) throw careerRunError("resume_not_found");
+  return resume;
+}
+function resolveVacancy(ctx) {
+  const vacancy = reconstructWorkflowState(ctx.sessionManager.getBranch()).vacancy;
+  if (vacancy === void 0) throw careerRunError("vacancy_not_found");
+  return vacancy;
+}
+function ensureSchema(value, schema) {
+  if (value.schema_version !== schema) throw careerRunError("managed_result_invalid");
+}
+function safeSummary(value) {
+  return typeof value === "number" || typeof value === "string" ? String(value) : "complete";
+}
+function compactAnalyze(result) {
+  const projection = projectResumeAnalysis(result);
+  return {
+    result_schema: result.schema_version,
+    overall_score: projection.summary.overall_score,
+    category_scores: projection.summary.category_scores,
+    confidence_context: projection.summary.confidence_context,
+    top_strengths: projection.summary.top_strengths,
+    top_weaknesses: projection.summary.top_weaknesses,
+    improvement_actions: projection.summary.improvement_actions,
+    warnings: warnings(result)
+  };
+}
+function compactMatch(result) {
+  const projection = projectJobMatch(result);
+  return {
+    result_schema: result.schema_version,
+    overall_score: projection.summary.overall_score,
+    category_scores: projection.summary.category_scores,
+    confidence_context: projection.summary.confidence_context,
+    top_strengths: projection.summary.top_strengths,
+    top_gaps: projection.summary.top_gaps,
+    recommendation: projection.summary.recommendation,
+    warnings: warnings(result)
+  };
+}
+function validateAuthority(result) {
+  if (result.authority !== "assisted_non_authoritative") {
+    throw careerRunError("managed_result_invalid");
+  }
+}
+function compactSuggestionReview(result) {
+  ensureSchema(result, "career.resume_analysis_suggestion_review.v1");
+  validateAuthority(result);
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    suggestions: arrayField2(result, "suggestions"),
+    discarded_suggestions: arrayField2(result, "discarded_suggestions"),
+    warnings: warnings(result)
+  };
+}
+function compactReplacementReview(result) {
+  ensureSchema(result, "career.resume_analysis_replacement_review.v1");
+  validateAuthority(result);
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    replacements: arrayField2(result, "replacements"),
+    discarded_replacements: arrayField2(result, "discarded_replacements"),
+    warnings: warnings(result)
+  };
+}
+function compactCanonicalChanges(changes) {
+  return changes.map((change) => isRecord6(change) ? {
+    change_id: change.change_id,
+    section: change.section,
+    start_line: change.start_line,
+    end_line: change.end_line
+  } : change);
+}
+function compactVariantReview(result) {
+  ensureSchema(result, "career.resume_variant_review.v1");
+  validateAuthority(result);
+  const changes = arrayField2(result, "changes");
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    retained_change_count: changes.length,
+    changes: compactCanonicalChanges(changes),
+    discarded_changes: arrayField2(result, "discarded_changes"),
+    warnings: warnings(result),
+    detail_guidance: "Use career_run detail with section=changes; add item=change-NNNN for one exact canonical change."
+  };
+}
+function compactVariant(result) {
+  ensureSchema(result, "career.resume_variant.v1");
+  validateAuthority(result);
+  const selected = arrayField2(result, "selected_changes");
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    selected_change_count: selected.length,
+    selected_changes: compactCanonicalChanges(selected),
+    warnings: warnings(result),
+    detail_guidance: "Use career_run detail with section=document for assisted text or section=changes plus an item for one canonical change."
+  };
+}
+function evidenceDetail(value) {
+  const analysis = isRecord6(value.baseline_analysis) ? value.baseline_analysis : value;
+  const checks = isRecord6(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+  return checks.flatMap((check) => isRecord6(check) && Array.isArray(check.evidence) ? [{ check_id: check.check_id, evidence: check.evidence }] : []);
+}
+var DETAIL_SUMMARIES = {
+  "resume.analyze": compactAnalyze,
+  "job.match": compactMatch,
+  "resume.analysis-suggestions.review": compactSuggestionReview,
+  "resume.analysis-replacements.review": compactReplacementReview,
+  "resume.variant.review": compactVariantReview,
+  "resume.variant.materialize": compactVariant
+};
+function analysisChecks(value) {
+  const analysis = isRecord6(value.baseline_analysis) ? value.baseline_analysis : value;
+  return isRecord6(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+}
+function reviewedItems(value) {
+  const items = value.changes ?? value.suggestions ?? value.replacements ?? value.selected_changes ?? [];
+  if (!Array.isArray(items)) throw careerRunError("managed_result_invalid");
+  return items;
+}
+function exactReviewedItem(items, item) {
+  const found = items.find((candidate) => isRecord6(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
+  if (found === void 0) throw careerRunError("result_not_found");
+  return found;
+}
+function detailValue(entry, request) {
+  const value = entry.value;
+  if (request.section === "summary") {
+    return DETAIL_SUMMARIES[entry.operation]?.(value) ?? { schema_version: value.schema_version };
+  }
+  if (request.section === "warnings") return warnings(value);
+  if (request.section === "checks") return analysisChecks(value);
+  if (request.section === "evidence") return evidenceDetail(value);
+  if (request.section === "changes") {
+    const items = reviewedItems(value);
+    return request.item === void 0 ? items : exactReviewedItem(items, request.item);
+  }
+  if (request.section === "document") {
+    return value.assisted_resume_text ?? value.proposed_preview_text ?? null;
+  }
+  if (request.section === "raw") return value;
+  throw careerRunError("invalid_request");
+}
+function mapInternalError(error) {
+  if (error instanceof CareerRunError || error instanceof CareerInvocationError) throw error;
+  if (error instanceof Error && error.message === "session_changed") throw careerRunError("session_changed");
+  if (error instanceof Error && error.message === "managed_result_capacity") {
+    throw careerRunError("managed_result_capacity");
+  }
+  throw managedFailure(error);
+}
+var CareerRunEngine = class {
+  constructor(options) {
+    this.options = options;
+    this.registry = new ManagedRegistry(options.uuid, options.now);
+    this.dependencies = {
+      agentDir: options.agentDir,
+      invoke: options.invoke,
+      uuid: options.uuid,
+      now: options.now
+    };
+  }
+  options;
+  registry;
+  contracts = new ManagedContractCache();
+  dependencies;
+  enterSession(sessionId) {
+    this.registry.enterSession(sessionId);
+  }
+  resetSession(sessionId) {
+    this.registry.resetSession(sessionId);
+  }
+  shutdown() {
+    this.registry.clear();
+  }
+  async run(params, signal, ctx) {
+    try {
+      this.registry.enterSession(ctx.sessionManager.getSessionId());
+      exactDefinedKeys(params, ["command", "handle", "payload"]);
+      const managed = await this.contracts.load(this.options.invoke, signal);
+      switch (params.command) {
+        case "context":
+          return await this.context(params, ctx, managed.coreVersion);
+        case "consent":
+          return this.consent(params, ctx);
+        case "analyze":
+          return await this.analyze(params, signal, ctx);
+        case "match":
+          return await this.match(params, signal, ctx);
+        case "suggestion-review":
+          return await this.suggestionReview(params, signal, ctx);
+        case "replacement-review":
+          return await this.replacementReview(params, signal, ctx);
+        case "variant-review":
+          return await this.variantReview(params, signal, ctx);
+        case "materialize":
+          return await this.materialize(params, signal, ctx);
+        case "detail":
+          return this.detail(params, ctx);
+      }
+    } catch (error) {
+      mapInternalError(error);
+    }
+  }
+  consent(params, ctx) {
+    exactDefinedKeys(params, ["command", "payload"]);
+    if (!persisted(ctx)) throw careerRunError("invalid_request");
+    const granted = parseConsentDecision(params.payload) === "approve";
+    this.options.pi.appendEntry(
+      WORKFLOW_CUSTOM_TYPE,
+      createConsentEntry(granted, this.dependencies)
+    );
+    if (!granted) this.registry.resetSession(ctx.sessionManager.getSessionId());
+    return resultEnvelope("consent", {
+      persistence: "persistent",
+      consent: granted ? "approved" : "declined",
+      next_action: granted ? "Run career_run context." : "Start a new `pi --no-session` run."
+    }, {
+      status: "complete",
+      summary: granted ? "Session persistence approved" : "Session persistence declined"
+    });
+  }
+  async context(params, ctx, coreVersion) {
+    exactDefinedKeys(params, ["command"]);
+    const consent = persistenceConsent(ctx);
+    if (consent === "required" || consent === "declined") {
+      return this.consentRequiredContext(coreVersion, consent);
+    }
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const resumes = resumeHandles(eligibleOriginals(scan));
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    this.registry.markContextReady(ctx.sessionManager.getSessionId());
+    return resultEnvelope("context", {
+      core_version: coreVersion,
+      persistence: persisted(ctx) ? "persistent" : "transient",
+      consent,
+      resume_count: resumes.size,
+      resumes: [...resumes].slice(0, 100).map(([handle, resume]) => ({
+        handle,
+        label: resume.label,
+        format: resume.format
+      })),
+      resumes_omitted: Math.max(0, resumes.size - 100),
+      vacancy: state.vacancy === void 0 ? null : { handle: "vacancy:current", label: state.vacancy.vacancy_label },
+      application: state.application === void 0 ? null : { company: state.application.company_label, role: state.application.role_label },
+      notices: scan.warnings.length
+    }, {
+      status: "ready",
+      summary: `${resumes.size} original resume${resumes.size === 1 ? "" : "s"}`
+    });
+  }
+  consentRequiredContext(coreVersion, consent) {
+    return resultEnvelope("context", {
+      core_version: coreVersion,
+      persistence: "persistent",
+      consent: consent === "required" ? "consent_required" : "declined",
+      resumes: [],
+      next_action: consent === "required" ? "Ask whether this Pi session may persist private career content, then call career_run consent. Recommend `pi --no-session` when persistence is unwanted." : "Start a new `pi --no-session` run."
+    }, {
+      status: "consent_required",
+      summary: consent === "required" ? "Persistence decision required" : "Persistence declined"
+    });
+  }
+  preparePrivateCommand(params, ctx) {
+    requireConsent(ctx);
+    if (!this.registry.hasContext(ctx.sessionManager.getSessionId())) {
+      throw careerRunError("context_required");
+    }
+  }
+  async analyze(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    ensureSchema(value, "career.resume_analysis.v1");
+    const entry = this.registry.store({
+      kind: "result",
+      operation: "resume.analyze",
+      json: invocation.json,
+      value
+    });
+    const summary = compactAnalyze(value);
+    return resultEnvelope("analyze", { result: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `Score ${safeSummary(summary.overall_score)}`
+    });
+  }
+  async match(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const vacancy = resolveVacancy(ctx);
+    const invocation = await this.options.invoke(
+      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    ensureSchema(value, "career.job_match.v1");
+    const entry = this.registry.store({
+      kind: "result",
+      operation: "job.match",
+      json: invocation.json,
+      value
+    });
+    const summary = compactMatch(value);
+    return resultEnvelope("match", { result: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `Match ${safeSummary(summary.overall_score)}`
+    });
+  }
+  async suggestionReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const input = {
+      schema_version: "career.resume_analysis_suggestion_review_input.v1",
+      expected_analysis_policy_version: "resume_analysis_v1",
+      resume: buildResumeInput(resume),
+      proposal: {
+        schema_version: "career.resume_analysis_suggestion_proposal.v1",
+        suggestions: parseAnalysisSuggestions(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analysis-suggestions-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactSuggestionReview(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.analysis-suggestions.review",
+      json: invocation.json,
+      value
+    });
+    return resultEnvelope("suggestion-review", { review: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${arrayField2(value, "suggestions").length} retained suggestion(s)`
+    });
+  }
+  async replacementReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const input = {
+      schema_version: "career.resume_analysis_replacement_review_input.v1",
+      expected_analysis_policy_version: "resume_analysis_v1",
+      resume: buildResumeInput(resume),
+      proposal: {
+        schema_version: "career.resume_analysis_replacement_proposal.v1",
+        replacements: parseAnalysisReplacements(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analysis-replacements-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactReplacementReview(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.analysis-replacements.review",
+      json: invocation.json,
+      value
+    });
+    return resultEnvelope("replacement-review", { review: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${arrayField2(value, "replacements").length} retained replacement(s)`
+    });
+  }
+  async variantReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const vacancy = resolveVacancy(ctx);
+    const input = {
+      schema_version: "career.resume_variant_review_input.v1",
+      resume: buildResumeInput(resume),
+      vacancy: {
+        schema_version: "career.job_input.v1",
+        text: vacancy.vacancy_text,
+        metadata: { document_id: vacancy.state_id }
+      },
+      proposal: {
+        schema_version: "career.resume_variant_proposal.v1",
+        changes: parseVariantChanges(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "variant-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactVariantReview(value);
+    const retainedChangeIds = this.retainedChangeIds(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.variant.review",
+      json: invocation.json,
+      value,
+      reviewInput: input,
+      retainedChangeIds
+    });
+    return resultEnvelope("variant-review", { review: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${retainedChangeIds.length} retained change(s)`
+    });
+  }
+  retainedChangeIds(value) {
+    const changes = arrayField2(value, "changes");
+    const ids = changes.flatMap(
+      (change) => isRecord6(change) && typeof change.change_id === "string" ? [change.change_id] : []
+    );
+    if (ids.length !== changes.length) throw careerRunError("managed_result_invalid");
+    return ids;
+  }
+  async materialize(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    if (params.handle === void 0) throw careerRunError("invalid_request");
+    const review = this.registry.get(params.handle, "review");
+    if (review === void 0 || review.operation !== "resume.variant.review" || review.reviewInput === void 0 || review.retainedChangeIds === void 0) {
+      throw careerRunError("review_not_found");
+    }
+    const selected = parseMaterializeRequest(params.payload);
+    const retained = new Set(review.retainedChangeIds);
+    if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
+    const input = {
+      schema_version: "career.resume_variant_materialization_input.v1",
+      expected_review_policy_version: "resume_variant_review_v1",
+      review_input: review.reviewInput,
+      selected_change_ids: selected
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "variant-materialize", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactVariant(value);
+    const entry = this.registry.store({
+      kind: "variant",
+      operation: "resume.variant.materialize",
+      json: invocation.json,
+      value
+    });
+    return resultEnvelope("materialize", { variant: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${selected.length} selected change(s) materialized`
+    });
+  }
+  detail(params, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    if (params.handle === void 0) throw careerRunError("invalid_request");
+    const entry = this.registry.get(params.handle);
+    if (entry === void 0) throw careerRunError("result_not_found");
+    const request = parseDetailRequest(params.payload);
+    if (request.item !== void 0 && request.section !== "changes") {
+      throw careerRunError("invalid_request");
+    }
+    const text = JSON.stringify({
+      schema_version: "pi.career.run_detail.v1",
+      result: entry.handle,
+      operation: entry.operation,
+      section: request.section,
+      ...request.item === void 0 ? {} : { item: request.item },
+      complete: true,
+      value: detailValue(entry, request)
+    });
+    if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
+      throw careerRunError("detail_too_large");
+    }
+    return {
+      content: [{ type: "text", text }],
+      details: {
+        schema_version: "pi.career.run_details.v1",
+        command: "detail",
+        status: "complete",
+        handle: entry.handle,
+        summary: `${entry.operation} ${request.section}`
+      }
+    };
+  }
+};
+
+// src/managed/tool.ts
+function managedToolActive(pi, includeRaw) {
+  const current = pi.getActiveTools();
+  const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name));
+  const next = includeRaw ? [...retained, ...RAW_TOOL_NAMES] : retained;
+  if (!next.includes(MANAGED_TOOL_NAME)) next.push(MANAGED_TOOL_NAME);
+  pi.setActiveTools([...new Set(next)]);
+}
+function registerCareerRun(pi, options = {}) {
+  const engine = new CareerRunEngine({
+    pi,
+    agentDir: options.agentDir ?? getAgentDir(),
+    invoke: options.invoke ?? invokeCareerCli,
+    now: options.now ?? (() => /* @__PURE__ */ new Date()),
+    uuid: options.uuid ?? randomUUID2
+  });
+  pi.registerTool({
+    name: MANAGED_TOOL_NAME,
+    label: "Career",
+    description: "Run managed local Career Core workflows with ephemeral handles and native payload objects instead of nested JSON strings.",
+    promptGuidelines: [
+      "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
+      "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically."
+    ],
+    parameters: careerRunParameters,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      onUpdate?.({
+        content: [{ type: "text", text: `Running career ${params.command}…` }],
+        details: { schema_version: "pi.career.run_details.v1", command: params.command }
+      });
+      return engine.run(params, signal, ctx);
+    },
+    renderCall(args, theme) {
+      return new Text(
+        theme.fg("toolTitle", theme.bold("career ")) + theme.fg("accent", args.command ?? "run"),
+        0,
+        0
+      );
+    },
+    renderResult(result, { expanded, isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Running Career Core…"), 0, 0);
+      const details = result.details;
+      if (details === void 0) return new Text(theme.fg("dim", "Career result unavailable"), 0, 0);
+      const lines = [
+        theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
+        ...expanded && details.handle !== void 0 ? [theme.fg("dim", details.handle)] : []
+      ];
+      return new Text(lines.join("\n"), 0, 0);
+    }
+  });
+  pi.registerCommand("career-tools", {
+    description: "Choose managed or advanced raw Career Core tools",
+    getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
+    handler: async (args, ctx) => {
+      const mode = args.trim();
+      if (mode === "managed") managedToolActive(pi, false);
+      else if (mode === "raw") managedToolActive(pi, true);
+      else if (mode !== "status" && mode !== "") {
+        ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
+        return;
+      }
+      const activeRaw = RAW_TOOL_NAMES.filter((name) => pi.getActiveTools().includes(name));
+      ctx.ui.notify(
+        `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`,
+        "info"
+      );
+    }
+  });
+  pi.on("session_start", (_event, ctx) => {
+    engine.enterSession(ctx.sessionManager.getSessionId());
+    managedToolActive(pi, false);
+  });
+  pi.on("session_tree", (_event, ctx) => {
+    engine.resetSession(ctx.sessionManager.getSessionId());
+  });
+  pi.on("session_shutdown", () => {
+    engine.shutdown();
+  });
+}
+
+// src/workflow/commands.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import {
+  BorderedLoader,
+  getAgentDir as getAgentDir2
+} from "@earendil-works/pi-coding-agent";
+
 // src/workflow/renderers.ts
+import os from "node:os";
+import path4 from "node:path";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  wrapTextWithAnsi
+} from "@earendil-works/pi-tui";
 function privacyDisplayPath(absolutePath) {
   const home = os.homedir();
   const relative = path4.relative(home, absolutePath);
@@ -1408,14 +2768,14 @@ function privacyDisplayPath(absolutePath) {
   }
   return path4.basename(absolutePath) || "resume root";
 }
-function setupSummary(config, scan, persisted2) {
+function setupSummary(config, scan, persisted3) {
   const resumes = scan.records.length;
   const roots = config.library_roots.length;
   const notices = scan.warnings.length;
   const variantsRoot = suggestedGeneratedVariantsRoot(config);
   const variants = variantsRoot === void 0 ? "Resume variation suggestion: unavailable until a resume root is configured" : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === void 0 ? "default under the first configured root" : "configured"})`;
   return [
-    `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted2 ? "persisted" : "transient"}`,
+    `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted3 ? "persisted" : "transient"}`,
     variants
   ].join("\n");
 }
@@ -1471,7 +2831,7 @@ function libraryWarningPreview(config, scan, maximum = 10) {
   if (scan.warnings.length > maximum) lines.push(`- ${scan.warnings.length - maximum} more notice${scan.warnings.length - maximum === 1 ? "" : "s"}`);
   return ["Library notices:", ...lines].join("\n");
 }
-function librarySummary(config, scan, persisted2) {
+function librarySummary(config, scan, persisted3) {
   const originals = scan.records.filter((record) => record.kind === "original").length;
   const assisted = scan.records.filter((record) => record.kind === "assisted_variant").length;
   const tooLarge = scan.records.filter((record) => record.too_large_for_core_input === true).length;
@@ -1483,13 +2843,13 @@ function librarySummary(config, scan, persisted2) {
     `${tooLarge} too large`,
     `${staleRoots} stale roots`,
     `${scan.warnings.length} notices`,
-    `${persisted2 ? "persisted" : "transient"} session`
+    `${persisted3 ? "persisted" : "transient"} session`
   ].join(" • ");
 }
 function summaryRecord(card) {
   return card.projection.summary;
 }
-function recommendationLabel(card) {
+function recommendationLabel2(card) {
   const recommendation = summaryRecord(card).recommendation;
   if (recommendation !== null && typeof recommendation === "object" && !Array.isArray(recommendation)) {
     const label = recommendation.label;
@@ -1535,8 +2895,8 @@ function matchProjectionDetails(projection) {
   const resumeScore = objectField(resumeConfidence, "score");
   const jobLabel = objectField(jobConfidence, "label");
   const jobScore = objectField(jobConfidence, "score");
-  const warnings = summary.warnings;
-  const warningCount = Array.isArray(warnings) ? warnings.length : 0;
+  const warnings2 = summary.warnings;
+  const warningCount = Array.isArray(warnings2) ? warnings2.length : 0;
   return [
     `confidence resume ${String(resumeLabel2 ?? "unavailable")} ${String(resumeScore ?? "-")} • job ${String(jobLabel ?? "unavailable")} ${String(jobScore ?? "-")}`,
     `strengths ${previewItems(summary, "top_strengths")}`,
@@ -1545,7 +2905,7 @@ function matchProjectionDetails(projection) {
 }
 function plainResultCard(card, tie = false) {
   const labels = badges(card, tie);
-  const recommendation = recommendationLabel(card);
+  const recommendation = recommendationLabel2(card);
   return [
     `${card.workflow === "match" ? "Career match" : "Career analyze"}: ${card.resume_label}`,
     `score ${score(card)}${recommendation ? ` • ${recommendation}` : ""}`,
@@ -1572,7 +2932,7 @@ function stateEntryText(data) {
 function resultCardLines(card, theme, width, tie) {
   const label = theme.fg("accent", theme.bold(card.resume_label));
   const flags = badges(card, tie);
-  const recommendation = recommendationLabel(card);
+  const recommendation = recommendationLabel2(card);
   const recommendationText = recommendation ? ` • ${recommendation}` : "";
   const flagText = flags.length > 0 ? flags.join(" • ") : void 0;
   const matchDetails = card.workflow === "match" ? matchProjectionDetails(card.projection) : [];
@@ -1754,174 +3114,6 @@ var DetailViewer = class {
   }
 };
 
-// src/workflow/result-projection.ts
-function isRecord3(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function numberField(value, field) {
-  const found = value[field];
-  if (typeof found !== "number" || !Number.isFinite(found)) throw workflowError("core_result_invalid");
-  return found;
-}
-function recordField(value, field) {
-  const found = value[field];
-  if (!isRecord3(found)) throw workflowError("core_result_invalid");
-  return found;
-}
-function arrayField(value, field) {
-  const found = value[field];
-  if (!Array.isArray(found)) throw workflowError("core_result_invalid");
-  return found;
-}
-function compactObjects(value, fields, maximum) {
-  return value.slice(0, maximum).flatMap((candidate) => {
-    if (!isRecord3(candidate)) return [];
-    const selected = {};
-    for (const field of fields) {
-      if (candidate[field] !== void 0) selected[field] = candidate[field];
-    }
-    return [selected];
-  });
-}
-function compactWarnings(value) {
-  return compactObjects(value, ["code", "message", "related_fields", "related_categories"], 3);
-}
-function parseConfidencePreview(value) {
-  if (!isRecord3(value) || typeof value.label !== "string" || typeof value.score !== "number") {
-    throw workflowError("core_result_invalid");
-  }
-  return { label: value.label, score: value.score };
-}
-function parseCoreJson(json) {
-  try {
-    const value = JSON.parse(json);
-    if (!isRecord3(value)) throw workflowError("core_result_invalid");
-    return value;
-  } catch (error) {
-    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
-    throw workflowError("core_result_invalid");
-  }
-}
-function projectResumeAnalysis(result) {
-  if (result.schema_version !== "career.resume_analysis.v1") throw workflowError("core_result_invalid");
-  const checks = arrayField(result, "checks");
-  const confidence = recordField(result, "confidence_context");
-  const parseConfidence = parseConfidencePreview(confidence.parse_confidence);
-  const adjusted = checks.some((check) => isRecord3(check) && check.score_adjusted === true);
-  return {
-    schema_version: RESULT_PROJECTION_SCHEMA,
-    core_schema_version: "career.resume_analysis.v1",
-    summary: {
-      overall_score: numberField(result, "overall_score"),
-      category_scores: recordField(result, "category_scores"),
-      confidence_context: { parse_confidence: parseConfidence },
-      top_strengths: compactObjects(arrayField(result, "top_strengths"), ["area", "title", "status"], 2),
-      top_weaknesses: compactObjects(arrayField(result, "top_weaknesses"), ["area", "title", "status"], 2),
-      improvement_actions: compactObjects(
-        arrayField(result, "improvement_actions"),
-        ["priority", "area", "action", "basis_check_id", "status"],
-        2
-      ),
-      warnings: compactWarnings(arrayField(result, "warnings"))
-    },
-    ui_flags: { adjusted, provisional: false, close_cluster: false, stale: false }
-  };
-}
-function projectJobMatch(result) {
-  if (result.schema_version !== "career.job_match.v1") throw workflowError("core_result_invalid");
-  const categories = arrayField(result, "category_results");
-  const confidence = recordField(result, "confidence_context");
-  const recommendation = recordField(result, "recommendation");
-  if (typeof recommendation.label !== "string") throw workflowError("core_result_invalid");
-  const provisional = confidence.is_uncertain === true;
-  const adjusted = categories.some((category) => isRecord3(category) && category.score_adjusted === true);
-  return {
-    schema_version: RESULT_PROJECTION_SCHEMA,
-    core_schema_version: "career.job_match.v1",
-    summary: {
-      overall_score: numberField(result, "overall_score"),
-      category_scores: recordField(result, "category_scores"),
-      confidence_context: {
-        resume_parse_confidence: parseConfidencePreview(confidence.resume_parse_confidence),
-        job_parse_confidence: parseConfidencePreview(confidence.job_parse_confidence),
-        is_uncertain: provisional
-      },
-      top_strengths: compactObjects(
-        arrayField(result, "top_strengths"),
-        ["category", "item", "status", "match_type"],
-        2
-      ),
-      top_gaps: compactObjects(arrayField(result, "top_gaps"), ["category", "item", "status"], 2),
-      recommendation: compactObjects([recommendation], ["label", "status"], 1)[0] ?? {},
-      warnings: compactWarnings(arrayField(result, "warnings"))
-    },
-    ui_flags: { adjusted, provisional, close_cluster: false, stale: false }
-  };
-}
-function createResultCard(options) {
-  return {
-    schema_version: WORKFLOW_STATE_SCHEMA,
-    kind: "result_card",
-    ...options.applicationId === void 0 ? {} : { application_id: options.applicationId },
-    state_id: options.uuid(),
-    created_at: options.now().toISOString(),
-    workflow: options.workflow,
-    run_id: options.runId,
-    resume_id: options.resume.id,
-    resume_label: options.resume.label,
-    resume_path_fingerprint: sha256(options.resume.path),
-    input_digests: {
-      resume_text_sha256: options.resume.text_sha256,
-      vacancy_text_sha256: options.vacancy?.vacancy_text_sha256 ?? sha256("")
-    },
-    projection: options.projection
-  };
-}
-var RECOMMENDATION_BUCKET = {
-  apply_now: 3,
-  apply_after_small_edits: 2,
-  improve_first: 1
-};
-function recommendationLabel2(result) {
-  const recommendation = recordField(result, "recommendation").label;
-  if (recommendation !== "apply_now" && recommendation !== "apply_after_small_edits" && recommendation !== "improve_first") throw workflowError("core_result_invalid");
-  return recommendation;
-}
-function compareText2(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-function rankMatches(values) {
-  const ranked = values.map(({ resume, result, projection }) => ({
-    resume,
-    result,
-    projection: projection ?? projectJobMatch(result),
-    overallScore: numberField(result, "overall_score"),
-    recommendation: recommendationLabel2(result),
-    tie: false,
-    closeCluster: false
-  }));
-  ranked.sort((left, right) => {
-    if (left.overallScore !== right.overallScore) return right.overallScore - left.overallScore;
-    const bucket = RECOMMENDATION_BUCKET[right.recommendation] - RECOMMENDATION_BUCKET[left.recommendation];
-    if (bucket !== 0) return bucket;
-    const pathOrder = compareText2(left.resume.path, right.resume.path);
-    return pathOrder !== 0 ? pathOrder : compareText2(left.resume.id, right.resume.id);
-  });
-  const topScore = ranked[0]?.overallScore;
-  const secondScore = ranked[1]?.overallScore;
-  const tie = topScore !== void 0 && secondScore === topScore;
-  const close = topScore !== void 0 && secondScore !== void 0 && topScore - secondScore <= 3;
-  for (const [index, item] of ranked.entries()) {
-    item.tie = tie && item.overallScore === topScore;
-    item.closeCluster = close && index < 2;
-    item.projection = {
-      ...item.projection,
-      ui_flags: { ...item.projection.ui_flags, close_cluster: item.closeCluster }
-    };
-  }
-  return ranked;
-}
-
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;
 var WORKBENCH_MAX_PROMPT_BYTES = 262144;
@@ -1946,28 +3138,28 @@ function workflowProtocol(mode, resume) {
     case "plan":
       return `1. Analyze the original once and use the complete result.
 2. Draft at most three advisory suggestions for current canonical actions.
-3. Call "analysis-suggestions-review" once; present retained suggestions in Core order with all discard codes and warnings. Do not turn them into replacements or claim application.`;
+3. Call career_run "suggestion-review" once; present retained suggestions in Core order with all discard codes and warnings. Do not turn them into replacements or claim application.`;
     case "rewrite":
       return `1. Analyze the original once; use the complete result and summarize priorities without echoing its JSON.
 2. Ask at most five factual questions tied to canonical actions and bounded source targets. Allow "unknown"; request only personally verifiable facts. Do not draft or review wording; stop for answers.
 3. Later, use only explicit answers and infer nothing missing.
-4. Draft at most three exact replacements and call "analysis-replacements-review" once.
+4. Draft at most three exact replacements and call career_run "replacement-review" once.
 5. Present retained before/after snippets in Core order with all discards and warnings. Say structural review does not certify facts or prose. PDF: manual snippets only.`;
     case "replacements":
       return `1. Analyze the original once and use the complete result.
-2. Draft at most three exact replacements for current canonical actions; call "analysis-replacements-review" once.
+2. Draft at most three exact replacements for current canonical actions; call career_run "replacement-review" once.
 3. Show retained before/after snippets with all discards and warnings; do not claim selection, application, materialization, or factual certification.`;
     case "tailor": {
       const review = `1. Analyze the original and match the original/vacancy once; use both complete baselines.
 2. Draft a bounded variant grounded in exact targets and resume/vacancy evidence.
-3. Call "variant-review" once; present retained IDs, targeted before/after snippets, discards, and warnings.`;
+3. Call career_run "variant-review" once; present retained IDs, targeted before/after snippets, discards, and warnings.`;
       if (resume.format === "pdf") {
         return `${review}
-4. Stop with manual targeted changes; do not call "variant-materialize" or emit a full resume.`;
+4. Stop with manual targeted changes; do not call career_run "materialize" or emit a full resume.`;
       }
       return `${review}
 4. Ask the user to select retained IDs, then stop; never select or materialize now.
-5. Only after later selection, call "variant-materialize" with the same review input and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
+5. Only after later selection, call career_run "materialize" with the returned review handle and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
     }
     case "question":
       return `1. Answer from the original; use complete analysis or matching when relevant.
@@ -2023,13 +3215,13 @@ Required handling rules:
 - The original resume is immutable. Do not use file-writing tools and do not ask to overwrite it.
 - Do not invent, infer, or embellish experience, skills, dates, metrics, education, or credentials.
 - ${formatRule(resume)}
-- Discover capabilities/catalog and export each exact input and referenced proposal schema before first use; never infer. Reuse unchanged discovery/schema results for the same Core version; do not print schemas unless asked.
-- Use only career_core_discover, career_core_resume, and career_core_job.
-- Keep each complete deterministic result as the immutable baseline; never substitute a card, memory, or assisted output.
+- Start with career_run context and use its ephemeral handles. It validates and caches exact Core operation/schema contracts internally; do not call raw schema tools unless I explicitly request advanced debugging.
+- Use only career_run for normal analysis, matching, proposal review, materialization, and detail hydration.
+- Keep each complete deterministic Core result behind its returned handle as the immutable baseline; never substitute a card, conversational memory, or assisted output.
 - Core-review every external suggestion, replacement, or variant before presenting it.
 - In review proposals, source_target must be verbatim within its line bounds (prefer one line, never a label); source_evidence must occur verbatim in the same bounds.
 - Call each requested operation once. Do not auto-repair or retry discards; report their Core codes and stop.
-- Keep complete Core results unchanged in tool messages and use all returned evidence, spans, confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline: say it was preserved, reproduce all warnings/discards/limitations, and show only relevant evidence/spans.
+- Treat career_run output as a bounded projection of a complete unchanged in-memory Core result. Hydrate the exact checks, evidence, changes, document, or raw section needed; use all returned confidence, uncertainty, boundaries, warnings, discards, limitations, and authority labels. Do not reprint an unchanged review-embedded baseline.
 - Exact evidence occurrence is not proof that a rewrite is factually safe. Ask me to verify every changed claim.
 - Do not analyze or match an assisted variant as though it were an original.
 - If the source-data JSON includes local_save_guidance and I later ask where to save an assisted resume variation, suggest its preferred_variants_directory first. It is destination guidance only: never save automatically, never overwrite an original, and require separate explicit approval of the exact path and files.
@@ -2095,7 +3287,7 @@ var RunOwner = class {
     this.current = void 0;
   }
 };
-function persisted(ctx) {
+function persisted2(ctx) {
   return ctx.sessionManager.getSessionFile() !== void 0;
 }
 function safeAdapterCode(error) {
@@ -2272,10 +3464,10 @@ async function showDetail(ctx, sections) {
 }
 function registerCareerCommands(pi, options = {}) {
   const dependencies = {
-    agentDir: options.agentDir ?? getAgentDir(),
+    agentDir: options.agentDir ?? getAgentDir2(),
     invoke: options.invoke ?? invokeCareerCli,
     now: options.now ?? (() => /* @__PURE__ */ new Date()),
-    uuid: options.uuid ?? randomUUID2
+    uuid: options.uuid ?? randomUUID3
   };
   const owner = new RunOwner(dependencies.uuid);
   let transientNoticeSession;
@@ -2304,7 +3496,7 @@ function registerCareerCommands(pi, options = {}) {
     (stateId) => renderedTieStateIds.has(stateId)
   );
   const ensureConsent = async (ctx, run) => {
-    if (!persisted(ctx)) {
+    if (!persisted2(ctx)) {
       if (transientNoticeSession !== run.sessionId) {
         ctx.ui.notify(TRANSIENT_NOTICE, "info");
         transientNoticeSession = run.sessionId;
@@ -2398,7 +3590,7 @@ function registerCareerCommands(pi, options = {}) {
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
-      const summary = setupSummary(config, scan, persisted(ctx));
+      const summary = setupSummary(config, scan, persisted2(ctx));
       const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
         ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
@@ -2425,7 +3617,7 @@ function registerCareerCommands(pi, options = {}) {
         owner.assert(run, ctx);
         const rescanned = await scanLibrary(updated);
         ctx.ui.notify([
-          setupSummary(updated, rescanned, persisted(ctx)),
+          setupSummary(updated, rescanned, persisted2(ctx)),
           libraryWarningPreview(updated, rescanned)
         ].filter(Boolean).join("\n"), "info");
         if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
@@ -2456,7 +3648,7 @@ function registerCareerCommands(pi, options = {}) {
         const rescanned = await scanLibrary(config);
         owner.assert(run, ctx);
         ctx.ui.notify([
-          setupSummary(config, rescanned, persisted(ctx)),
+          setupSummary(config, rescanned, persisted2(ctx)),
           libraryWarningPreview(config, rescanned)
         ].filter(Boolean).join("\n"), "info");
       } else if (action === "Status") {
@@ -2473,7 +3665,7 @@ function registerCareerCommands(pi, options = {}) {
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
-      const summary = librarySummary(config, scan, persisted(ctx));
+      const summary = librarySummary(config, scan, persisted2(ctx));
       const notices = libraryWarningPreview(config, scan);
       if (mode === "status") {
         ctx.ui.notify([summary, notices].filter(Boolean).join("\n"), "info");
@@ -2511,7 +3703,7 @@ function registerCareerCommands(pi, options = {}) {
         ctx.ui.notify([
           "Resume root added.",
           libraryIndexPreview(updated, rescanned),
-          librarySummary(updated, rescanned, persisted(ctx)),
+          librarySummary(updated, rescanned, persisted2(ctx)),
           libraryWarningPreview(updated, rescanned)
         ].filter(Boolean).join("\n"), "info");
         if (rescanned.records.length === 0) ctx.ui.notify(EMPTY_LIBRARY_BANNER, "warning");
@@ -2529,7 +3721,7 @@ function registerCareerCommands(pi, options = {}) {
         owner.assert(run, ctx);
         ctx.ui.notify([
           libraryIndexPreview(config, rescanned),
-          librarySummary(config, rescanned, persisted(ctx)),
+          librarySummary(config, rescanned, persisted2(ctx)),
           libraryWarningPreview(config, rescanned)
         ].filter(Boolean).join("\n"), "info");
       } else if (action === "Status") {
@@ -2870,7 +4062,13 @@ Application context is session-scoped; no workspace files were created.${state.v
 }
 
 // src/index.ts
-var DISCOVERY_OPERATIONS = ["capabilities", "schema-list", "schema-export"];
+var DISCOVERY_OPERATIONS = [
+  "capabilities",
+  "operations",
+  "schema-list",
+  "schema-export",
+  "schema-bundle"
+];
 var RESUME_OPERATIONS = [
   "evaluate",
   "analyze",
@@ -2882,14 +4080,14 @@ var RESUME_OPERATIONS = [
   "variant-materialize"
 ];
 var JOB_OPERATIONS = ["normalize", "match"];
-var discoveryParameters = Type.Object(
+var discoveryParameters = Type2.Object(
   {
-    operation: StringEnum(DISCOVERY_OPERATIONS, {
-      description: "Discover capabilities, list embedded schemas, or export one embedded schema."
+    operation: StringEnum2(DISCOVERY_OPERATIONS, {
+      description: "Discover capabilities/operations, list schemas, or export/bundle one schema."
     }),
-    schema_id: Type.Optional(
-      Type.String({
-        description: "Required only for schema-export; use an exact ID returned by schema-list.",
+    schema_id: Type2.Optional(
+      Type2.String({
+        description: "Required only for schema-export/schema-bundle; use an exact ID from schema-list.",
         minLength: 1,
         maxLength: 100,
         pattern: "^career\\.[a-z0-9_.-]+\\.v[0-9]+$"
@@ -2898,12 +4096,12 @@ var discoveryParameters = Type.Object(
   },
   { additionalProperties: false }
 );
-var resumeParameters = Type.Object(
+var resumeParameters = Type2.Object(
   {
-    operation: StringEnum(RESUME_OPERATIONS, {
+    operation: StringEnum2(RESUME_OPERATIONS, {
       description: "One available deterministic resume CLI operation."
     }),
-    input_json: Type.String({
+    input_json: Type2.String({
       description: "Exactly one versioned JSON input object as a string. Discover the operation schema first. Private arguments may be stored by Pi unless the session is transient.",
       minLength: 2,
       maxLength: COMPOSITE_INPUT_MAX_BYTES
@@ -2911,12 +4109,12 @@ var resumeParameters = Type.Object(
   },
   { additionalProperties: false }
 );
-var jobParameters = Type.Object(
+var jobParameters = Type2.Object(
   {
-    operation: StringEnum(JOB_OPERATIONS, {
+    operation: StringEnum2(JOB_OPERATIONS, {
       description: "Normalize a caller-supplied job description or match original resume/job inputs."
     }),
-    input_json: Type.String({
+    input_json: Type2.String({
       description: "Exactly one versioned JSON input object as a string. Discover the operation schema first. Private arguments may be stored by Pi unless the session is transient.",
       minLength: 2,
       maxLength: COMPOSITE_INPUT_MAX_BYTES
@@ -3015,6 +4213,7 @@ function careerCoreExtension(pi) {
       }
     }
   });
+  registerCareerRun(pi);
 }
 export {
   careerCoreExtension as default

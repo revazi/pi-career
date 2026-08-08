@@ -70,7 +70,12 @@ const KNOWN_CLI_ERROR_CODES = new Set([
   "variant_selection_invalid",
 ]);
 
-export type DiscoveryOperation = "capabilities" | "schema-list" | "schema-export";
+export type DiscoveryOperation =
+  | "capabilities"
+  | "operations"
+  | "schema-list"
+  | "schema-export"
+  | "schema-bundle";
 export type ResumeOperation =
   | "evaluate"
   | "analyze"
@@ -145,10 +150,14 @@ function prepareDiscoveryInvocation(
     case "capabilities":
       if (invocation.schemaId !== undefined) throw adapterError("invalid_request");
       return { args: ["capabilities", "--format", "json-compact"], operation: "capabilities" };
+    case "operations":
+      if (invocation.schemaId !== undefined) throw adapterError("invalid_request");
+      return { args: ["operations", "--format", "json-compact"], operation: "core.operations" };
     case "schema-list":
       if (invocation.schemaId !== undefined) throw adapterError("invalid_request");
       return { args: ["schema", "list", "--format", "json-compact"], operation: "schema.list" };
     case "schema-export":
+    case "schema-bundle": {
       if (
         typeof invocation.schemaId !== "string" ||
         invocation.schemaId.length > 100 ||
@@ -156,10 +165,12 @@ function prepareDiscoveryInvocation(
       ) {
         throw adapterError("invalid_request");
       }
+      const schemaOperation = invocation.operation === "schema-export" ? "export" : "bundle";
       return {
-        args: ["schema", "export", "--id", invocation.schemaId, "--format", "json-compact"],
-        operation: "schema.export",
+        args: ["schema", schemaOperation, "--id", invocation.schemaId, "--format", "json-compact"],
+        operation: `schema.${schemaOperation}`,
       };
+    }
     default:
       throw adapterError("invalid_request");
   }

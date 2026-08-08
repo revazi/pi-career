@@ -69,7 +69,7 @@ try {
   );
   assert.ok(extension, "built package extension must load through its manifest");
   const tools = new Map([...extension.tools.values()].map(({ definition }) => [definition.name, definition]));
-  assert.deepEqual([...tools.keys()].sort(), ["career_core_discover", "career_core_job", "career_core_resume"]);
+  assert.deepEqual([...tools.keys()].sort(), ["career_core_discover", "career_core_job", "career_core_resume", "career_run"]);
 
   async function execute(toolName, params) {
     const result = await tools.get(toolName).execute("bundled-runtime-smoke", params, undefined);
@@ -81,6 +81,13 @@ try {
   const capabilities = await execute("career_core_discover", { operation: "capabilities" });
   assert.equal(capabilities.parsed.schema_version, "career.capabilities.v1");
   assert.equal(digestFramedJson(capabilities.text), manifest.contracts.capabilities.sha256);
+
+  const operations = await execute("career_core_discover", { operation: "operations" });
+  assert.equal(operations.parsed.schema_version, "career.operation_catalog.v1");
+  assert.equal(
+    digestFramedJson(operations.text),
+    manifest.contracts.managed_adapter_compatibility.operation_catalog.catalog_sha256,
+  );
 
   const catalog = await execute("career_core_discover", { operation: "schema-list" });
   assert.equal(catalog.parsed.schema_version, "career.schema_catalog.v1");
@@ -94,6 +101,16 @@ try {
   assert.equal(schema.parsed.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(digestFramedJson(schema.text), manifest.contracts.schema_export.sha256);
 
+  const bundleRecord = manifest.contracts.managed_adapter_compatibility.representative_schema_bundles
+    .find(({ schema_id }) => schema_id === "career.resume_variant_review_input.v1");
+  assert.ok(bundleRecord);
+  const bundle = await execute("career_core_discover", {
+    operation: "schema-bundle",
+    schema_id: bundleRecord.schema_id,
+  });
+  assert.equal(bundle.parsed.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(digestFramedJson(bundle.text), bundleRecord.sha256);
+
   const resumeInput = await readFile(path.join(fixtureRoot, "resume-analyze.input.json"), "utf8");
   const resume = await execute("career_core_resume", { operation: "analyze", input_json: resumeInput });
   assert.equal(resume.parsed.schema_version, "career.resume_analysis.v1");
@@ -101,6 +118,25 @@ try {
   const matchInput = await readFile(path.join(fixtureRoot, "job-match.input.json"), "utf8");
   const match = await execute("career_core_job", { operation: "match", input_json: matchInput });
   assert.equal(match.parsed.schema_version, "career.job_match.v1");
+
+  const managedContext = await tools.get("career_run").execute(
+    "bundled-runtime-managed-smoke",
+    { command: "context" },
+    undefined,
+    undefined,
+    {
+      sessionManager: {
+        getSessionId: () => "bundled-runtime-transient",
+        getSessionFile: () => undefined,
+        getBranch: () => [],
+      },
+    },
+  );
+  const managed = JSON.parse(managedContext.content[0].text);
+  assert.equal(managed.schema_version, "pi.career.run_result.v1");
+  assert.equal(managed.command, "context");
+  assert.equal(managed.core_version, manifest.career_core.version);
+  assert.equal(managed.persistence, "transient");
 
   assert.equal(networkAttempted, false);
   assert.equal(process.env.CAREER_CLI_PATH, undefined);

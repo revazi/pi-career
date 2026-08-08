@@ -336,12 +336,12 @@ test("workbench prepares a guided reviewed-variation prompt without calling a mo
     assert.match(editorText[0], /Synthetic resume content/);
     assert.match(editorText[0], /Synthetic Backend Vacancy/);
     assert.match(editorText[0], /original resume is immutable/);
-    assert.match(editorText[0], /career_core_discover, career_core_resume, and career_core_job/);
+    assert.match(editorText[0], /Use only career_run for normal analysis/);
     assert.match(editorText[0], /use both complete baselines/);
-    assert.match(editorText[0], /Call "variant-review" once/);
+    assert.match(editorText[0], /Call career_run "variant-review" once/);
     assert.match(editorText[0], /select retained IDs, then stop/);
     assert.match(editorText[0], /Only after later selection/);
-    assert.match(editorText[0], /call "variant-materialize"/);
+    assert.match(editorText[0], /call career_run "materialize"/);
     assert.match(editorText[0], /local_save_guidance/);
     assert.match(editorText[0], /preferred_variants_directory/);
     assert.match(editorText[0], /destination guidance only/);

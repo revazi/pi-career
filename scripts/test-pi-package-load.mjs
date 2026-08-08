@@ -67,13 +67,14 @@ try {
 
   const tools = [...loaded[0].tools.values()].map(({ definition }) => definition);
   const names = tools.map(({ name }) => name).sort();
-  assert.deepEqual(names, ["career_core_discover", "career_core_job", "career_core_resume"]);
+  assert.deepEqual(names, ["career_core_discover", "career_core_job", "career_core_resume", "career_run"]);
   assert.deepEqual([...loaded[0].commands.keys()].sort(), [
     "career-analyze",
     "career-application",
     "career-library",
     "career-match",
     "career-setup",
+    "career-tools",
     "career-vacancy",
     "career-workbench",
   ]);
@@ -82,18 +83,21 @@ try {
     assert.equal(tool.parameters.type, "object");
     assert.equal(tool.parameters.additionalProperties, false);
     assert.ok(Array.isArray(tool.parameters.required));
-    assert.ok(tool.parameters.properties.operation);
+    assert.ok(tool.parameters.properties[tool.name === "career_run" ? "command" : "operation"]);
   }
 
   const schemas = new Map(tools.map((tool) => [tool.name, tool.parameters]));
   assert.deepEqual(schemas.get("career_core_discover").required, ["operation"]);
   assert.deepEqual([...schemas.get("career_core_resume").required].sort(), ["input_json", "operation"]);
   assert.deepEqual([...schemas.get("career_core_job").required].sort(), ["input_json", "operation"]);
+  assert.deepEqual(schemas.get("career_run").required, ["command"]);
   const serialized = JSON.stringify(Object.fromEntries(schemas));
   for (const operation of [
     "capabilities",
+    "operations",
     "schema-list",
     "schema-export",
+    "schema-bundle",
     "evaluate",
     "analyze",
     "analysis-suggestions-review",

@@ -28,6 +28,10 @@ Release execution completed on 2026-08-06:
 - custom GitHub Release assets: none
 - isolated npm-based Pi install/list/load/bundled-runtime/remove smoke: passed
 
+## Unreleased managed-adapter runtime update
+
+The current tracked candidate imports unsigned Career Core Phase 8 binaries from commit `f6d17835de4817e28ce84e8e5734ff592687dfcc`, workflow run `31274605956`, artifact IDs `9026639758` (`darwin-arm64`) and `9026641043` (`linux-x64-gnu`). Their short-retention expiry was reported as 2026-08-11. The locked Cargo graph and Cargo.lock SHA-256 remain unchanged from v0.1.0, but the binary/provenance change still requires a fresh explicit release decision before any later publication. This implementation task authorizes no npm publication, tag, release, signing, or notarization.
+
 ## Release gates
 
 Every item in this section was required before npm publication, tagging, and the GitHub Release. A skipped, unknown, or merely planned result was not a pass.
@@ -37,7 +41,7 @@ Every item in this section was required before npm publication, tagging, and the
 - Start from synchronized public `main` and identify one full candidate SHA.
 - Ensure the candidate contains no private career content, credentials, sessions, provider output, generated local paths, or unreviewed runtime bytes.
 - Review the complete diff and confirm `package.json` remains `0.1.0`, explicitly public only at `https://registry.npmjs.org/`, peer-only at runtime, and free of lifecycle/publication scripts.
-- Confirm `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, runtime manifest/provenance, package contents, supported targets, and the exact three native tools remain aligned.
+- Confirm `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, runtime manifest/provenance, package contents, supported targets, primary `career_run`, and all three raw compatibility tools remain aligned.
 - Do not move the candidate after its local and hosted evidence is recorded. Any content change creates a new candidate and requires the gate again.
 
 ### 2. Human native-license review
@@ -84,6 +88,7 @@ Run with Node.js 22.19 or newer:
 npm ci
 npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
+npm run bench:tokens
 npm run check
 npm run test:bundled-runtime
 npm run audit:production

@@ -2,15 +2,17 @@
 
 ## Status
 
-This document records a planned cross-repository migration. It does not describe currently available behavior and does not authorize implementation, persistence, publication, or runtime changes by itself.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. Reviewed native artifact run `31274605956` passed on both supported targets, and those exact artifacts are imported on this pi-career branch. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Package-owned save/export, richer interactive change selection/navigation, and broader PDF extraction compatibility remain later reviewed work.
 
-The sequence is fixed:
+Completed sequence:
 
-1. Authorize and implement Career Core Phase 8 managed-adapter support.
-2. Produce and review new native Career Core artifacts through the existing bounded handoff workflow.
-3. Import the reviewed artifacts into pi-career with updated provenance and compatibility checks.
-4. Implement and review pi-career's `career_run` design and agent workflow.
-5. Measure the complete synthetic workflow against explicit context, privacy, retention, and interaction budgets.
+1. Career Core Phase 8 managed-adapter support.
+2. Native Phase 8 artifact preparation and compatibility review.
+3. Artifact import with provenance/catalog/bundle/output-bound verification.
+4. Primary `career_run` implementation with raw tools inactive by default.
+5. Reproducible synthetic context benchmark and budget gates.
+
+This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
 ## Findings motivating the migration
 
@@ -36,31 +38,31 @@ Local `o200k_base` measurements taken during the design review:
 
 The current raw-tool workflow can require the model to discover schemas, manually construct nested JSON strings, repeat complete original/proposal payloads, parse exhaustive Core results, and reconstruct a materialization envelope containing the full review input. This increases context use and created avoidable malformed-envelope and exact-evidence-target friction in a representative end-to-end resume workflow.
 
-## Target agent experience
+## Delivered initial agent experience
 
-The planned primary interface is one compact high-level Pi tool:
+The primary interface is now one compact high-level Pi tool:
 
 ```text
-career_run context
-career_run analyze --resume master
-career_run match --resume master --vacancy current
-career_run variant-review --resume master --vacancy current --changes [...]
-career_run materialize --review <id> --selected [...]
-career_run detail --result <id> --section evidence
-career_run save --variant <id>
+career_run {command: context}
+career_run {command: analyze, handle: resume:...}
+career_run {command: match, handle: resume:...}
+career_run {command: variant-review, handle: resume:..., payload: {changes: [...]}}
+career_run {command: materialize, handle: review:..., payload: {selected_change_ids: [...]}}
+career_run {command: detail, handle: result:..., payload: {section: evidence}}
+# package-owned save remains deferred
 ```
 
-This is an illustrative workflow, not the final Pi tool schema. Private document text must continue to travel only through bounded stdin at the Career Core process boundary, never through CLI arguments.
+This is the implemented compact v1 command shape; package-owned save remains deferred. Private document text continues to travel only through bounded stdin at the Career Core process boundary, never through CLI arguments.
 
 Career Core remains authoritative for operations, schemas, algorithms, typed errors, evidence, warnings, uncertainty, ordering, deterministic baselines, and assisted/non-authoritative semantics. Pi-career owns handles, orchestration, projection, interaction, and explicitly approved persistence.
 
-## Career Core Phase 8: managed-adapter support
+## Career Core Phase 8: delivered managed-adapter support
 
-Career Core currently has no active implementation phase. A new, explicitly authorized Phase 8 should add only the machine contracts needed by a reviewed managed adapter.
+The explicitly authorized and reviewed Career Core Phase 8 added only the machine contracts needed by a managed adapter.
 
 ### Operation catalog
 
-Add a deterministic machine command such as:
+Phase 8 added the deterministic machine command:
 
 ```text
 career operations --format json-compact
@@ -81,25 +83,25 @@ Do not add fields to `career.capabilities.v1`: its current schema rejects additi
 
 ### Self-contained schema bundles
 
-Add a deterministic offline command such as:
+Phase 8 added the deterministic offline command:
 
 ```text
 career schema bundle --id career.resume_variant_review_input.v1
 ```
 
-Alternatively, add a backwards-compatible `--bundle` flag to `schema export`. Bundled output must recursively resolve only embedded local references, require no source checkout or network, remain valid Draft 2020-12 JSON Schema, and be deterministic and bounded. Existing unbundled schema-export bytes must remain unchanged.
+Bundled output recursively resolves only embedded local references, requires no source checkout or network, remains valid Draft 2020-12 JSON Schema, and is deterministic and bounded. Existing unbundled schema-export bytes remain unchanged.
 
 This lets pi-career validate exact Core envelopes without copying Core schemas into TypeScript or exposing schema discovery to the model during normal workflows.
 
 ### Machine-output bounds
 
-Document and enforce either one global maximum successful JSON output size or an exact per-operation maximum in the operation catalog. The bound must be sufficient for every valid bounded Core result.
+Phase 8 documents and enforces one 32-MiB maximum successful JSON output size and reports it for every operation in the catalog. The bound covers every valid bounded Core result.
 
-Pi-career can then capture complete authoritative JSON within that limit, keep it only in ephemeral memory, and expose compact model-facing projections with explicit detail hydration. An oversized Core result must never be silently truncated.
+Pi-career captures complete authoritative JSON within that limit, keeps it only in ephemeral memory, and exposes compact model-facing projections with explicit detail hydration. An oversized Core result is never silently truncated.
 
 ### Artifact compatibility metadata
 
-Extend the existing maintainer-only pi-career artifact metadata and verification to include:
+The imported maintainer-only artifact metadata and verification now include:
 
 - operation-catalog schema version and digest
 - complete available capability-to-operation mapping
@@ -129,7 +131,7 @@ Existing Core algorithms and successful v1 operation outputs remain byte-equival
 
 ### Phase 8 documentation
 
-The Career Core change should update:
+The Career Core change updated:
 
 - `.agents/current-phase.md`
 - `.agents/phases.md`
@@ -141,7 +143,7 @@ The Career Core change should update:
 
 Raw generic agents remain discovery-first. A reviewed managed adapter may perform and cache discovery internally so the model does not need model-visible capability or schema calls.
 
-### Phase 8 acceptance criteria
+### Phase 8 accepted criteria
 
 1. Every existing successful operation output remains byte-equivalent.
 2. Every available capability maps to exactly one callable operation descriptor.
@@ -156,14 +158,14 @@ Raw generic agents remain discovery-first. A reviewed managed adapter may perfor
 
 ## Pi-career managed adapter phase
 
-After reviewed Phase 8 artifacts are available, pi-career should revise the current exact-three-tool invariant and introduce one primary compact `career_run` tool. The existing `career_core_discover`, `career_core_resume`, and `career_core_job` tools may remain available as inactive advanced/debugging compatibility tools rather than occupying normal model context.
+Pi-career now uses one primary compact `career_run` tool. The existing `career_core_discover`, `career_core_resume`, and `career_core_job` tools remain registered as inactive advanced/debugging compatibility tools rather than occupying normal model context; `/career-tools raw` enables them explicitly.
 
 ### Ephemeral handles
 
-The extension should maintain bounded in-memory references such as:
+The extension maintains bounded in-memory references such as:
 
 ```text
-resume:master
+resume:<stable-prefix>
 vacancy:current
 review:abc123
 result:def456
@@ -176,17 +178,17 @@ Handles must not weaken the existing persistence decision or provider-consent bo
 
 ### Internal discovery and routing
 
-Pi-career should discover the operation catalog and required schema bundles once per verified Core version, validate compatibility, and cache only non-sensitive metadata. Normal `career_run` calls should never require the model to export schemas or manually encode nested `input_json` strings.
+Pi-career discovers the operation catalog and required schema bundles once per process for the verified package-owned Core version, validates compatibility, and caches only non-sensitive metadata. Normal `career_run` calls never require the model to export schemas or manually encode nested `input_json` strings.
 
 ### Compact results and hydration
 
-Common results should include only the decision surface needed for the next action while preserving every mandatory warning and relevant evidence, uncertainty, authority, discard, and limitation field. A stable ephemeral result handle should support bounded detail requests for checks, evidence, findings, reviewed changes, or complete raw JSON.
+Common results include only the decision surface needed for the next action while preserving every mandatory warning and relevant evidence, uncertainty, authority, discard, and limitation field. A stable ephemeral result handle supports bounded detail requests for checks, evidence, reviewed changes, document text, or complete raw JSON.
 
 The complete Core result must be captured before projection, remain unchanged, and be recoverable in the current process. It must never be partially consumed after truncation. Resume/job payloads and full results must not be written to temp files without a separately approved design.
 
-### Native review and explicit selection
+### Deferred richer review rendering and selection
 
-Add bounded custom rendering for:
+A later reviewed phase may add bounded custom rendering for:
 
 - before/proposed-after changes
 - evidence and source targets
@@ -194,7 +196,7 @@ Add bounded custom rendering for:
 - warnings and factuality limitations
 - discard codes
 
-A bounded multi-select interaction should let the user explicitly choose canonical Core change IDs. The model must not select automatically. Materialization must reuse the exact complete reviewed proposal and apply only the user's selected canonical IDs.
+The initial managed adapter already requires explicit canonical change IDs and reuses the exact complete reviewed proposal for materialization; the model must not select automatically. A later bounded multi-select interaction may make that user decision easier without changing the authority boundary.
 
 ### Approved save workflow
 
@@ -212,14 +214,13 @@ Destination configuration remains suggestion-only until this phase is designed, 
 
 ### Document ingestion
 
-Before relying on PDF originals in the managed flow, extend synthetic compatibility tests to cover Chromium-generated PDFs, common embedded fonts, multi-column documents, and tagged/untagged searchable PDFs. Continue to reject encrypted, image-only, malformed, oversized, or timed-out PDFs without OCR unless OCR receives separate authorization.
+To broaden confidence beyond the current searchable-PDF fixtures, extend synthetic compatibility tests to cover Chromium-generated PDFs, common embedded fonts, multi-column documents, and tagged/untagged searchable PDFs. Continue to reject encrypted, image-only, malformed, oversized, or timed-out PDFs without OCR unless OCR receives separate authorization.
 
 ### UX and context benchmarks
 
-Add a frozen synthetic benchmark covering:
+The initial frozen synthetic benchmark covers the active/raw tool contracts, representative analyze and variant-review results, and the existing workbench prompt. Later benchmark expansion should cover:
 
-- active tool-contract tokens
-- analyze, match, review, materialization, and hydration result tokens
+- match, suggestion/replacement-review, materialization, and hydration result tokens
 - model turns and tool calls
 - mandatory warning/evidence/uncertainty retention
 - repeated private-source bytes

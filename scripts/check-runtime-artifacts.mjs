@@ -11,9 +11,9 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const root = process.env.PI_CAREER_PACKAGE_ROOT ?? repositoryRoot;
 assert.ok(path.isAbsolute(root), "PI_CAREER_PACKAGE_ROOT must be absolute when supplied");
 
-const CORE_SHA = "a3cdb4c6d7f966397e93ea4664071975bca7228c";
+const CORE_SHA = "f6d17835de4817e28ce84e8e5734ff592687dfcc";
 const CORE_REPOSITORY = "https://github.com/revazi/career-core";
-const ARTIFACT_RUN = 30953471793;
+const ARTIFACT_RUN = 31274605956;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const EXPECTED_RUNTIME_FILES = new Set([
   "runtime/LICENSE-APACHE",
@@ -32,11 +32,11 @@ const EXPECTED_TARGETS = {
     libc: null,
     targetTriple: "aarch64-apple-darwin",
     binaryMagic: "cffaedfe0c000001",
-    provenanceSha256: "0e5cd03385dd11283551b3d198d071aebbef4ab99b7c278a60fba2ab8269e0c6",
-    provenanceSize: 3275,
-    artifactId: 8910079991,
-    downloadSize: 1486583,
-    archiveSha256: "3847ca2b06e8b41d86b6a4e3d4ce1f0a0cfd2322bf7f9a19330abb3f58b9ef2c",
+    provenanceSha256: "2bfda24f9c0f46063a9b24b60a6f82c201c72782ecf52e77938a9257de6a8f25",
+    provenanceSize: 8387,
+    artifactId: 9026639758,
+    downloadSize: 1530003,
+    archiveSha256: "db3261685df2d5dfb24a9d468b5d690fb3fe887ec714f9d4699d71e4b95cd4bc",
   },
   "linux-x64-gnu": {
     platform: "linux",
@@ -44,11 +44,11 @@ const EXPECTED_TARGETS = {
     libc: "gnu",
     targetTriple: "x86_64-unknown-linux-gnu",
     binaryMagic: "7f454c4602010100",
-    provenanceSha256: "98ee468bb78d3ade4f398ec11615a4ae7469c850817655c63cfea94a7b79cc0f",
-    provenanceSize: 3300,
-    artifactId: 8910084163,
-    downloadSize: 1679647,
-    archiveSha256: "966f2b0693f815926eb53ee36933f5f1e8b6ea599ca7f33b308b82fc6cb88eed",
+    provenanceSha256: "e3da2031669934676ba83c2fbf7a81808dcff5749c69386e7b01833fca4e1966",
+    provenanceSize: 8412,
+    artifactId: 9026641043,
+    downloadSize: 1722608,
+    archiveSha256: "e1d9ab750b0f97c0633ea64a768f77ae8b5ae3470675238b9f3221cb0cfb80dc",
   },
 };
 
@@ -100,7 +100,7 @@ assert.deepEqual(Object.keys(manifest).sort(), [
   "schema_version",
   "targets",
 ]);
-assert.equal(manifest.schema_version, "pi.career.runtime_manifest.v1");
+assert.equal(manifest.schema_version, "pi.career.runtime_manifest.v2");
 assert.deepEqual(manifest.career_core, {
   repository: CORE_REPOSITORY,
   commit: CORE_SHA,
@@ -129,10 +129,39 @@ for (const contract of [
 }
 assert.equal(manifest.contracts.capabilities.schema_version, "career.capabilities.v1");
 assert.equal(manifest.contracts.schema_catalog.schema_version, "career.schema_catalog.v1");
-assert.equal(manifest.contracts.schema_catalog.schema_count, 25);
+assert.equal(manifest.contracts.schema_catalog.schema_count, 26);
 assert.equal(manifest.contracts.schema_export.schema_id, "career.job_match.v1");
 assert.equal(manifest.contracts.representative_operations["resume.analyze"].schema_version, "career.resume_analysis.v1");
 assert.equal(manifest.contracts.representative_operations["job.match"].schema_version, "career.job_match.v1");
+const managed = manifest.contracts.managed_adapter_compatibility;
+assert.equal(managed.schema_version, "career.pi_career_managed_adapter_compatibility.v1");
+assert.equal(managed.core_version, "0.1.0");
+assert.equal(managed.available_capability_operation_mapping.length, 11);
+assert.equal(managed.declared_operation_output_bounds.length, 15);
+assert.deepEqual(
+  new Set(managed.declared_operation_output_bounds.map(({ maximum_successful_machine_output_bytes }) => maximum_successful_machine_output_bytes)),
+  new Set([33_554_432]),
+);
+assert.deepEqual(managed.operation_catalog, {
+  catalog_sha256: "d835e68f5ec99857563a520a5198eb7be66973942c0d1a64f7d24c4f3ecc17b8",
+  catalog_size_bytes: 5255,
+  schema_sha256: "324270533b4c3f090347406c1b9ce545332d36f29ace672a31d38684ad53ae3d",
+  schema_size_bytes: 2032,
+  schema_version: "career.operation_catalog.v1",
+});
+assert.deepEqual(
+  managed.representative_schema_bundles.map(({ schema_id }) => schema_id),
+  [
+    "career.resume_analysis_replacement_review_input.v1",
+    "career.job_match_input.v1",
+    "career.resume_variant_review_input.v1",
+    "career.resume_variant_materialization_input.v1",
+  ],
+);
+for (const record of managed.representative_schema_bundles) {
+  assert.match(record.sha256, SHA256_PATTERN);
+  assert.ok(Number.isSafeInteger(record.size_bytes) && record.size_bytes > 0 && record.size_bytes < 1_048_576);
+}
 
 const expectedNoticeNames = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"];
 assert.deepEqual(manifest.licenses_and_notices.map(({ path: file }) => path.basename(file)), expectedNoticeNames);
@@ -200,6 +229,7 @@ for (const [targetKey, expected] of Object.entries(EXPECTED_TARGETS)) {
     schema_catalog: manifest.contracts.schema_catalog,
     schema_export: manifest.contracts.schema_export,
   });
+  assert.deepEqual(provenance.managed_adapter_compatibility, managed);
   for (const verification of provenance.native_verification) {
     const locked = manifest.contracts.representative_operations[verification.operation];
     assert.ok(locked, `${verification.operation} must be locked in the runtime manifest`);

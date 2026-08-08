@@ -36,6 +36,7 @@ const allowed = new Set([
   "dist/index.js",
   "dist/pdf-worker.js",
   "docs/application-workspaces.md",
+  "docs/career-run-roadmap.md",
   "docs/design.md",
   "docs/licenses/MIT-aho-corasick-memchr.txt",
   "docs/licenses/MIT-anstyle-clap-family.txt",

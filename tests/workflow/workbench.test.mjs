@@ -42,8 +42,8 @@ test("workbench prompt keeps private inputs visible, original immutable, and PDF
   assert.doesNotMatch(prompt, new RegExp(application.application_id));
   assert.match(prompt, /original resume is immutable/);
   assert.match(prompt, /cannot inspect its visual layout/);
-  assert.match(prompt, /Call "variant-review" once/);
-  assert.match(prompt, /do not call "variant-materialize"/);
+  assert.match(prompt, /Call career_run "variant-review" once/);
+  assert.match(prompt, /do not call career_run "materialize"/);
   assert.doesNotMatch(prompt, /Only after a later explicit selection/);
   assert.match(prompt, /authority labels/);
   assert.match(prompt, /local_save_guidance/);
@@ -64,19 +64,19 @@ test("guided modes require complete baselines and the matching Career Core revie
 
   assert.match(explain, /complete result, not a prior score or card/);
   assert.match(explain, /then stop/);
-  assert.match(plan, /Call "analysis-suggestions-review" once/);
+  assert.match(plan, /Call career_run "suggestion-review" once/);
   assert.match(plan, /source_target must be verbatim/);
   assert.match(plan, /at most three advisory suggestions/);
   assert.match(rewrite, /Ask at most five factual questions/);
   assert.match(rewrite, /Do not draft or review wording/);
   assert.match(rewrite, /Later, use only explicit answers/);
-  assert.match(rewrite, /call "analysis-replacements-review" once/);
-  assert.match(replacements, /call "analysis-replacements-review" once/);
+  assert.match(rewrite, /call career_run "replacement-review" once/);
+  assert.match(replacements, /call career_run "replacement-review" once/);
   assert.match(replacements, /do not claim selection/);
-  assert.match(tailored, /Call "variant-review" once/);
+  assert.match(tailored, /Call career_run "variant-review" once/);
   assert.match(tailored, /select retained IDs, then stop/);
   assert.match(tailored, /Only after later selection/);
-  assert.match(tailored, /call "variant-materialize"/);
+  assert.match(tailored, /call career_run "materialize"/);
   assert.match(tailored, /Do not use file-writing tools/);
   for (const prompt of [plan, rewrite, replacements, tailored]) {
     assert.match(prompt, /prefer one line, never a label/);

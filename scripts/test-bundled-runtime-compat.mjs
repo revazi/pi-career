@@ -59,7 +59,7 @@ try {
   );
   assert.ok(extension, "built package extension must load through its manifest");
   const tools = new Map([...extension.tools.values()].map(({ definition }) => [definition.name, definition]));
-  assert.deepEqual([...tools.keys()].sort(), ["career_core_discover", "career_core_job", "career_core_resume"]);
+  assert.deepEqual([...tools.keys()].sort(), ["career_core_discover", "career_core_job", "career_core_resume", "career_run"]);
 
   async function execute(toolName, params) {
     const result = await tools.get(toolName).execute("bundled-runtime-compat", params, undefined);
@@ -84,6 +84,10 @@ try {
     "job.match",
   ]) assert.ok(available.has(id), `bundled runtime lacks ${id}`);
 
+  const operationCatalog = await execute("career_core_discover", { operation: "operations" });
+  assert.equal(operationCatalog.schema_version, "career.operation_catalog.v1");
+  assert.equal(operationCatalog.operations.length, 15);
+
   const catalog = await execute("career_core_discover", { operation: "schema-list" });
   assert.equal(catalog.schema_version, "career.schema_catalog.v1");
   const exported = await execute("career_core_discover", {
@@ -91,6 +95,12 @@ try {
     schema_id: "career.job_match_input.v1",
   });
   assert.equal(exported.$schema, "https://json-schema.org/draft/2020-12/schema");
+  const bundled = await execute("career_core_discover", {
+    operation: "schema-bundle",
+    schema_id: "career.resume_variant_materialization_input.v1",
+  });
+  assert.equal(bundled.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.ok(JSON.stringify(bundled).includes("careerSchemaBundle"));
 
   for (const [toolName, operation, relativeInput, expectedSchema] of operations) {
     const inputJson = await readFile(path.join(suppliedRoot, relativeInput), "utf8");
@@ -98,7 +108,7 @@ try {
     assert.equal(result.schema_version, expectedSchema, `${toolName}.${operation}`);
   }
   assert.equal(process.env.CAREER_CLI_PATH, undefined);
-  process.stdout.write("Bundled Career Core runtime compatibility passed through all three built package tools\n");
+  process.stdout.write("Bundled Career Core runtime compatibility passed through managed discovery and all raw operation tools\n");
 } finally {
   if (previousCareerPath === undefined) delete process.env.CAREER_CLI_PATH;
   else process.env.CAREER_CLI_PATH = previousCareerPath;

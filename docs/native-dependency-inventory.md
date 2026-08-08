@@ -6,7 +6,7 @@ This is reproducible dependency evidence for the two native `career` binaries tr
 
 The inventory is pinned to:
 
-- Career Core commit [`a3cdb4c6d7f966397e93ea4664071975bca7228c`](https://github.com/revazi/career-core/tree/a3cdb4c6d7f966397e93ea4664071975bca7228c)
+- Career Core commit [`f6d17835de4817e28ce84e8e5734ff592687dfcc`](https://github.com/revazi/career-core/tree/f6d17835de4817e28ce84e8e5734ff592687dfcc)
 - Cargo.lock SHA-256 `18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609`
 - package `career-cli 0.1.0`
 - build edges `normal,build`, excluding development dependencies
@@ -21,7 +21,7 @@ cargo build --release --locked -p career-cli --target x86_64-unknown-linux-gnu
 
 ## Derivation
 
-The Career Core checkout was treated as read-only. The exact commit was exported to a temporary directory outside both repositories; the temporary export was removed after these offline commands:
+The original dependency graph was derived from a read-only Career Core export using the offline commands below. For Phase 8 commit `f6d1783`, the lockfile remains byte-identical at the pinned SHA-256 and the manifest diff adds ownership/publication metadata but no normal/build dependency; both new per-target provenance records retain the same locked Rust 1.97.1 release-build boundary.
 
 ```bash
 cargo metadata --locked --offline \
@@ -47,8 +47,8 @@ For crates.io packages, “Source” identifies the immutable name/version regis
 | `anstyle` | `1.0.14` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/anstyle/1.0.14) | `940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000` |
 | `anstyle-parse` | `1.0.0` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/anstyle-parse/1.0.0) | `52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e` |
 | `anstyle-query` | `1.1.5` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/anstyle-query/1.1.5) | `40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc` |
-| `career-cli` | `0.1.0` | `MIT OR Apache-2.0` | [Core workspace](https://github.com/revazi/career-core/tree/a3cdb4c6d7f966397e93ea4664071975bca7228c/crates/career-cli) | commit-bound |
-| `career-core` | `0.1.0` | `MIT OR Apache-2.0` | [Core workspace](https://github.com/revazi/career-core/tree/a3cdb4c6d7f966397e93ea4664071975bca7228c) | commit-bound |
+| `career-cli` | `0.1.0` | `MIT OR Apache-2.0` | [Core workspace](https://github.com/revazi/career-core/tree/f6d17835de4817e28ce84e8e5734ff592687dfcc/crates/career-cli) | commit-bound |
+| `career-core` | `0.1.0` | `MIT OR Apache-2.0` | [Core workspace](https://github.com/revazi/career-core/tree/f6d17835de4817e28ce84e8e5734ff592687dfcc) | commit-bound |
 | `clap` | `4.6.4` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/clap/4.6.4) | `d91e0c145792ef73a6ad36d27c75ac09f1832222a3c209689d90f534685ee5b7` |
 | `clap_builder` | `4.6.2` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/clap_builder/4.6.2) | `f09628afdcc538b57f3c6341e9c8e9970f18e4a481690a64974d7023bd33548b` |
 | `clap_derive` | `4.6.4` | `MIT OR Apache-2.0` | [crates.io](https://crates.io/crates/clap_derive/4.6.4) | `d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061` |

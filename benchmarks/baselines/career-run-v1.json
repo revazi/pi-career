@@ -1,0 +1,32 @@
+{
+  "schema_version": "pi.career.token_benchmark_baseline.v1",
+  "encoding": "o200k_base",
+  "tokenizer": {
+    "implementation": "js-tiktoken",
+    "version": "1.0.21"
+  },
+  "before": {
+    "tool-contract/raw-three-active": 1041,
+    "tool-result/synthetic-analysis-replacement-review": 4744,
+    "editor-prompt/synthetic-workbench": 706
+  },
+  "candidate": {
+    "tool-contract/career-run-active": 302,
+    "tool-contract/raw-three-inactive": 1055,
+    "tool-contract/all-registered": 1359,
+    "tool-result/synthetic-analyze": 161,
+    "tool-result/synthetic-variant-review": 201,
+    "editor-prompt/synthetic-workbench": 716
+  },
+  "goals": {
+    "maximum_active_tool_contract_tokens": 400,
+    "maximum_common_tool_result_tokens": 1500,
+    "model_visible_schema_discovery_calls": 0,
+    "nested_input_json": false
+  },
+  "notes": [
+    "Before values preserve the local design-review measurements recorded before career_run implementation.",
+    "Candidate values are reproducible from synthetic inputs with npm run bench:tokens.",
+    "Inactive raw contracts remain registered for explicitly enabled advanced compatibility but do not occupy normal model context."
+  ]
+}

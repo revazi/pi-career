@@ -15,6 +15,10 @@ if (args[0] === "capabilities") {
   process.stdout.write(`${JSON.stringify({ schema_version: "career.capabilities.v1", args })}\n`);
   process.exit(0);
 }
+if (args[0] === "operations") {
+  process.stdout.write(`${JSON.stringify({ schema_version: "career.operation_catalog.v1", args })}\n`);
+  process.exit(0);
+}
 if (args[0] === "schema") {
   process.stdout.write(`${JSON.stringify({ schema_version: "career.schema_catalog.v1", args })}\n`);
   process.exit(0);

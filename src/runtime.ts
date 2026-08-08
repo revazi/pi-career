@@ -149,7 +149,7 @@ async function readRuntimeManifest(manifestPath: string): Promise<RuntimeManifes
 
 function manifestHeaderIsValid(manifest: RuntimeManifest): boolean {
   return (
-    manifest.schema_version === "pi.career.runtime_manifest.v1" &&
+    manifest.schema_version === "pi.career.runtime_manifest.v2" &&
     typeof manifest.career_core?.commit === "string" &&
     /^[a-f0-9]{40}$/.test(manifest.career_core.commit)
   );

@@ -1,0 +1,473 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
+import { CareerRunError } from "../../src/managed/errors.ts";
+import { registerCareerRun } from "../../src/managed/tool.ts";
+import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
+import { createVacancyEntry } from "../../src/workflow/session-state.ts";
+import { makeContext, makeFakePi, matchResult, resumeResult, uuidSequence } from "./helpers.mjs";
+
+const now = () => new Date("2026-08-08T20:00:00.000Z");
+const FILE_NAMES = {
+  "career.resume_analysis_suggestion_review_input.v1": "resume-analysis-suggestion-review-input-v1.schema.json",
+  "career.resume_analysis_replacement_review_input.v1": "resume-analysis-replacement-review-input-v1.schema.json",
+  "career.resume_variant_review_input.v1": "resume-variant-review-input-v1.schema.json",
+  "career.resume_variant_materialization_input.v1": "resume-variant-materialization-input-v1.schema.json",
+};
+
+const operationSpecs = [
+  ["core.capabilities", ["capabilities"], null, "career.capabilities.v1", null],
+  ["core.operations", ["operations"], null, "career.operation_catalog.v1", null],
+  ["schema.list", ["schema", "list"], null, "career.schema_catalog.v1", null],
+  ["schema.export", ["schema", "export"], null, "https://json-schema.org/draft/2020-12/schema", null],
+  ["schema.bundle", ["schema", "bundle"], null, "https://json-schema.org/draft/2020-12/schema", null],
+  ["resume.evaluate", ["resume", "evaluate"], "career.resume_input.v1", "career.resume_evaluation.v1", 262_144],
+  ["resume.analyze", ["resume", "analyze"], "career.resume_input.v1", "career.resume_analysis.v1", 262_144],
+  ["resume.normalize", ["resume", "normalize"], "career.resume_input.v1", "career.resume_normalization.v1", 262_144],
+  ["resume.enrich", ["resume", "enrich"], "career.resume_enrichment_input.v1", "career.resume_enrichment_result.v1", 262_144],
+  ["resume.analysis-suggestions.review", ["resume", "analysis-suggestions-review"], "career.resume_analysis_suggestion_review_input.v1", "career.resume_analysis_suggestion_review.v1", 262_144],
+  ["resume.analysis-replacements.review", ["resume", "analysis-replacements-review"], "career.resume_analysis_replacement_review_input.v1", "career.resume_analysis_replacement_review.v1", 262_144],
+  ["resume.variant.review", ["resume", "variant-review"], "career.resume_variant_review_input.v1", "career.resume_variant_review.v1", 1_048_576],
+  ["resume.variant.materialize", ["resume", "variant-materialize"], "career.resume_variant_materialization_input.v1", "career.resume_variant.v1", 1_048_576],
+  ["job.normalize", ["job", "normalize"], "career.job_input.v1", "career.job_normalization.v1", 262_144],
+  ["job.match", ["job", "match"], "career.job_match_input.v1", "career.job_match.v1", 1_048_576],
+];
+
+function operationCatalog() {
+  return {
+    schema_version: "career.operation_catalog.v1",
+    core_version: "0.1.0",
+    operations: operationSpecs.map(([operation_id, cli_path, input_schema_id, output_schema_id, maximum_input_bytes]) => ({
+      operation_id,
+      capability_id: operation_id.startsWith("schema.") || operation_id === "core.operations" ? null : operation_id,
+      availability: "available",
+      cli_path,
+      input_transport: input_schema_id !== null
+        ? "json_file_or_stdin"
+        : operation_id.startsWith("schema.") && operation_id !== "schema.list"
+          ? "cli_arguments"
+          : "none",
+      input_schema_id,
+      output_schema_id,
+      maximum_input_bytes,
+      maximum_successful_machine_output_bytes: MANAGED_OUTPUT_MAX_BYTES,
+    })),
+  };
+}
+
+function schemaBundle(schemaId) {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: `https://example.invalid/${FILE_NAMES[schemaId]}`,
+    type: "object",
+  };
+}
+
+async function configuredAgent(temp) {
+  const root = path.join(temp, "library");
+  const agentDir = path.join(temp, "agent");
+  await mkdir(root);
+  await writeFile(path.join(root, "resume.md"), [
+    "Morgan Lee", "SUMMARY", "Backend engineer.", "EXPERIENCE",
+    "Engineer at Example", "Built reliable APIs.", "SKILLS", "TypeScript, Testing",
+  ].join("\n"));
+  const config = await addLibraryRoot(emptyConfig(), root, "Synthetic library");
+  await writeConfig(agentDir, config, uuidSequence());
+  return { agentDir };
+}
+
+function parsed(result) {
+  return JSON.parse(result.content[0].text);
+}
+
+function managedInvoke(calls, operationResults = {}) {
+  return async (invocation, signal, options) => {
+    assert.equal(signal?.aborted, false);
+    calls.push({ invocation, options });
+    if (invocation.kind === "discovery" && invocation.operation === "operations") {
+      return { operation: "core.operations", json: JSON.stringify(operationCatalog()) };
+    }
+    if (invocation.kind === "discovery" && invocation.operation === "schema-bundle") {
+      return { operation: "schema.bundle", json: JSON.stringify(schemaBundle(invocation.schemaId)) };
+    }
+    const key = `${invocation.kind}.${invocation.operation}`;
+    const result = operationResults[key];
+    if (typeof result === "function") return result(invocation);
+    if (result !== undefined) return { operation: key, json: JSON.stringify(result) };
+    throw new Error(`Unexpected invocation: ${key}`);
+  };
+}
+
+async function runTool(tool, params, ctx, updates = []) {
+  return tool.execute("synthetic-tool-call", params, new AbortController().signal, (update) => updates.push(update), ctx);
+}
+
+test("career_run hides schema discovery, uses ephemeral handles, and hydrates bounded detail", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-analyze-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    const calls = [];
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke(calls, { "resume.analyze": resumeResult(89, true) }),
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    const tool = fake.tools.get("career_run");
+
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    assert.equal(context.persistence, "transient");
+    assert.equal(context.resumes.length, 1);
+    assert.match(context.resumes[0].handle, /^resume:/);
+    assert.doesNotMatch(JSON.stringify(context), /Built reliable APIs/);
+
+    const updates = [];
+    const analysis = parsed(await runTool(tool, {
+      command: "analyze", handle: context.resumes[0].handle,
+    }, rpc.ctx, updates));
+    assert.equal(analysis.overall_score, 89);
+    assert.match(analysis.result, /^result:/);
+    assert.equal(analysis.warnings.length, 1);
+    assert.ok(updates.some((update) => update.content[0].text.includes("analyze")));
+
+    const detail = parsed(await runTool(tool, {
+      command: "detail", handle: analysis.result, payload: { section: "checks" },
+    }, rpc.ctx));
+    assert.equal(detail.complete, true);
+    assert.equal(detail.value[0].check_id, "synthetic_check");
+
+    assert.equal(calls.filter(({ invocation }) => invocation.kind === "discovery" && invocation.operation === "operations").length, 1);
+    assert.equal(calls.filter(({ invocation }) => invocation.kind === "discovery" && invocation.operation === "schema-bundle").length, 4);
+    const analysisCall = calls.find(({ invocation }) => invocation.kind === "resume" && invocation.operation === "analyze");
+    assert.equal(analysisCall.options.toolResultMaxBytes, MANAGED_OUTPUT_MAX_BYTES);
+    assert.match(JSON.parse(analysisCall.invocation.inputJson).text, /Built reliable APIs/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career_run requires an explicit persistence decision before private context", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-consent-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke([], { "resume.analyze": resumeResult(89, false) }),
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: true });
+    const tool = fake.tools.get("career_run");
+
+    const first = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    assert.equal(first.consent, "consent_required");
+    assert.deepEqual(first.resumes, []);
+
+    const consent = parsed(await runTool(tool, {
+      command: "consent", payload: "approve",
+    }, rpc.ctx));
+    assert.equal(consent.consent, "approved");
+    assert.equal(fake.entries.at(-1).data.kind, "consent");
+
+    const ready = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    assert.equal(ready.consent, "approved");
+    assert.equal(ready.resumes.length, 1);
+    const analysis = parsed(await runTool(tool, {
+      command: "analyze", handle: ready.resumes[0].handle,
+    }, rpc.ctx));
+
+    const declined = parsed(await runTool(tool, {
+      command: "consent", payload: "decline",
+    }, rpc.ctx));
+    assert.equal(declined.consent, "declined");
+    await assert.rejects(
+      runTool(tool, {
+        command: "detail", handle: analysis.result, payload: { section: "summary" },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "consent_declined",
+    );
+
+    await runTool(tool, { command: "consent", payload: "approve" }, rpc.ctx);
+    await runTool(tool, { command: "context" }, rpc.ctx);
+    await assert.rejects(
+      runTool(tool, {
+        command: "detail", handle: analysis.result, payload: { section: "summary" },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "result_not_found",
+    );
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career_run reviews advisory suggestions without exposing the repeated baseline", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-suggestion-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    let submitted;
+    const result = {
+      schema_version: "career.resume_analysis_suggestion_review.v1",
+      policy_version: "resume_analysis_suggestion_review_v1",
+      analysis_policy_version: "resume_analysis_v1",
+      core_version: "0.1.0",
+      authority: "assisted_non_authoritative",
+      baseline_analysis: { schema_version: "career.resume_analysis.v1", checks: [] },
+      suggestions: [{
+        suggestion_id: "suggestion-0001", priority: 1, area: "experience_impact",
+        basis_check_id: "measurable_impact_in_bullets", status: "confirmed",
+        improvement_action: "Add grounded impact.", start_line: 6, end_line: 6,
+        source_target: "Built reliable APIs.", source_evidence: ["Built reliable APIs."],
+        suggestion: "Add a verified outcome if one is available.",
+      }],
+      discarded_suggestions: [],
+      warnings: [
+        { code: "assisted_suggestions_non_authoritative", message: "Advisory only." },
+        { code: "evidence_occurrence_not_factual_or_rewrite_certification", message: "Verify." },
+        { code: "deterministic_analysis_preserved", message: "Preserved." },
+      ],
+    };
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke([], {
+        "resume.analysis-suggestions-review": (invocation) => {
+          submitted = JSON.parse(invocation.inputJson);
+          return { operation: "resume.analysis-suggestions.review", json: JSON.stringify(result) };
+        },
+      }),
+    });
+    const rpc = makeContext(fake, { persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    const reviewed = await runTool(tool, {
+      command: "suggestion-review",
+      handle: context.resumes[0].handle,
+      payload: { suggestions: [{
+        basis_check_id: "measurable_impact_in_bullets", start_line: 6, end_line: 6,
+        source_target: "Built reliable APIs.", source_evidence: ["Built reliable APIs."],
+        suggestion: "Add a verified outcome if one is available.",
+      }] },
+    }, rpc.ctx);
+    const value = parsed(reviewed);
+    assert.equal(value.authority, "assisted_non_authoritative");
+    assert.equal(value.suggestions[0].suggestion_id, "suggestion-0001");
+    assert.equal(submitted.proposal.schema_version, "career.resume_analysis_suggestion_proposal.v1");
+    assert.doesNotMatch(reviewed.content[0].text, /baseline_analysis/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career_run reuses the exact reviewed variant envelope for explicit materialization", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-variant-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    const calls = [];
+    let reviewedInput;
+    const vacancy = createVacancyEntry("Backend Engineer\nTypeScript required", "paste", {
+      uuid: uuidSequence(), now,
+    });
+    fake.entries.push({ type: "custom", customType: "career.workflow", data: vacancy, id: "vacancy", parentId: null, timestamp: now().toISOString() });
+
+    const variantReview = {
+      schema_version: "career.resume_variant_review.v1",
+      policy_version: "resume_variant_review_v1",
+      core_version: "0.1.0",
+      authority: "assisted_non_authoritative",
+      baseline_resume: { schema_version: "career.resume_input.v1", text: "baseline", metadata: { document_id: "x" } },
+      proposed_preview_text: "preview",
+      changes: [{
+        change_id: "change-0001", section: "experience", start_line: 6, end_line: 6,
+        original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
+        resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }],
+      discarded_changes: [],
+      warnings: [
+        { code: "assisted_content_non_authoritative", message: "Assisted." },
+        { code: "evidence_occurrence_not_factual_certification", message: "Verify." },
+        { code: "deterministic_baseline_preserved", message: "Preserved." },
+      ],
+    };
+    const materialized = {
+      schema_version: "career.resume_variant.v1",
+      policy_version: "resume_variant_review_v1",
+      core_version: "0.1.0",
+      authority: "assisted_non_authoritative",
+      baseline_resume: variantReview.baseline_resume,
+      assisted_resume_text: "Built reliable TypeScript APIs.",
+      selected_changes: variantReview.changes,
+      warnings: variantReview.warnings,
+    };
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke(calls, {
+        "resume.variant-review": (invocation) => {
+          reviewedInput = JSON.parse(invocation.inputJson);
+          return { operation: "resume.variant.review", json: JSON.stringify(variantReview) };
+        },
+        "resume.variant-materialize": (invocation) => {
+          const input = JSON.parse(invocation.inputJson);
+          assert.deepEqual(input.review_input, reviewedInput);
+          assert.deepEqual(input.selected_change_ids, ["change-0001"]);
+          return { operation: "resume.variant.materialize", json: JSON.stringify(materialized) };
+        },
+      }),
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    assert.equal(context.vacancy.handle, "vacancy:current");
+
+    const review = parsed(await runTool(tool, {
+      command: "variant-review",
+      handle: context.resumes[0].handle,
+      payload: { changes: [{
+        section: "experience", start_line: 6, end_line: 6,
+        original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
+        resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }] },
+    }, rpc.ctx));
+    assert.equal(review.authority, "assisted_non_authoritative");
+    assert.match(review.review, /^review:/);
+    assert.equal(review.changes[0].proposed_text, undefined, "summary must not repeat proposal text");
+    const exactChange = parsed(await runTool(tool, {
+      command: "detail", handle: review.review,
+      payload: { section: "changes", item: "change-0001" },
+    }, rpc.ctx));
+    assert.equal(exactChange.value.proposed_text, "Built reliable TypeScript APIs.");
+
+    await assert.rejects(
+      runTool(tool, {
+        command: "materialize", handle: review.review,
+        payload: { selected_change_ids: ["change-9999"] },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "selection_invalid",
+    );
+
+    const variant = parsed(await runTool(tool, {
+      command: "materialize", handle: review.review,
+      payload: { selected_change_ids: ["change-0001"] },
+    }, rpc.ctx));
+    assert.equal(variant.authority, "assisted_non_authoritative");
+    assert.match(variant.variant, /^variant:/);
+
+    const document = parsed(await runTool(tool, {
+      command: "detail", handle: variant.variant, payload: { section: "document" },
+    }, rpc.ctx));
+    assert.equal(document.value, "Built reliable TypeScript APIs.");
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career-tools keeps raw tools available but inactive by default", async () => {
+  const fake = makeFakePi();
+  for (const name of ["career_core_discover", "career_core_resume", "career_core_job"]) {
+    fake.api.registerTool({ name, description: name, parameters: {}, execute() {} });
+  }
+  registerCareerRun(fake.api, { invoke: managedInvoke([]), uuid: uuidSequence(), now });
+  const rpc = makeContext(fake, { persisted: false });
+  for (const handler of fake.events.get("session_start") ?? []) await handler({}, rpc.ctx);
+  assert.deepEqual(fake.activeTools, ["career_run"]);
+
+  await fake.commands.get("career-tools").handler("raw", rpc.ctx);
+  assert.deepEqual(new Set(fake.activeTools), new Set([
+    "career_run", "career_core_discover", "career_core_resume", "career_core_job",
+  ]));
+  await fake.commands.get("career-tools").handler("managed", rpc.ctx);
+  assert.deepEqual(fake.activeTools, ["career_run"]);
+});
+
+test("career_run rejects malformed proposals and fails oversized hydration without partial output", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-bounds-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    const oversized = resumeResult(84, false);
+    oversized.checks[0].explanation = "x".repeat(50_000);
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke([], { "resume.analyze": oversized }),
+    });
+    const rpc = makeContext(fake, { persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+
+    await assert.rejects(
+      runTool(tool, {
+        command: "suggestion-review",
+        handle: context.resumes[0].handle,
+        payload: { suggestions: [{ unexpected: "private text" }] },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "invalid_request",
+    );
+
+    const analysis = parsed(await runTool(tool, {
+      command: "analyze", handle: context.resumes[0].handle,
+    }, rpc.ctx));
+    await assert.rejects(
+      runTool(tool, {
+        command: "detail", handle: analysis.result, payload: { section: "checks" },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "detail_too_large",
+    );
+    const summary = parsed(await runTool(tool, {
+      command: "detail", handle: analysis.result, payload: { section: "summary" },
+    }, rpc.ctx));
+    assert.equal(summary.complete, true);
+    assert.equal(summary.value.overall_score, 84);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career_run rejects incompatible managed-adapter catalogs", async () => {
+  const fake = makeFakePi();
+  const incompatibleInvoke = async (invocation) => {
+    assert.equal(invocation.kind, "discovery");
+    assert.equal(invocation.operation, "operations");
+    const catalog = operationCatalog();
+    catalog.operations[0].maximum_successful_machine_output_bytes -= 1;
+    return { operation: "core.operations", json: JSON.stringify(catalog) };
+  };
+  registerCareerRun(fake.api, { invoke: incompatibleInvoke, uuid: uuidSequence(), now });
+  const rpc = makeContext(fake, { persisted: false });
+  await assert.rejects(
+    runTool(fake.tools.get("career_run"), { command: "context" }, rpc.ctx),
+    (error) => error instanceof CareerRunError && error.code === "managed_contract_invalid",
+  );
+});
+
+test("career_run returns conservative deterministic match summaries", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-match-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    const vacancy = createVacancyEntry("Backend Engineer\nTesting required", "paste", {
+      uuid: uuidSequence(), now,
+    });
+    fake.entries.push({ type: "custom", customType: "career.workflow", data: vacancy, id: "vacancy", parentId: null, timestamp: now().toISOString() });
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke([], { "job.match": matchResult(77, "apply_after_small_edits", true, true) }),
+    });
+    const rpc = makeContext(fake, { persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    const match = parsed(await runTool(tool, {
+      command: "match", handle: context.resumes[0].handle,
+    }, rpc.ctx));
+    assert.equal(match.overall_score, 77);
+    assert.equal(match.recommendation.label, "apply_after_small_edits");
+    assert.equal(match.confidence_context.is_uncertain, true);
+    assert.equal(match.warnings.length, 1);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});

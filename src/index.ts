@@ -13,9 +13,16 @@ import {
   type JobOperation,
   type ResumeOperation,
 } from "./process.ts";
+import { registerCareerRun } from "./managed/tool.ts";
 import { registerCareerCommands } from "./workflow/commands.ts";
 
-const DISCOVERY_OPERATIONS = ["capabilities", "schema-list", "schema-export"] as const;
+const DISCOVERY_OPERATIONS = [
+  "capabilities",
+  "operations",
+  "schema-list",
+  "schema-export",
+  "schema-bundle",
+] as const;
 const RESUME_OPERATIONS = [
   "evaluate",
   "analyze",
@@ -31,11 +38,11 @@ const JOB_OPERATIONS = ["normalize", "match"] as const;
 const discoveryParameters = Type.Object(
   {
     operation: StringEnum(DISCOVERY_OPERATIONS, {
-      description: "Discover capabilities, list embedded schemas, or export one embedded schema.",
+      description: "Discover capabilities/operations, list schemas, or export/bundle one schema.",
     }),
     schema_id: Type.Optional(
       Type.String({
-        description: "Required only for schema-export; use an exact ID returned by schema-list.",
+        description: "Required only for schema-export/schema-bundle; use an exact ID from schema-list.",
         minLength: 1,
         maxLength: 100,
         pattern: "^career\\.[a-z0-9_.-]+\\.v[0-9]+$",
@@ -175,4 +182,6 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
       }
     },
   });
+
+  registerCareerRun(pi);
 }

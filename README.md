@@ -11,11 +11,17 @@ Career Core remains authoritative for operations, algorithms, schemas, evidence,
 
 ## What it provides
 
-Native tools:
+Primary managed tool:
+
+- `career_run` — compact context, consent, analyze, match, reviewed suggestion/replacement/variant, materialization, and detail workflows through ephemeral handles
+
+Advanced raw compatibility tools, registered but normally inactive:
 
 - `career_core_discover`
 - `career_core_resume`
 - `career_core_job`
+
+Use `/career-tools raw` to enable raw schema-level tools and `/career-tools managed` to return to the compact surface.
 
 Workflow commands:
 
@@ -26,8 +32,9 @@ Workflow commands:
 - `/career-match` — normalize a vacancy and conservatively rank eligible resumes
 - `/career-analyze` — inspect complete deterministic readiness details in a bounded, paged viewer
 - `/career-workbench` — prepare a guided, reviewable private rebuild prompt for the normal Pi editor
+- `/career-tools` — show or switch the managed/raw active model-tool surface
 
-`/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
+`career_run`, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. `career_run` validates the bundled Phase 8 operation catalog and self-contained input schemas internally, so normal model turns need no schema export or nested `input_json`. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
 
 ## Supported platforms
 
@@ -108,7 +115,9 @@ The workbench never sends automatically. It offers guided score explanation, Car
 
 Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files. When `/career-workbench` prepares a prompt, it includes the privacy-reduced preferred variation destination as suggestion-only local guidance so the selected Pi agent can recommend it first after a separate user request; exact path/file approval is still required before any external file-writing action.
 
-For direct native-tool calls, discover capabilities and export the exact input schema first. Invoke only capabilities reported as available, and reuse unchanged discovery/schema results within the same Pi session and Core version. Complete tool JSON remains authoritative; concise answers should not reprint an unchanged baseline embedded in each review, but must preserve exact warnings, discard codes, limitations, and the evidence/source spans used for presented findings.
+For normal model-assisted work, call `career_run` with `command: "context"`. In persisted sessions it returns no private handles until the user explicitly approves or declines session persistence. Subsequent calls use returned `resume:...`, `result:...`, `review:...`, and `variant:...` handles with native payload objects; the current vacancy is implicit for match/tailoring. Complete Core results and exact review inputs remain in a bounded process-memory registry and disappear on session/branch replacement or restart. Use `detail` sections/items only when more evidence or canonical content is needed.
+
+For explicitly enabled raw calls, discovery-first behavior remains mandatory: capabilities → operations → schema list/export/bundle → exact `input_json`. Raw JSON remains authoritative; managed projections must preserve exact warnings, discard codes, limitations, uncertainty/authority labels, and the evidence/source spans used for presented findings.
 
 `CAREER_CLI_PATH` is an optional developer/recovery override for a separately reviewed compatible executable. Normal users do not set it.
 
@@ -124,11 +133,11 @@ This is not secure erasure and does not remove previous sessions, shell history,
 
 The workflow stores only canonical resume-root paths, bounded labels, and an optional bounded absolute variation-directory suggestion in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
 
-Successful Core results within the process limits can be inspected completely in a transient, paged detail viewer; the viewer does not store or export them. Results that exceed the process limits still fail without partial output. Full-result file export is not available through this package.
+Slash-command Core results within process limits can be inspected in a transient pager. Managed execution captures complete Core JSON up to Core's declared 32 MiB ceiling, stores at most 16 entries/64 MiB in process memory, and returns model-visible projections/details capped at 50,000 bytes. Raw oversized tool results and oversized managed detail fail without partial output. No full-result file export is available.
 
 ## Security and release provenance
 
-The two unsigned, not-notarized runtimes were built from Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c` by [workflow run 30953471793](https://github.com/revazi/career-core/actions/runs/30953471793). [`runtime/manifest.json`](runtime/manifest.json) pins paths, targets, provenance, sizes, modes, SHA-256 hashes, source archive identities, and bounded contract digests. The selected executable is verified before its first spawn in each process.
+The two unsigned, not-notarized runtimes were built from Career Core commit `f6d17835de4817e28ce84e8e5734ff592687dfcc` by [workflow run 31274605956](https://github.com/revazi/career-core/actions/runs/31274605956). [`runtime/manifest.json`](runtime/manifest.json) pins paths, targets, provenance, sizes, modes, SHA-256 hashes, source archive identities, and bounded contract digests. The selected executable is verified before its first spawn in each process.
 
 Release `v0.1.0` coordinates:
 
@@ -151,6 +160,7 @@ Release verification uses Node.js 22.19.0 and npm 10.9.3:
 npm ci
 npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
+npm run bench:tokens
 npm run check
 npm run test:bundled-runtime
 npm run audit:production
