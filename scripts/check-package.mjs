@@ -115,7 +115,7 @@ try {
     maximumBytes: 256 * 1024,
   });
   assert.equal(packagedManifest.name, "pi-career");
-  assert.equal(packagedManifest.version, "0.1.0");
+  assert.equal(packagedManifest.version, "0.2.0");
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);

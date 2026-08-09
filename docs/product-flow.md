@@ -1,6 +1,6 @@
 # Product flow roadmap
 
-The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8 and the first managed `career_run` implementation are now complete on this branch; package-owned saving and PDF extraction expansion remain later phases.
+The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8 and the first managed `career_run` implementation are complete; package-owned saving and PDF extraction expansion remain later phases.
 
 ## Current phase: managed agent tool and deterministic slash commands
 
@@ -25,7 +25,7 @@ It also registers:
 
 Binding boundaries:
 
-- no provider/model calls in package commands; the sole network-capable runtime behavior is exact-package acquisition before private stdin, and the workbench stops at a reviewable editor prompt
+- no package-initiated provider/model calls or automatic submission; the workbench stops at a reviewable editor prompt, and only the user's later ordinary Pi submission may contact the selected provider; exact-package acquisition before private stdin is the sole network-capable adapter-runtime behavior
 - agent-directory-relative non-sensitive config only; it may contain canonical library roots and one bounded absolute preferred variation-directory suggestion
 - no resume or vacancy text in global config; a variation-directory preference is destination guidance, not write approval
 - session entries only after explicit persistence consent; entries persist to JSONL even when excluded from model context
@@ -55,9 +55,8 @@ Automatic variant saving remains deferred. Setup now records or derives only a p
 
 ## Non-goals in this phase
 
-- package-initiated provider/model calls or full-screen UI
+- package-initiated provider/model clients, credentials, automatic prompt submission, or full-screen UI
 - DOCX/OCR/URL ingestion; image-only PDFs require external OCR or export
-- model/provider integration
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
 - career-document publication/export, release-asset downloads, signing, or notarization

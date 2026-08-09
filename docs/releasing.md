@@ -1,22 +1,24 @@
 # Release process
 
-This document records the bounded `v0.1.0` release process and evidence requirements.
+This document defines the bounded manual release process for `pi-career@0.2.0` and records the historical `v0.1.0` outcome.
 
-## Approved channel boundary
+## Release boundary
 
-After every gate below is closed, the authorized channels are:
+The coordinated `v0.2.0` release may create exactly:
 
-1. one public `pi-career@0.1.0` npm package;
-2. one annotated, unsigned `v0.1.0` Git tag pointing to the exact published commit; and
-3. one GitHub Release containing notes derived from the finalized `CHANGELOG.md` entry.
+1. one public `pi-career@0.2.0` npm package on `https://registry.npmjs.org/`;
+2. one annotated, unsigned `v0.2.0` Git tag pointing to the exact published commit; and
+3. one GitHub Release for that tag with notes derived from the finalized [`CHANGELOG.md`](../CHANGELOG.md) entry.
 
-The npm package contains the strict allowlisted artifact tested by `npm run check:package`, including both unsigned native binaries. The project will not publish to crates.io, attach the npm tarball or native binary as a custom GitHub Release asset, add lifecycle/publication scripts, or claim signing/notarization. GitHub automatically generated source archives contain the complete tracked tree and are not substitutes for the tested npm artifact.
+The npm package must be the native-free allowlisted artifact verified by `npm run check:package`. It contains the Pi extension, generated PDF worker, Agent Skill, and documentation. It must contain no `runtime/`, native executable, `node_modules`, Pi peer package contents, production dependency tree, lifecycle download/build hook, or publication script.
 
-The exact npm version and reviewed full commit SHA are the canonical installation and audit coordinates. The GitHub Release notes must state that SHA and the npm package's registry integrity. A tag is a discovery label, not a substitute for immutable commit review, and README Git installation instructions must continue to use a full SHA.
+Career Core distribution remains external. The candidate pins exact [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0); its reviewed launcher owns native target/libc, package metadata, provenance, mode, size, format, and SHA-256 verification. Pi-career must not copy those algorithms or artifacts.
 
-There is no automated publication workflow. Release execution is manual; sole maintainer Revaz Zakalashvili explicitly authorized the coordinated `v0.1.0` npm publication, tag, and GitHub Release after the candidate gates.
+There is no automated publication workflow. Preparation, CI success, a version bump, or this document does **not** authorize npm publication, tag creation/push, or a GitHub Release. Release execution remains a separate explicit maintainer action. Do not publish to crates.io, attach an npm tarball/native binary as a custom GitHub Release asset, add signing/notarization claims, or add lifecycle/publication scripts.
 
-## v0.1.0 outcome
+The exact npm version and full published commit SHA are the canonical installation and audit coordinates. The GitHub Release notes must state that SHA and the npm registry integrity. A tag is a discovery label, not a substitute for immutable commit review.
+
+## Historical `v0.1.0` outcome
 
 Release execution completed on 2026-08-06:
 
@@ -26,61 +28,49 @@ Release execution completed on 2026-08-06:
 - npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
 - npm shasum: `4212cea50c08c98771df267361cee28070a15765`
 - custom GitHub Release assets: none
-- isolated npm-based Pi install/list/load/bundled-runtime/remove smoke: passed
 
-## Unreleased managed-adapter runtime update
+That release bundled native Career Core artifacts. Its dependency/license/provenance evidence remains historical in [`native-dependency-inventory.md`](native-dependency-inventory.md) and [`licenses/`](licenses/). None of those native files may re-enter the `v0.2.0` package.
 
-The current candidate removes all package-owned native artifacts and resolves compatible external routes in fixed local-first order. The only acquisition route is exact [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0), after local routes fail and before private stdin opens; `PI_OFFLINE=1` disables it. The reviewed package launcher owns native target/libc/provenance/integrity verification. This implementation authorizes no pi-career npm publication, tag, release, signing, or notarization.
+## `v0.2.0` release gates
 
-## Release gates
-
-Every item in this section was required before npm publication, tagging, and the GitHub Release. A skipped, unknown, or merely planned result was not a pass.
+A skipped, unknown, stale, or merely planned result is not a pass.
 
 ### 1. Freeze and review the exact candidate
 
 - Start from synchronized public `main` and identify one full candidate SHA.
-- Ensure the candidate contains no private career content, credentials, sessions, provider output, generated local paths, or unreviewed runtime bytes.
-- Review the complete diff and confirm `package.json` remains `0.1.0`, explicitly public only at `https://registry.npmjs.org/`, peer-only at runtime, and free of lifecycle/publication scripts.
-- Confirm `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, external resolver/package pin, native-free package contents, primary `career_run`, and all three raw compatibility tools remain aligned.
-- Do not move the candidate after its local and hosted evidence is recorded. Any content change creates a new candidate and requires the gate again.
+- Require a clean Git tree and no divergence from `origin/main`.
+- Confirm `package.json`, the root package-lock entries, the Skill metadata, package assertions, changelog, README, and release documentation all identify pi-career `0.2.0` where appropriate.
+- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.0`; do not confuse the adapter release version with the external runtime version.
+- Confirm `package.json` is explicitly public only at `https://registry.npmjs.org/`, has exactly four wildcard Pi peers, declares no production/optional/bundled dependency tree, and has no lifecycle/publication script.
+- Ensure the candidate contains no real resume, vacancy, credentials, Pi session, provider output, generated local path, npm token, or unreviewed executable.
+- Review the complete diff from `v0.1.0`, including authoritative `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, `career_run`, all three exact raw tools, slash commands, external resolver, Skill, and package documentation.
+- Do not move the candidate after local/hosted evidence is recorded. Any content change creates a new candidate and requires the gates again.
 
-### 2. Human native-license review
+### 2. Review the external runtime boundary
 
-[`native-dependency-inventory.md`](native-dependency-inventory.md) records the exact historical `v0.1.0` 30-package normal/build Cargo graph, selected MIT texts, Rust 1.97.1 Standard Library evidence, Unicode-3.0 requirement, target dynamic imports, and Swift/UniFFI exclusion. The then-current `check:native-licenses` gate enforced that packaged evidence. The current candidate packages no native artifact and has removed that obsolete gate. This remains historical evidence, not legal advice, an SPDX/CycloneDX SBOM, or an automated approval.
+- Confirm the only acquisition coordinate remains exact `@revazi/career@0.1.0` from the canonical npm registry.
+- Confirm runtime order remains: absolute `CAREER_CLI_PATH`, PATH `career`, package-local exact launcher, then bounded exact-package acquisition unless `PI_OFFLINE=1`.
+- Confirm every caller-controlled route must pass the exact managed Core 0.1.0 operation catalog and required self-contained schema bundles before private stdin opens.
+- Confirm package-local/acquired routes delegate native target/libc/provenance/mode/size/format/SHA-256 verification to the reviewed launcher.
+- Run the exact-package integration test on both supported hosted targets. Updating the external package coordinate, native target list, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
 
-Before publication, a human reviewer must:
+### 3. Require clean audits and strict package proof
 
-- verify the inventory against Career Core commit `a3cdb4c6d7f966397e93ea4664071975bca7228c`, Cargo.lock SHA-256 `18d188cfea79128d4024dabe2e21f57e5d2098d32ffac8c4ef01243f49abb609`, and both per-target provenance records;
-- confirm the documented MIT selections, exact grouped upstream texts/copyright notices, Rust Standard Library evidence, and Unicode License V3 payload satisfy the package-owned obligations for both native binaries;
-- confirm the host-supplied dynamic-library boundary and that excluded Fuchsia/Swift/UniFFI dependencies are not part of either distributed target; and
-- record an explicit approve/block decision without presenting the inventory as legal advice.
+`npm run audit:production` and `npm run audit:full` must both report zero vulnerabilities at explicit `--audit-level=low`. No audit acceptance baseline is allowed.
 
-Independent review is preferred. When the project has only one maintainer, that sole maintainer may complete and record the review, but release notes must disclose that it was maintainer self-review rather than independent legal review. No npm publication, tag, or release may proceed while the human decision is absent or blocked. Any dependency, compiler, target, binary, provenance, or notice change invalidates the evidence and requires a fresh inventory and review.
+`npm run check:publish` must prove:
 
-For `v0.1.0`, sole maintainer Revaz Zakalashvili reviewed the evidence above and recorded **APPROVED** for both packaged targets. This is a maintainer release decision, not independent review or legal advice.
+- both strict audits are clean;
+- trusted npm is derived from the real Node installation and conflicting `npm_execpath` is rejected;
+- npm environment overrides and duplicate decoded JSON keys cannot weaken checks;
+- package listing/extraction uses verified absolute `/usr/bin/tar`;
+- the tarball matches the exact allowlist and size bounds;
+- no native runtime, `node_modules`, Pi peer contents, production dependency tree, or lifecycle/publication script is present;
+- extracted package loading, stable offline failure, and isolated Pi install/list/remove behavior pass.
 
-### 3. Upstream artifact-expiry decision
+Do not use `npm audit fix --force`, downgrade the Pi baseline, hand-edit third-party lock entries, or add an acceptance file. A future vulnerability blocks release until remediated.
 
-The imported binaries and provenance remain tracked and hash-verified in this repository, but the original Career Core Actions artifacts were ephemeral:
-
-| Artifact ID | Target | GitHub-reported expiry |
-|---:|---|---|
-| `8910079991` | `darwin-arm64` | `2026-08-07T21:43:37Z` |
-| `8910084163` | `linux-x64-gnu` | `2026-08-07T21:43:47Z` |
-
-Before npm publication, a human must recheck artifact availability and explicitly decide whether the tracked binaries, per-target provenance, manifest, archive identities/hashes, and public Core commit are sufficient durable provenance after expiry. If they are not sufficient, release stays blocked pending a separately approved preservation plan. The release process does not download, copy, upload, recreate, or relabel either artifact.
-
-For `v0.1.0`, sole maintainer Revaz Zakalashvili rechecked both artifacts on 2026-08-06 and recorded **SUFFICIENT**: the tracked binaries, per-target provenance, manifest, archive identities/hashes, public Core commit, and package verification are accepted as the durable evidence after upstream expiry.
-
-### 4. Clean production and full audits
-
-`npm run audit:production` must pass with zero package-owned production vulnerabilities and `npm run audit:full` must pass with zero vulnerabilities across the complete development/host-Pi tree, both at explicit `--audit-level=low`. The production audit omits development, optional, and peer trees because the tarball owns no runtime dependency tree; strict package checks separately prove there is no `node_modules` or Pi package content and that exactly four wildcard peers remain external.
-
-Both audits invoke `process.execPath` plus the absolute npm CLI derived from the real Node installation, verify any inherited `npm_execpath`, remove omit/include/audit-level/`NODE_ENV` overrides, strictly parse bounded JSON, and reject duplicate decoded keys. `npm run check:publish` is the authoritative readiness gate but performs no publication. It is a direct Node orchestrator with no nested npm command and requires both clean audits plus extracted package/load/install proof. Pack uses the trusted absolute npm CLI; listing and extraction use verified root-owned absolute `/usr/bin/tar`, never PATH-selected tools.
-
-The former temporary development/host-Pi acceptance was explicitly retired after upgrading the Pi development baseline to `0.84.0`; no accepted-audit file or validator remains. Do not use `npm audit fix --force`, downgrade the Pi baseline, override or patch the published Pi shrinkwrap, hand-edit lock entries, or add a replacement acceptance. A future finding blocks publication until remediated.
-
-### 5. Complete verification on the frozen SHA
+### 4. Run complete verification on the frozen SHA
 
 Run with Node.js 22.19 or newer:
 
@@ -104,37 +94,67 @@ git diff --check
 
 Requirements:
 
-- `npm run build` may reproduce tracked `dist/index.js` and `dist/pdf-worker.js`; it must not create or alter native runtime artifacts. The immediate dist diff must pass.
-- All project/resolver/exact-package/native-free-package/offline checks and both zero-vulnerability audits must pass, the packaged production npm tree must remain empty, and `npm run check:publish` must pass.
-- Compatibility must execute against an explicitly reviewed fixture checkout; a skip is not release evidence.
-- No audit acceptance or not-clean full-audit claim is permitted.
-- The exact final SHA must then pass both required hosted native jobs: `darwin-arm64` on macOS arm64 and `linux-x64-gnu` on Linux x64 glibc.
+- The immediate dist diff after `npm run build` must pass; a later reproducibility test alone does not prove the candidate committed the generated output.
+- Token measurements must exactly reproduce the committed baseline and remain within budgets.
+- Exact-package acquisition must execute managed discovery plus representative synthetic resume/job operations.
+- Compatibility must run against an explicitly reviewed fixture checkout. A skip is not release evidence.
+- The production npm tree must remain empty apart from unmet external peers expected in the Pi host.
+- No command may create a repository tarball, native runtime, payload/result file, acceptance baseline, or publication side effect.
 
-### 6. Finalize notes only after all other gates pass
+### 5. Require hosted checks on the same SHA
 
-After every preceding gate passes, a separately committed finalization change must:
+The exact final SHA must pass both strict required GitHub checks:
 
-- convert the candidate notes to a dated `0.1.0` entry;
-- state that pi-career packages no native runtime and identify the exact reviewed external Career package/targets;
-- state that `pi-career@0.1.0` is the public npm package and that there is no crate publication or custom release asset; and
-- state that both the package-owned production audit and complete development/host-Pi audit are clean at the explicit low threshold.
+- `External Career package (darwin-arm64)` on macOS arm64;
+- `External Career package (linux-x64-gnu)` on Linux x64 glibc.
 
-A commit cannot contain its own Git SHA. After the finalization commit exists, record its full SHA in the GitHub Release notes and verify npm's `gitHead` against it. Only that separately authorized final commit may receive the annotated tag, npm publication, and GitHub Release.
+Each job must execute the complete workflow ladder, including immediate dist reproducibility, exact external package acquisition/operations, clean audits, native-free package proof, offline smokes, and diff checks. Main branch protection must require these current names with strict up-to-date checks; stale historical check names are not acceptable.
 
-## Recorded manual release procedure
+### 6. Finalize release-facing text
 
-After all gates passed on the final clean commit and the maintainer authorized execution:
+Before release authorization:
 
-1. `npm whoami` identified the intended npm account and the registry was exactly `https://registry.npmjs.org/`. No npm token or one-time password was placed in repository files, Pi messages, logs, or release notes.
-2. `npm view pi-career@0.1.0 version --json` returned not found immediately before the maintainer completed the authorized OTP-protected publication locally.
-3. The unsigned annotated `v0.1.0` tag was created and pushed for the exact final commit.
-4. Publication used Node 22.19.0/npm 10.9.3 with lifecycle scripts disabled:
+- convert `CHANGELOG.md` candidate notes to the dated `0.2.0` entry;
+- ensure README installation uses exact `npm:pi-career@0.2.0` and clearly distinguishes historical v0.1.0;
+- state that pi-career packages no native runtime and identify exact external `@revazi/career@0.1.0` plus supported targets;
+- state that both production and complete development/host-Pi audits are clean at the explicit low threshold;
+- keep all full commit SHA and npm integrity placeholders out of tracked files until those values exist; record them in the GitHub Release after publication.
+
+The finalization commit cannot contain its own SHA. Only the separately authorized final clean commit may be published and receive `v0.2.0`.
+
+## Manual pre-publication checks
+
+Run these only on the frozen clean candidate and do not expose credentials or one-time passwords in repository files, Pi messages, logs, or release notes:
+
+1. Confirm the intended npm account with `npm whoami` and registry `https://registry.npmjs.org/`.
+2. Confirm `npm view pi-career@0.2.0 version --json` reports no existing version. npm versions are immutable.
+3. Run trusted `npm pack --dry-run --json --ignore-scripts` or rely on the stricter recorded `check:publish` artifact proof.
+4. Record the candidate full SHA, package filename/size, clean audit results, hosted run URLs, and reviewed fixture SHA outside private content.
+5. Obtain explicit release authorization. Do not infer authorization from readiness work.
+
+## Authorized release execution
+
+Only after every gate passes and the maintainer explicitly authorizes release execution:
+
+1. Reconfirm the clean SHA, branch protection checks, npm identity/registry, and absence of `pi-career@0.2.0`.
+2. Publish from the exact candidate with lifecycle scripts disabled:
 
    ```bash
    npm publish --access public --tag latest --ignore-scripts
    ```
 
-5. Registry metadata reported the expected version, repository, four peers, tarball integrity, and `gitHead`; an isolated `pi install npm:pi-career@0.1.0`, package load, bundled-runtime smoke, and removal passed on `darwin-arm64`.
-6. The GitHub Release was created from `v0.1.0` with the full commit SHA, npm registry integrity, supported targets, unsigned/not-notarized caveat, no crate/custom assets, both clean audits, and sole-maintainer native-license-review disclosure.
+3. If publication returns an ambiguous response, query the registry before any retry. Never attempt to overwrite or blindly republish the version.
+4. Verify registry metadata: version, repository, four wildcard peers, no dependency tree/lifecycle scripts, tarball integrity, shasum, and `gitHead` equal to the candidate SHA.
+5. In an isolated Pi agent directory, install exact `npm:pi-career@0.2.0`, list/load it, exercise exact-package runtime acquisition with synthetic operations on a supported target, test offline failure, and remove it.
+6. Create and push one annotated unsigned `v0.2.0` tag for the exact published commit.
+7. Create the GitHub Release from `v0.2.0` with:
+   - full commit SHA;
+   - npm integrity and shasum;
+   - exact external `@revazi/career@0.1.0` coordinate;
+   - supported `darwin-arm64` and `linux-x64-gnu` targets;
+   - native-free pi-career package statement;
+   - clean production/full audit statement;
+   - no crate publication, signing/notarization claim, or custom release asset.
+8. Recheck the npm dist-tag, Git tag target, GitHub Release target, and main CI after all channels settle.
 
-Do not sign, attach assets, change repository settings, publish another registry tag/version, or retry after an ambiguous registry response without first querying the registry. npm versions are immutable; a failed post-publication check is an incident, not permission to overwrite `0.1.0`.
+Do not sign, attach assets, change repository visibility/settings, add a publication workflow, publish another registry tag/version, or retry an ambiguous operation without first querying authoritative state. A failed post-publication check is an incident, not permission to replace `0.2.0`.

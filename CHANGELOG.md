@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-09
 
 ### Added
 
@@ -8,7 +8,7 @@
 - `/career-tools` keeps the three raw Career Core compatibility tools available for explicit advanced use while removing them from normal active model context.
 - Frozen synthetic `o200k_base` context benchmark: the active `career_run` contract is 302 tokens against the recorded 1,041-token prior raw-tool surface, with common synthetic managed results below 250 tokens.
 - Local searchable-PDF résumé ingestion through a bounded, network-disabled worker, with explicit library notices for encrypted, image-only, malformed, oversized, or otherwise unextractable PDFs.
-- `/career-workbench` prepares a bounded, visibly reviewable ordinary Pi editor prompt for complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, or vacancy-specific variant review while keeping originals immutable and stopping before any provider/model call. Non-PDF materialization requires explicit canonical change-ID selection in a later turn; PDFs stop at manual targeted changes.
+- `/career-workbench` prepares a bounded, visibly reviewable ordinary Pi editor prompt for complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, or vacancy-specific variant review while keeping originals immutable. The command makes no provider/model call; only the user's later ordinary Pi submission invokes the selected provider. Non-PDF materialization requires explicit canonical change-ID selection in a later turn; PDFs stop at manual targeted changes.
 - `/career-application` adds branch-aware company/role/status identity, scopes vacancies and result cards by immutable application ID, and names otherwise unnamed Pi sessions without creating workspace files.
 - `/career-analyze` and `/career-match` expose complete successful Core results plus focused sections through a transient read-only pager, without storing or exporting full result JSON.
 - `/career-setup` records or derives a suggestion-only preferred resume-variation directory. Workbench prompts recommend that privacy-reduced destination first after a separate user request, while creating no directory or file and granting no automatic write authority.
@@ -20,6 +20,7 @@
 - Removed `runtime/` from source/package artifacts and replaced bundled-runtime/package checks with runtime-resolution, exact Career package, offline failure, and native-free tarball coverage.
 - Workbench prompts now use `career_run` handles and native proposal payloads rather than model-visible schema discovery and manually reconstructed Core envelopes.
 - Setup and library flows now rescan immediately, display indexed PDFs and actionable scan notices, and explain the searchable PDF/Markdown/text success path instead of silently showing an empty library.
+- Reorganized the README around the recommended first-run flow, exact slash-command behavior, release-version boundaries, runtime acquisition, and privacy/persistence expectations.
 - Streamlined post-release documentation, added npm/CI/license badges, and recorded immutable `v0.1.0` package coordinates.
 - Workbench review prompts now require verbatim preferably single-line source targets, avoid automatic discard-repair retries, reuse unchanged discovery/schema results, and keep prose concise instead of repeating complete review-embedded baselines.
 

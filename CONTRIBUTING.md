@@ -2,7 +2,7 @@
 
 ## Scope
 
-Keep changes limited to the Pi adapter, approved deterministic slash-command workflow, reviewed external runtime resolver, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. Provider/model workflows and assisted document generation require a separate approved phase.
+Keep changes limited to the Pi adapter, approved deterministic slash-command workflow, reviewed external runtime resolver, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. The approved workbench may prepare a visible user-submitted prompt, and `career_run` may Core-review and materialize explicitly selected non-PDF changes in memory. Package-initiated provider/model calls, automatic submission, automatic file saving, and broader assisted-document behavior require a separate approved phase.
 
 Read [`AGENTS.md`](AGENTS.md), [`docs/design.md`](docs/design.md), and [`SECURITY.md`](SECURITY.md) before changing code.
 
