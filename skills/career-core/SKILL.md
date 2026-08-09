@@ -1,8 +1,8 @@
 ---
 name: career-core
-description: Discovers and invokes the package-owned deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
+description: Resolves and invokes a compatible deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
 license: MIT OR Apache-2.0
-compatibility: Requires Pi with pi-career on supported darwin-arm64 or linux-x64-gnu; CAREER_CLI_PATH is an optional bounded developer/recovery override.
+compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.0 targets are darwin-arm64 and linux-x64-gnu.
 metadata:
   author: revazi
   version: "0.1.0"
@@ -10,7 +10,7 @@ metadata:
 
 # Career Core through pi-career
 
-Use `career_run` as the primary managed interface. It discovers the verified package-owned Career Core operation catalog and self-contained schemas internally, builds exact Core envelopes from ephemeral handles, captures complete bounded Core output in memory, and returns compact model-facing projections. Career Core remains authoritative for algorithms, schemas, errors, evidence, warnings, uncertainty, ordering, baselines, and assisted/non-authoritative semantics.
+Use `career_run` as the primary managed interface. It resolves a compatible Career Core route and discovers its exact operation catalog and self-contained schemas internally before private input, builds exact Core envelopes from ephemeral handles, captures complete bounded Core output in memory, and returns compact model-facing projections. Career Core remains authoritative for algorithms, schemas, errors, evidence, warnings, uncertainty, ordering, baselines, and assisted/non-authoritative semantics.
 
 The raw `career_core_discover`, `career_core_resume`, and `career_core_job` tools remain registered but are normally inactive. Use `/career-tools raw` only for explicit advanced schema/debugging work; `/career-tools managed` returns to the compact surface.
 
@@ -85,7 +85,7 @@ Managed projections preserve all Core warnings and the relevant authority/uncert
 
 ## Deterministic slash commands
 
-On supported targets, users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same package-owned runtime directly. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
+Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
 
 `/career-workbench` remains a guided, reviewable provider handoff. It places complete selected private source in Pi's editor but never submits automatically. Prefer `career_run` rather than raw schema reconstruction after the prompt is submitted.
 
@@ -99,18 +99,19 @@ A workbench `local_save_guidance` destination is suggestion-only. Never save aut
 - `career_core_resume`: `evaluate`, `analyze`, `analysis-suggestions-review`, `analysis-replacements-review`, `normalize`, `enrich`, `variant-review`, `variant-materialize`
 - `career_core_job`: `normalize`, `match`
 
-Raw agents remain discovery-first. Run capabilities and operations, then use exact exported/bundled schemas. Raw document tools send `input_json` only to verified package-owned runtime stdin with `--input - --format json-compact`; they never search PATH, invoke Cargo, fetch URLs, call a provider/model, or write payload/result files.
+Raw agents remain discovery-first. Run capabilities and operations, then use exact exported/bundled schemas. Raw document tools send `input_json` only to a compatibility-validated runtime stdin with `--input - --format json-compact`; they never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Resolver acquisition is limited to exact `@revazi/career@0.1.0`, happens before private stdin, and is disabled by `PI_OFFLINE=1`.
 
 ## Failure handling
 
 A `career.pi_error.v1` value is adapter/process status, not a deterministic career result.
 
-- `unsupported_platform` means no reviewed bundled runtime exists for this platform/libc; do not guess, download, or fall back to PATH/Cargo.
-- `bundled_runtime_invalid` means local integrity verification failed; do not request paths, hashes, environment values, or raw filesystem errors.
+- `runtime_unavailable` means no compatible local route was found and acquisition is unavailable/offline; install exact `@revazi/career@0.1.0` or configure a reviewed compatible executable.
+- `runtime_acquisition_failed` means exact-package acquisition failed; do not request npm output, paths, environment values, or raw errors.
+- `managed_contract_invalid` means an explicit selected runtime is incompatible; an invalid `CAREER_CLI_PATH` never falls back.
 - On `career_cli_error`, inspect only the nested, validated, bounded `career.error.v1`.
 - Correct typed invalid input before trying again; do not repair by guesswork or retry unchanged validation failures.
 - Raw tools may still return `result_too_large` or `result_too_many_lines`; do not request or use partial output.
-- `career_run` `managed_contract_invalid` means the bundled operation catalog/schema bundles are incompatible; do not bypass discovery or fall back to raw guessed envelopes.
+- `career_run` `managed_contract_invalid` means the selected operation catalog/schema bundles are incompatible; do not bypass discovery or fall back to raw guessed envelopes.
 - `context_required`, stale/missing handles, and session changes require a fresh `context`, not reconstructed identifiers.
 - `detail_too_large` requires a narrower section or exact item; it does not authorize truncation or result-file export.
 - Do not ask for raw stderr, paths, environment values, source copies, or hidden process errors.
@@ -178,4 +179,4 @@ Use original resume and original job inputs matching the exported schema. Matchi
 - Do not modify source documents unless the user separately requests and approves that change.
 - Never place API keys in tool input, output, files, or logs.
 
-See [`references/cli-contract.md`](references/cli-contract.md) for bundled-runtime selection and process details. Package installation and removal are in [`../../README.md`](../../README.md).
+See [`references/cli-contract.md`](references/cli-contract.md) for external runtime selection and process details. Package installation and removal are in [`../../README.md`](../../README.md).

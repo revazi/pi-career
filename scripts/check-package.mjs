@@ -54,14 +54,6 @@ const allowed = new Set([
   "docs/releasing.md",
   "docs/unpdf-LICENSE-MIT.txt",
   "package.json",
-  "runtime/LICENSE-APACHE",
-  "runtime/LICENSE-MIT",
-  "runtime/THIRD_PARTY_NOTICES.md",
-  "runtime/darwin-arm64/career",
-  "runtime/darwin-arm64/provenance.json",
-  "runtime/linux-x64-gnu/career",
-  "runtime/linux-x64-gnu/provenance.json",
-  "runtime/manifest.json",
   "skills/career-core/SKILL.md",
   "skills/career-core/references/cli-contract.md",
 ]);
@@ -89,8 +81,8 @@ function pack(args) {
   assert.equal(parsed.length, 1);
   const names = new Set(parsed[0].files.map(({ path: file }) => file));
   assert.deepEqual(names, allowed);
-  assert.ok(parsed[0].size < 4_000_000, "packed artifact must remain below 4 MB");
-  assert.ok(parsed[0].unpackedSize < 12_500_000, "unpacked artifact must remain below 12.5 MB");
+  assert.ok(parsed[0].size < 2_000_000, "packed artifact must remain below 2 MB");
+  assert.ok(parsed[0].unpackedSize < 5_000_000, "unpacked artifact must remain below 5 MB");
   return parsed[0];
 }
 
@@ -156,24 +148,13 @@ try {
     "4a57080b8ecdb3a53ec678828121849ce5df877a99b1ad8d50e165d8a2aded1b",
     "unpdf license SHA-256",
   );
-  assert.equal(bundle.includes("node_modules"), false, "extension bundle must not contain a package tree path");
+  assert.ok(bundle.includes("@revazi/career"), "extension bundle must pin the external Career package");
+  assert.equal(bundle.includes(`${root}${path.sep}node_modules`), false, "extension bundle must not contain a local package tree path");
   assert.equal(pdfWorker.includes("node_modules"), false, "PDF worker bundle must not contain a package tree path");
   assert.ok(pdfWorker.length > 0 && pdfWorker.length < 2_000_000, "PDF worker bundle must remain bounded");
   for (const peer of Object.keys(expectedExternalPeers)) {
     assert.ok(bundle.includes(`from \"${peer}\"`), `${peer} must remain an external bundle import`);
   }
-  assert.equal((await stat(path.join(packageRoot, "runtime", "darwin-arm64", "career"))).mode & 0o777, 0o755);
-  assert.equal((await stat(path.join(packageRoot, "runtime", "linux-x64-gnu", "career"))).mode & 0o777, 0o755);
-  execFileSync(process.execPath, [path.join(root, "scripts", "check-runtime-artifacts.mjs")], {
-    cwd: temporaryDirectory,
-    env: { ...process.env, PI_CAREER_PACKAGE_ROOT: packageRoot },
-    stdio: ["ignore", "inherit", "inherit"],
-  });
-  execFileSync(process.execPath, [path.join(root, "scripts", "check-native-license-inventory.mjs")], {
-    cwd: temporaryDirectory,
-    env: { ...process.env, PI_CAREER_PACKAGE_ROOT: packageRoot },
-    stdio: ["ignore", "inherit", "inherit"],
-  });
   execFileSync(process.execPath, [path.join(root, "scripts", "test-pi-package-load.mjs")], {
     cwd: temporaryDirectory,
     env: {
@@ -185,7 +166,7 @@ try {
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
-  execFileSync(process.execPath, [path.join(root, "scripts", "test-bundled-runtime.mjs")], {
+  execFileSync(process.execPath, [path.join(root, "scripts", "test-offline-resolution.mjs")], {
     cwd: temporaryDirectory,
     env: {
       ...process.env,

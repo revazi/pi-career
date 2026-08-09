@@ -15,7 +15,9 @@
 
 ### Changed
 
-- Bundled runtimes now come from Career Core Phase 8 commit `f6d1783` and artifact run `31274605956`, with operation-catalog, schema-bundle, 32-MiB complete-output-bound, capability mapping, and representative-result compatibility evidence.
+- Replaced package-owned native artifacts with a local-first external resolver: bounded absolute `CAREER_CLI_PATH`, PATH `career`, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.0` unless `PI_OFFLINE=1`.
+- Exact managed operation-catalog/schema-bundle compatibility now completes before private stdin opens. The reviewed Career package launcher owns native target/libc/provenance/mode/size/format/SHA-256 verification; pi-career caches routes only in memory and never retries an already-started operation on another route.
+- Removed `runtime/` from source/package artifacts and replaced bundled-runtime/package checks with runtime-resolution, exact Career package, offline failure, and native-free tarball coverage.
 - Workbench prompts now use `career_run` handles and native proposal payloads rather than model-visible schema discovery and manually reconstructed Core envelopes.
 - Setup and library flows now rescan immediately, display indexed PDFs and actionable scan notices, and explain the searchable PDF/Markdown/text success path instead of silently showing an empty library.
 - Streamlined post-release documentation, added npm/CI/license badges, and recorded immutable `v0.1.0` package coordinates.

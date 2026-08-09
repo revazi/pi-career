@@ -5,7 +5,7 @@
 [![CI](https://github.com/revazi/pi-career/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-career/actions/workflows/ci.yml)
 [![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license-and-provenance)
 
-Self-contained [Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows. It bundles reviewed native runtimes, a Pi extension, deterministic slash commands, and the `career-core` Agent Skill—without a separate Career Core checkout, Cargo installation, runtime download, or provider/model call.
+[Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows. It provides a Pi extension, deterministic slash commands, the `career-core` Agent Skill, and a bounded resolver for compatible external Career Core installations. It packages no native binary and never uses a Career Core checkout, Cargo build, arbitrary download, or provider/model call.
 
 Career Core remains authoritative for operations, algorithms, schemas, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics. See [`docs/design.md`](docs/design.md) and [`docs/product-flow.md`](docs/product-flow.md).
 
@@ -34,22 +34,24 @@ Workflow commands:
 - `/career-workbench` — prepare a guided, reviewable private rebuild prompt for the normal Pi editor
 - `/career-tools` — show or switch the managed/raw active model-tool surface
 
-`career_run`, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned runtime directly. `career_run` validates the bundled Phase 8 operation catalog and self-contained input schemas internally, so normal model turns need no schema export or nested `input_json`. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. Package commands never initiate a provider/model or network request and never use `PATH`, Cargo, a sibling checkout, or a downloaded executable.
+`career_run`, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke a compatible resolved runtime directly. The resolver checks `CAREER_CLI_PATH`, `career` on PATH, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.0`. It validates the complete managed operation/schema surface before private stdin opens, so normal model turns need no schema export or nested `input_json`. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. The only package-initiated network-capable behavior is exact npm acquisition after local routes fail; `PI_OFFLINE=1` disables it.
 
 ## Supported platforms
+
+The reviewed `@revazi/career@0.1.0` launcher currently provides native packages for:
 
 | Package target | Native platform |
 |---|---|
 | `darwin-arm64` | macOS on Apple silicon |
-| `linux-x64-gnu` | Linux x64 with glibc |
+| `linux-x64-gnu` | Linux x64 with supported glibc |
 
-Windows, macOS x64, Linux arm64, Linux musl, and unknown libc/platform combinations fail closed with a payload-free `unsupported_platform` error.
+The external launcher owns fail-closed target/libc and native integrity verification. Explicit `CAREER_CLI_PATH` and PATH routes remain caller-controlled and must pass the exact managed compatibility checks before receiving private input.
 
 Requirements:
 
 - Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
-- one of the two supported native targets
+- a compatible local Career Core route or access to acquire exact `@revazi/career@0.1.0`
 
 ## Install
 
@@ -80,6 +82,15 @@ pi install "$(pwd -P)"
 ```
 
 Local-path registrations follow later filesystem changes. Restart Pi or run `/reload` after a reviewed update.
+
+At first Career Core use, resolution is:
+
+1. bounded absolute `CAREER_CLI_PATH`;
+2. `career` on PATH;
+3. package-local exact `@revazi/career@0.1.0`;
+4. acquisition of exact `@revazi/career@0.1.0` from the canonical npm registry.
+
+Set `PI_OFFLINE=1` to prohibit acquisition. An invalid explicit override fails without fallback. npm acquisition completes before private document stdin opens and may leave ordinary npm cache/`_npx` data; it does not provide secure erasure.
 
 ## Use
 
@@ -119,7 +130,7 @@ For normal model-assisted work, call `career_run` with `command: "context"`. In 
 
 For explicitly enabled raw calls, discovery-first behavior remains mandatory: capabilities → operations → schema list/export/bundle → exact `input_json`. Raw JSON remains authoritative; managed projections must preserve exact warnings, discard codes, limitations, uncertainty/authority labels, and the evidence/source spans used for presented findings.
 
-`CAREER_CLI_PATH` is an optional developer/recovery override for a separately reviewed compatible executable. Normal users do not set it.
+`CAREER_CLI_PATH` is an optional bounded override for a separately reviewed compatible executable. An installed compatible `career` on PATH is the next local route. Normal users may rely on exact-package acquisition unless they set `PI_OFFLINE=1`.
 
 ## Privacy
 
@@ -137,7 +148,7 @@ Slash-command Core results within process limits can be inspected in a transient
 
 ## Security and release provenance
 
-The two unsigned, not-notarized runtimes were built from Career Core commit `f6d17835de4817e28ce84e8e5734ff592687dfcc` by [workflow run 31274605956](https://github.com/revazi/career-core/actions/runs/31274605956). [`runtime/manifest.json`](runtime/manifest.json) pins paths, targets, provenance, sizes, modes, SHA-256 hashes, source archive identities, and bounded contract digests. The selected executable is verified before its first spawn in each process.
+pi-career packages no native Career Core artifacts. The exact reviewed runtime package coordinate is [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0). Its launcher validates native target/libc, lockstep package metadata, provenance, mode, size, format, and SHA-256 before native execution. Caller-controlled explicit/PATH routes must independently pass pi-career's exact managed operation-catalog and schema-bundle compatibility checks before private stdin opens.
 
 Release `v0.1.0` coordinates:
 
@@ -146,7 +157,7 @@ Release `v0.1.0` coordinates:
 - npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
 - GitHub Release: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
 
-Both the package-owned production audit and complete development/host-Pi audit were clean at the explicit low threshold. Native-license evidence received documented sole-maintainer review, not independent legal review. See [`SECURITY.md`](SECURITY.md), [`docs/releasing.md`](docs/releasing.md), and [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md).
+Both the package-owned production audit and complete development/host-Pi audit were clean at the explicit low threshold. Historical bundled-runtime evidence for `v0.1.0` remains recorded in [`docs/releasing.md`](docs/releasing.md) and [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md); the current adapter tarball contains no native binary. See [`SECURITY.md`](SECURITY.md).
 
 There is no crate publication, custom GitHub Release asset, signing, or notarization.
 
@@ -162,7 +173,8 @@ npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run bench:tokens
 npm run check
-npm run test:bundled-runtime
+npm run test:runtime-resolution
+npm run test:career-package
 npm run audit:production
 npm run audit:full
 npm run check:publish
@@ -179,7 +191,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-`npm run build` rebuilds only the generated `dist/index.js` and `dist/pdf-worker.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies the strict package contents, external peers, extracted load, bundled runtime, and isolated Pi installation.
+`npm run build` rebuilds only the generated `dist/index.js` and `dist/pdf-worker.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies strict native-free package contents, external peers, extracted offline behavior, and isolated Pi installation. `npm run test:career-package` is the separate network-capable exact-package integration test.
 
 ## Maintainer and support
 
@@ -187,6 +199,6 @@ Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use [Issues](http
 
 ## License and provenance
 
-Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), [`NOTICE`](NOTICE), and the package-bounded notices under [`runtime/`](runtime/).
+Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), and [`NOTICE`](NOTICE).
 
-The exact native dependency and selected-license evidence is recorded in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), with required license and copyright payloads under [`docs/licenses/`](docs/licenses/).
+The external `@revazi/career` distribution carries its own native license/notices. Historical pi-career `v0.1.0` bundled-native evidence remains in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md) and [`docs/licenses/`](docs/licenses/).

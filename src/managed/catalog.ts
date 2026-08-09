@@ -40,71 +40,77 @@ export interface ManagedContracts {
 }
 
 interface ExpectedOperation {
+  capability: string | null;
   path: string[];
   input: string | null;
   output: string;
   inputBytes: number | null;
 }
 
+const EXPECTED_CORE_VERSION = "0.1.0";
 const EXPECTED_OPERATIONS: Readonly<Record<string, ExpectedOperation>> = {
   "core.capabilities": {
-    path: ["capabilities"], input: null, output: "career.capabilities.v1", inputBytes: null,
+    capability: "core.capabilities", path: ["capabilities"], input: null,
+    output: "career.capabilities.v1", inputBytes: null,
   },
   "core.operations": {
-    path: ["operations"], input: null, output: "career.operation_catalog.v1", inputBytes: null,
+    capability: null, path: ["operations"], input: null,
+    output: "career.operation_catalog.v1", inputBytes: null,
   },
   "schema.list": {
-    path: ["schema", "list"], input: null, output: "career.schema_catalog.v1", inputBytes: null,
+    capability: null, path: ["schema", "list"], input: null,
+    output: "career.schema_catalog.v1", inputBytes: null,
   },
   "schema.export": {
-    path: ["schema", "export"], input: null,
+    capability: null, path: ["schema", "export"], input: null,
     output: "https://json-schema.org/draft/2020-12/schema", inputBytes: null,
   },
   "schema.bundle": {
-    path: ["schema", "bundle"], input: null,
+    capability: null, path: ["schema", "bundle"], input: null,
     output: "https://json-schema.org/draft/2020-12/schema", inputBytes: null,
   },
   "resume.evaluate": {
-    path: ["resume", "evaluate"], input: "career.resume_input.v1",
+    capability: "resume.evaluate", path: ["resume", "evaluate"], input: "career.resume_input.v1",
     output: "career.resume_evaluation.v1", inputBytes: 262_144,
   },
   "resume.analyze": {
-    path: ["resume", "analyze"], input: "career.resume_input.v1",
+    capability: "resume.analyze", path: ["resume", "analyze"], input: "career.resume_input.v1",
     output: "career.resume_analysis.v1", inputBytes: 262_144,
   },
   "resume.normalize": {
-    path: ["resume", "normalize"], input: "career.resume_input.v1",
+    capability: "resume.normalize", path: ["resume", "normalize"], input: "career.resume_input.v1",
     output: "career.resume_normalization.v1", inputBytes: 262_144,
   },
   "resume.enrich": {
-    path: ["resume", "enrich"], input: "career.resume_enrichment_input.v1",
+    capability: "resume.enrich", path: ["resume", "enrich"], input: "career.resume_enrichment_input.v1",
     output: "career.resume_enrichment_result.v1", inputBytes: 262_144,
   },
   "resume.analysis-suggestions.review": {
-    path: ["resume", "analysis-suggestions-review"],
+    capability: "resume.analysis-suggestions.review", path: ["resume", "analysis-suggestions-review"],
     input: "career.resume_analysis_suggestion_review_input.v1",
     output: "career.resume_analysis_suggestion_review.v1", inputBytes: 262_144,
   },
   "resume.analysis-replacements.review": {
-    path: ["resume", "analysis-replacements-review"],
+    capability: "resume.analysis-replacements.review", path: ["resume", "analysis-replacements-review"],
     input: "career.resume_analysis_replacement_review_input.v1",
     output: "career.resume_analysis_replacement_review.v1", inputBytes: 262_144,
   },
   "resume.variant.review": {
-    path: ["resume", "variant-review"], input: "career.resume_variant_review_input.v1",
+    capability: "resume.variant.review", path: ["resume", "variant-review"],
+    input: "career.resume_variant_review_input.v1",
     output: "career.resume_variant_review.v1", inputBytes: 1_048_576,
   },
   "resume.variant.materialize": {
-    path: ["resume", "variant-materialize"],
+    capability: "resume.variant.materialize", path: ["resume", "variant-materialize"],
     input: "career.resume_variant_materialization_input.v1",
     output: "career.resume_variant.v1", inputBytes: 1_048_576,
   },
   "job.normalize": {
-    path: ["job", "normalize"], input: "career.job_input.v1",
+    capability: "job.normalize", path: ["job", "normalize"], input: "career.job_input.v1",
     output: "career.job_normalization.v1", inputBytes: 262_144,
   },
   "job.match": {
-    path: ["job", "match"], input: "career.job_match_input.v1",
+    capability: "job.match", path: ["job", "match"], input: "career.job_match_input.v1",
     output: "career.job_match.v1", inputBytes: 1_048_576,
   },
 };
@@ -157,6 +163,7 @@ function parseDescriptor(value: unknown): OperationDescriptor {
 function verifyDescriptor(descriptor: OperationDescriptor, expected: ExpectedOperation): void {
   const documentOperation = expected.input !== null;
   if (
+    descriptor.capability_id !== expected.capability ||
     descriptor.cli_path.join("\0") !== expected.path.join("\0") ||
     descriptor.input_schema_id !== expected.input ||
     descriptor.output_schema_id !== expected.output ||
@@ -225,8 +232,7 @@ export class ManagedContractCache {
     const catalog = parseObject(catalogResult.json);
     if (!exactKeys(catalog, ["schema_version", "core_version", "operations"]) ||
       catalog.schema_version !== "career.operation_catalog.v1" ||
-      typeof catalog.core_version !== "string" ||
-      catalog.core_version.length === 0 || catalog.core_version.length > 64 ||
+      catalog.core_version !== EXPECTED_CORE_VERSION ||
       !Array.isArray(catalog.operations)) throw new Error("managed_contract_invalid");
 
     const operations = new Map<string, OperationDescriptor>();

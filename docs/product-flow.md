@@ -21,11 +21,11 @@ It also registers:
 - `/career-workbench` for a bounded, guided, visibly reviewable rebuild handoff to the user's normal Pi editor
 - `/career-tools` to switch between the managed-only and advanced raw model-tool surfaces
 
-On supported targets `career_run`, the raw compatibility tools, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned Career Core runtime. `career_run` validates Phase 8 operation/schema contracts internally, resolves current originals/vacancy through ephemeral handles, keeps complete results in bounded process memory, and exposes compact detail hydration without nested `input_json`. Setup/library scanning remains local. `/career-application` manages consented session state only. `/career-workbench` does not invoke Core or a provider/model itself: it prepares an ordinary editor message containing one original resume and, only for tailoring, the current vacancy. Guided modes cover complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, and vacancy-specific variant review. The user must review and submit that message separately through Pi.
+`career_run`, the raw compatibility tools, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the compatible Career Core route selected by the external resolver. Managed compatibility is validated before private input, and the reviewed exact package may be acquired only after local routes fail unless `PI_OFFLINE=1`. `career_run` validates Phase 8 operation/schema contracts internally, resolves current originals/vacancy through ephemeral handles, keeps complete results in bounded process memory, and exposes compact detail hydration without nested `input_json`. Setup/library scanning remains local. `/career-application` manages consented session state only. `/career-workbench` does not invoke Core or a provider/model itself: it prepares an ordinary editor message containing one original resume and, only for tailoring, the current vacancy. Guided modes cover complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, and vacancy-specific variant review. The user must review and submit that message separately through Pi.
 
 Binding boundaries:
 
-- no provider/model calls in package commands; the workbench stops at a reviewable editor prompt
+- no provider/model calls in package commands; the sole network-capable runtime behavior is exact-package acquisition before private stdin, and the workbench stops at a reviewable editor prompt
 - agent-directory-relative non-sensitive config only; it may contain canonical library roots and one bounded absolute preferred variation-directory suggestion
 - no resume or vacancy text in global config; a variation-directory preference is destination guidance, not write approval
 - session entries only after explicit persistence consent; entries persist to JSONL even when excluded from model context
@@ -61,4 +61,4 @@ Automatic variant saving remains deferred. Setup now records or derives only a p
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
 - career-document publication/export, release-asset downloads, signing, or notarization
-- expanded runtime platform claims beyond `darwin-arm64` and `linux-x64-gnu`
+- expanded reviewed `@revazi/career` native-package claims beyond `darwin-arm64` and `linux-x64-gnu`

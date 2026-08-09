@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. Reviewed native artifact run `31274605956` passed on both supported targets, and those exact artifacts are imported on this pi-career branch. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Package-owned save/export, richer interactive change selection/navigation, and broader PDF extraction compatibility remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.0`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Package-owned save/export, richer interactive change selection/navigation, and broader PDF extraction compatibility remain later reviewed work.
 
 Completed sequence:
 
@@ -11,6 +11,7 @@ Completed sequence:
 3. Artifact import with provenance/catalog/bundle/output-bound verification.
 4. Primary `career_run` implementation with raw tools inactive by default.
 5. Reproducible synthetic context benchmark and budget gates.
+6. External local-first resolver with exact package acquisition, pre-private-input compatibility validation, and removal of bundled native artifacts.
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
@@ -178,7 +179,7 @@ Handles must not weaken the existing persistence decision or provider-consent bo
 
 ### Internal discovery and routing
 
-Pi-career discovers the operation catalog and required schema bundles once per process for the verified package-owned Core version, validates compatibility, and caches only non-sensitive metadata. Normal `career_run` calls never require the model to export schemas or manually encode nested `input_json` strings.
+Pi-career discovers the operation catalog and required schema bundles for the selected compatible Core route, validates compatibility before private input, and caches only non-sensitive metadata. Normal `career_run` calls never require the model to export schemas or manually encode nested `input_json` strings.
 
 ### Compact results and hydration
 
@@ -238,14 +239,15 @@ Initial targets:
 - complete authoritative detail recoverable on demand
 - review → explicit selection → materialization without rebuilding the Core envelope
 
-## Boundaries retained from the current package
+## Runtime boundaries retained after externalization
 
-Do not copy Pi Fallow's runtime fallback policy. Pi-career should retain:
+Pi-career retains:
 
-- verified package-owned native runtime artifacts
-- fail-closed supported-target selection
-- no PATH, Cargo, sibling-checkout, npx, install-time download, or lifecycle build fallback
-- no implicit network or provider behavior
+- no packaged native runtime artifacts or runtime dependencies
+- fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.1.0`
+- no Cargo, sibling checkout, source build, arbitrary executable download, unpinned package, or lifecycle fallback
+- `PI_OFFLINE=1` disables acquisition; the only implicit network-capable behavior is bounded exact-package acquisition after local routes fail and before private stdin opens
+- exact managed compatibility for caller-controlled routes and native integrity delegated to the reviewed package launcher
 - no automatic repair or retry of rejected external proposals
 - no uncertainty, evidence, recommendation, or factuality upgrades
 - no unapproved private full-result temp files
