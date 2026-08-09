@@ -11,9 +11,15 @@ import {
   publicAdapterError,
   type CareerCliErrorV1,
 } from "./errors.ts";
-import { resolveBundledRuntime } from "./runtime.ts";
+import { ManagedContractCache } from "./managed/catalog.ts";
+import {
+  resolveCareerExecutable,
+  resolveCareerRuntime,
+  type RuntimeRoute,
+} from "./runtime.ts";
 
 export { CareerInvocationError, publicAdapterError } from "./errors.ts";
+export { resolveCareerExecutable } from "./runtime.ts";
 
 const SINGLE_INPUT_MAX_BYTES = 262_144;
 export const COMPOSITE_INPUT_MAX_BYTES = 1_048_576;
@@ -104,24 +110,6 @@ export interface InvokeOptions {
   stderrCaptureMaxBytes?: number;
   toolResultMaxBytes?: number;
   toolResultMaxLines?: number;
-}
-
-export function resolveCareerExecutable(
-  environment: Readonly<Record<string, string | undefined>> = process.env,
-): string | undefined {
-  const override = environment.CAREER_CLI_PATH;
-  if (override === undefined) return undefined;
-
-  if (
-    override.length === 0 ||
-    override.includes("\0") ||
-    Buffer.byteLength(override, "utf8") > EXECUTABLE_MAX_BYTES ||
-    !isAbsolute(override)
-  ) {
-    throw adapterError("invalid_executable_override");
-  }
-
-  return override;
 }
 
 interface PreparedInvocation {
@@ -353,39 +341,42 @@ function completedResult(
   return successfulResult(prepared, stdout, stderr, limits);
 }
 
-export async function invokeCareerCli(
-  invocation: CareerInvocation,
-  signal?: AbortSignal,
-  options: InvokeOptions = {},
-): Promise<CareerInvocationResult> {
-  const prepared = prepareInvocation(invocation);
-  if (signal?.aborted) throw adapterError("cancelled");
-
-  const explicitExecutable = options.executable ?? resolveCareerExecutable();
-  if (
-    explicitExecutable !== undefined &&
-    (explicitExecutable.length === 0 ||
-      explicitExecutable.includes("\0") ||
-      Buffer.byteLength(explicitExecutable, "utf8") > EXECUTABLE_MAX_BYTES ||
-      !isAbsolute(explicitExecutable))
+class ProcessAttemptError extends Error {
+  constructor(
+    readonly publicError: CareerInvocationError,
+    readonly started: boolean,
   ) {
-    throw adapterError("invalid_executable_override");
+    super(publicError.message);
+    this.name = "ProcessAttemptError";
   }
-  const executable = explicitExecutable ?? (await resolveBundledRuntime());
-  if (signal?.aborted) throw adapterError("cancelled");
+}
 
-  const limits = executionLimits(options);
+function injectedRoute(executable: string): RuntimeRoute {
+  return Object.freeze({
+    command: executable,
+    argumentPrefix: Object.freeze([]),
+    source: "explicit",
+    identity: `injected\0${executable}`,
+  });
+}
 
+function executePrepared(
+  prepared: PreparedInvocation,
+  runtime: RuntimeRoute,
+  signal: AbortSignal | undefined,
+  limits: ExecutionLimits,
+): Promise<CareerInvocationResult> {
+  if (signal?.aborted) return Promise.reject(new ProcessAttemptError(adapterError("cancelled"), false));
   return new Promise<CareerInvocationResult>((resolve, reject) => {
     let child;
     try {
-      child = spawn(executable, prepared.args, {
+      child = spawn(runtime.command, [...runtime.argumentPrefix, ...prepared.args], {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
     } catch {
-      reject(adapterError("executable_unavailable"));
+      reject(new ProcessAttemptError(adapterError("executable_unavailable"), false));
       return;
     }
 
@@ -394,6 +385,7 @@ export async function invokeCareerCli(
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let closed = false;
+    let started = false;
     let spawnErrorCode: string | undefined;
     let terminationError: CareerInvocationError | undefined;
     let killTimer: NodeJS.Timeout | undefined;
@@ -419,64 +411,139 @@ export async function invokeCareerCli(
 
     const timeout = setTimeout(() => terminate(adapterError("timeout")), limits.timeoutMs);
     timeout.unref();
-
     const onAbort = () => terminate(adapterError("cancelled"));
     signal?.addEventListener("abort", onAbort, { once: true });
 
+    child.once("spawn", () => {
+      started = true;
+      try {
+        child.stdin.end(terminationError === undefined ? prepared.input : undefined);
+      } catch {
+        terminate(adapterError("process_io_failure"));
+      }
+    });
     child.once("error", (error: NodeJS.ErrnoException) => {
       spawnErrorCode = error.code;
     });
-
     child.stdin.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code !== "EPIPE" && error.code !== "ERR_STREAM_DESTROYED") {
         terminate(adapterError("process_io_failure"));
       }
     });
-
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > limits.stdoutMax) {
-        terminate(adapterError("stdout_overflow"));
-        return;
-      }
-      stdoutChunks.push(Buffer.from(chunk));
+      if (stdoutBytes > limits.stdoutMax) terminate(adapterError("stdout_overflow"));
+      else stdoutChunks.push(Buffer.from(chunk));
     });
-
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.length;
-      if (stderrBytes > limits.stderrMax) {
-        terminate(adapterError("stderr_overflow"));
-        return;
-      }
-      stderrChunks.push(Buffer.from(chunk));
+      if (stderrBytes > limits.stderrMax) terminate(adapterError("stderr_overflow"));
+      else stderrChunks.push(Buffer.from(chunk));
     });
-
     child.once("close", (code, exitSignal) => {
       closed = true;
       clearTimeout(timeout);
       if (killTimer !== undefined) clearTimeout(killTimer);
       signal?.removeEventListener("abort", onAbort);
-
       try {
-        resolve(
-          completedResult(
-            prepared,
-            {
-              code,
-              exitSignal,
-              ...(spawnErrorCode === undefined ? {} : { spawnErrorCode }),
-              ...(terminationError === undefined ? {} : { terminationError }),
-              stdoutChunks,
-              stderrChunks,
-            },
-            limits,
-          ),
-        );
+        resolve(completedResult(
+          prepared,
+          {
+            code,
+            exitSignal,
+            ...(spawnErrorCode === undefined ? {} : { spawnErrorCode }),
+            ...(terminationError === undefined ? {} : { terminationError }),
+            stdoutChunks,
+            stderrChunks,
+          },
+          limits,
+        ));
       } catch (error) {
-        reject(publicAdapterError(error));
+        reject(new ProcessAttemptError(publicAdapterError(error), started));
       }
     });
-
-    child.stdin.end(prepared.input);
   });
+}
+
+async function probeRuntime(runtime: RuntimeRoute, signal?: AbortSignal): Promise<void> {
+  const contracts = new ManagedContractCache();
+  await contracts.load(async (invocation, invocationSignal, options = {}) => {
+    const prepared = prepareInvocation(invocation);
+    try {
+      return await executePrepared(
+        prepared,
+        runtime,
+        invocationSignal,
+        executionLimits(options),
+      );
+    } catch (error) {
+      if (error instanceof ProcessAttemptError) throw error.publicError;
+      throw publicAdapterError(error);
+    }
+  }, signal);
+}
+
+function retryablePrelaunch(error: ProcessAttemptError, runtime: RuntimeRoute): boolean {
+  return runtime.source !== "explicit" &&
+    !error.started &&
+    (error.publicError.payload.code === "missing_executable" ||
+      error.publicError.payload.code === "executable_unavailable");
+}
+
+async function executeResolved(
+  prepared: PreparedInvocation,
+  runtime: RuntimeRoute,
+  signal: AbortSignal | undefined,
+  limits: ExecutionLimits,
+): Promise<CareerInvocationResult> {
+  try {
+    return await executePrepared(prepared, runtime, signal, limits);
+  } catch (error) {
+    if (!(error instanceof ProcessAttemptError)) throw publicAdapterError(error);
+    if (!retryablePrelaunch(error, runtime) || signal?.aborted) throw error.publicError;
+    const next = await resolveCareerRuntime({
+      ...(signal === undefined ? {} : { signal }),
+      probe: probeRuntime,
+      afterSource: runtime.source,
+    });
+    try {
+      return await executePrepared(prepared, next, signal, limits);
+    } catch (retryError) {
+      if (retryError instanceof ProcessAttemptError) throw retryError.publicError;
+      throw publicAdapterError(retryError);
+    }
+  }
+}
+
+export async function invokeCareerCli(
+  invocation: CareerInvocation,
+  signal?: AbortSignal,
+  options: InvokeOptions = {},
+): Promise<CareerInvocationResult> {
+  const prepared = prepareInvocation(invocation);
+  if (signal?.aborted) throw adapterError("cancelled");
+  const limits = executionLimits(options);
+
+  if (options.executable !== undefined) {
+    const executable = options.executable;
+    if (
+      executable.length === 0 ||
+      executable.includes("\0") ||
+      Buffer.byteLength(executable, "utf8") > EXECUTABLE_MAX_BYTES ||
+      !isAbsolute(executable)
+    ) throw adapterError("invalid_executable_override");
+    try {
+      return await executePrepared(prepared, injectedRoute(executable), signal, limits);
+    } catch (error) {
+      if (error instanceof ProcessAttemptError) throw error.publicError;
+      throw publicAdapterError(error);
+    }
+  }
+
+  const runtime = await resolveCareerRuntime({
+    ...(signal === undefined ? {} : { signal }),
+    probe: probeRuntime,
+  });
+  if (signal?.aborted) throw adapterError("cancelled");
+  return executeResolved(prepared, runtime, signal, limits);
 }

@@ -8,29 +8,15 @@ Zakalashvili, under the MIT OR Apache-2.0 dual license.
 This repository preserves those dual-license terms. See LICENSE-MIT and
 LICENSE-APACHE.
 
-Unsigned package-owned native runtime binaries and exact per-target provenance
-were imported from the independently verified Career Core workflow run
-31274605956 at commit f6d17835de4817e28ce84e8e5734ff592687dfcc,
-Copyright (c) 2026 Revaz Zakalashvili. They are tracked package inputs from a
-Career Core workflow marked not_a_public_release, not standalone/custom release
-assets, signed artifacts, or a notarized distribution. No publication, custom
-release asset, signature, or notarization is claimed for this runtime update.
-
-The reviewed runtime license copies and third-party notice are preserved under
-runtime/. docs/native-dependency-inventory.md records the exact locked
-normal/build career-cli graph, selected MIT texts for every reachable crate,
-Rust 1.97.1 Standard Library evidence, target dynamic imports, and exclusions
-for both distributed targets. unicode-ident 1.0.24 and Rust Unicode data require
-the Unicode License V3; the exact selected license/copyright payload is
-preserved under docs/licenses/.
+pi-career packages no native Career Core binary. Runtime distribution,
+platform provenance, native integrity verification, and native third-party
+notices belong to the separately installed or acquired exact
+@revazi/career@0.1.0 distribution. Historical evidence for the native binaries
+bundled by pi-career v0.1.0 remains in docs/native-dependency-inventory.md and
+docs/releasing.md but is not part of the current runtime boundary.
 
 Searchable PDF text extraction bundles unpdf 1.8.0, Copyright (c) 2023-PRESENT
 Johann Schopplich, under the MIT License preserved at
 docs/unpdf-LICENSE-MIT.txt. Its bundled serverless PDF.js implementation is
 derived from Mozilla PDF.js and is distributed under the Apache License 2.0,
 preserved at LICENSE-APACHE.
-
-The dependency inventory is evidence, not legal advice or legal approval. For
-version 0.1.0, docs/releasing.md records sole-maintainer license sign-off rather
-than independent legal review, the artifact-provenance decision, and clean
-production and full development audits.

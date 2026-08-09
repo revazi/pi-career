@@ -18,7 +18,7 @@ assert.deepEqual(manifest.pi, {
   skills: ["./skills/career-core"],
 });
 assert.equal(manifest.dependencies, undefined);
-assert.ok(manifest.files.includes("runtime"));
+assert.equal(manifest.files.includes("runtime"), false);
 for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepack", "postpack"]) {
   assert.equal(manifest.scripts?.[lifecycle], undefined);
 }
@@ -31,9 +31,6 @@ assert.deepEqual(Object.keys(manifest.peerDependencies).sort(), [
 
 const extensionPaths = manifest.pi.extensions.map((entry) => path.resolve(root, entry));
 const skillPaths = manifest.pi.skills.map((entry) => path.resolve(root, entry));
-await access(path.join(root, "runtime", "manifest.json"));
-await access(path.join(root, "runtime", "darwin-arm64", "career"));
-await access(path.join(root, "runtime", "linux-x64-gnu", "career"));
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-load-"));
 const agentDir = path.join(temporaryRoot, "agent");
 const cwd = path.join(temporaryRoot, "cwd");

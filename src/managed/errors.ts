@@ -26,7 +26,7 @@ const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   result_not_found: "The requested ephemeral result handle is unavailable or expired.",
   review_not_found: "The requested ephemeral review handle is unavailable or expired.",
   selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
-  managed_contract_invalid: "The bundled Career Core managed-adapter contracts are incompatible.",
+  managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
   managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",

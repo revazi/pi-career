@@ -15,6 +15,7 @@ import {
   invokeCareerCli,
   resolveCareerExecutable,
 } from "../../src/process.ts";
+import { clearRuntimeResolutionCache } from "../../src/runtime.ts";
 
 const fixturePath = fileURLToPath(new URL("./fake-career.mjs", import.meta.url));
 let temporaryDirectory;
@@ -279,14 +280,94 @@ test("validates CAREER_CLI_PATH as a bounded absolute override", async () => {
     (error) => error instanceof CareerInvocationError && JSON.parse(error.message).code === "invalid_executable_override",
   );
 
-  const previous = process.env.CAREER_CLI_PATH;
-  process.env.CAREER_CLI_PATH = executable;
+  const result = await invokeCareerCli(
+    { kind: "discovery", operation: "capabilities" },
+    undefined,
+    { executable },
+  );
+  assert.deepEqual(JSON.parse(result.json).args, ["capabilities", "--format", "json-compact"]);
+});
+
+test("an invalid explicit runtime never retries another route after prelaunch failure", async () => {
+  const explicitRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-explicit-prelaunch-"));
+  const fallbackRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-explicit-fallback-"));
+  const explicit = path.join(explicitRoot, "career");
+  const fallback = path.join(fallbackRoot, "career");
+  await copyFile(fixturePath, explicit);
+  await copyFile(fixturePath, fallback);
+  await chmod(explicit, 0o700);
+  await chmod(fallback, 0o700);
+  const previous = {
+    career: process.env.CAREER_CLI_PATH,
+    compatible: process.env.FAKE_CAREER_MANAGED_COMPATIBLE,
+    deletion: process.env.FAKE_CAREER_DELETE_AFTER_COMPAT,
+    offline: process.env.PI_OFFLINE,
+    path: process.env.PATH,
+  };
+  clearRuntimeResolutionCache();
+  process.env.CAREER_CLI_PATH = explicit;
+  process.env.FAKE_CAREER_MANAGED_COMPATIBLE = "1";
+  process.env.FAKE_CAREER_DELETE_AFTER_COMPAT = "1";
+  process.env.PI_OFFLINE = "1";
+  process.env.PATH = [fallbackRoot, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter);
   try {
-    const result = await invokeCareerCli({ kind: "discovery", operation: "capabilities" });
-    assert.deepEqual(JSON.parse(result.json).args, ["capabilities", "--format", "json-compact"]);
+    await expectAdapterError(
+      invokeCareerCli(resumeRequest({ request_id: "must-not-fallback" })),
+      "missing_executable",
+    );
   } finally {
-    if (previous === undefined) delete process.env.CAREER_CLI_PATH;
-    else process.env.CAREER_CLI_PATH = previous;
+    clearRuntimeResolutionCache();
+    for (const [key, value] of Object.entries({
+      CAREER_CLI_PATH: previous.career,
+      FAKE_CAREER_MANAGED_COMPATIBLE: previous.compatible,
+      FAKE_CAREER_DELETE_AFTER_COMPAT: previous.deletion,
+      PI_OFFLINE: previous.offline,
+      PATH: previous.path,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(explicitRoot, { recursive: true, force: true });
+    await rm(fallbackRoot, { recursive: true, force: true });
+  }
+});
+
+test("an automatic prelaunch failure advances once without opening private stdin", async () => {
+  const pathRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-auto-prelaunch-"));
+  const selected = path.join(pathRoot, "career");
+  await copyFile(fixturePath, selected);
+  await chmod(selected, 0o700);
+  const previous = {
+    career: process.env.CAREER_CLI_PATH,
+    compatible: process.env.FAKE_CAREER_MANAGED_COMPATIBLE,
+    deletion: process.env.FAKE_CAREER_DELETE_AFTER_COMPAT,
+    offline: process.env.PI_OFFLINE,
+    path: process.env.PATH,
+  };
+  clearRuntimeResolutionCache();
+  delete process.env.CAREER_CLI_PATH;
+  process.env.FAKE_CAREER_MANAGED_COMPATIBLE = "1";
+  process.env.FAKE_CAREER_DELETE_AFTER_COMPAT = "1";
+  process.env.PI_OFFLINE = "1";
+  process.env.PATH = [pathRoot, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter);
+  try {
+    await expectAdapterError(
+      invokeCareerCli(resumeRequest({ request_id: "private-not-opened" })),
+      "runtime_unavailable",
+    );
+  } finally {
+    clearRuntimeResolutionCache();
+    for (const [key, value] of Object.entries({
+      CAREER_CLI_PATH: previous.career,
+      FAKE_CAREER_MANAGED_COMPATIBLE: previous.compatible,
+      FAKE_CAREER_DELETE_AFTER_COMPAT: previous.deletion,
+      PI_OFFLINE: previous.offline,
+      PATH: previous.path,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(pathRoot, { recursive: true, force: true });
   }
 });
 

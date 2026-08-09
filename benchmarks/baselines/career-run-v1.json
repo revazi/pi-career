@@ -12,8 +12,8 @@
   },
   "candidate": {
     "tool-contract/career-run-active": 302,
-    "tool-contract/raw-three-inactive": 1055,
-    "tool-contract/all-registered": 1359,
+    "tool-contract/raw-three-inactive": 1063,
+    "tool-contract/all-registered": 1367,
     "tool-result/synthetic-analyze": 161,
     "tool-result/synthetic-variant-review": 201,
     "editor-prompt/synthetic-workbench": 716

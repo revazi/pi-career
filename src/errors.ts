@@ -10,8 +10,9 @@ export interface CareerCliErrorV1 {
 export type AdapterErrorCode =
   | "invalid_request"
   | "invalid_executable_override"
-  | "unsupported_platform"
-  | "bundled_runtime_invalid"
+  | "managed_contract_invalid"
+  | "runtime_unavailable"
+  | "runtime_acquisition_failed"
   | "missing_executable"
   | "executable_unavailable"
   | "cancelled"
@@ -39,8 +40,11 @@ interface CareerPiErrorV1 {
 const ERROR_MESSAGES: Readonly<Record<AdapterErrorCode, string>> = {
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
-  unsupported_platform: "No bundled Career Core runtime is available for this platform.",
-  bundled_runtime_invalid: "The bundled Career Core runtime failed local integrity verification.",
+  managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
+  runtime_unavailable:
+    "No compatible Career Core runtime is available. Install @revazi/career@0.1.0 or configure a compatible local career executable.",
+  runtime_acquisition_failed:
+    "Automatic acquisition of @revazi/career@0.1.0 failed. Install that exact package or configure a compatible local career executable.",
   missing_executable: "The selected Career Core runtime was not found.",
   executable_unavailable: "The selected Career Core runtime is not available for execution.",
   cancelled: "The Career Core operation was cancelled.",

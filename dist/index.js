@@ -6,16 +6,17 @@ import { StringEnum as StringEnum2 } from "@earendil-works/pi-ai";
 import { Type as Type2 } from "typebox";
 
 // src/process.ts
-import { spawn } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import { isAbsolute } from "node:path";
-import { TextDecoder } from "node:util";
+import { TextDecoder as TextDecoder2 } from "node:util";
 
 // src/errors.ts
 var ERROR_MESSAGES = {
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
-  unsupported_platform: "No bundled Career Core runtime is available for this platform.",
-  bundled_runtime_invalid: "The bundled Career Core runtime failed local integrity verification.",
+  managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
+  runtime_unavailable: "No compatible Career Core runtime is available. Install @revazi/career@0.1.0 or configure a compatible local career executable.",
+  runtime_acquisition_failed: "Automatic acquisition of @revazi/career@0.1.0 failed. Install that exact package or configure a compatible local career executable.",
   missing_executable: "The selected Career Core runtime was not found.",
   executable_unavailable: "The selected Career Core runtime is not available for execution.",
   cancelled: "The Career Core operation was cancelled.",
@@ -53,158 +54,629 @@ function publicAdapterError(error) {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
 
-// src/runtime.ts
-import { createHash } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-var MANIFEST_MAX_BYTES = 65536;
-var RUNTIME_MAX_BYTES = 16777216;
-var SHA256_PATTERN = /^[a-f0-9]{64}$/;
-var TARGET_LAYOUT = {
-  "darwin-arm64": {
-    platform: "darwin",
-    arch: "arm64",
-    libc: null,
-    targetTriple: "aarch64-apple-darwin",
-    relativePath: "runtime/darwin-arm64/career",
-    provenancePath: "runtime/darwin-arm64/provenance.json"
+// src/managed/catalog.ts
+var MANAGED_OUTPUT_MAX_BYTES = 33554432;
+var MANAGED_STDOUT_CAPTURE_MAX_BYTES = MANAGED_OUTPUT_MAX_BYTES + 1;
+var MANAGED_RESULT_MAX_LINES = 2;
+var MANAGED_INVOKE_OPTIONS = {
+  stdoutCaptureMaxBytes: MANAGED_STDOUT_CAPTURE_MAX_BYTES,
+  toolResultMaxBytes: MANAGED_OUTPUT_MAX_BYTES,
+  toolResultMaxLines: MANAGED_RESULT_MAX_LINES
+};
+var EXPECTED_CORE_VERSION = "0.1.0";
+var EXPECTED_OPERATIONS = {
+  "core.capabilities": {
+    capability: "core.capabilities",
+    path: ["capabilities"],
+    input: null,
+    output: "career.capabilities.v1",
+    inputBytes: null
   },
-  "linux-x64-gnu": {
-    platform: "linux",
-    arch: "x64",
-    libc: "gnu",
-    targetTriple: "x86_64-unknown-linux-gnu",
-    relativePath: "runtime/linux-x64-gnu/career",
-    provenancePath: "runtime/linux-x64-gnu/provenance.json"
+  "core.operations": {
+    capability: null,
+    path: ["operations"],
+    input: null,
+    output: "career.operation_catalog.v1",
+    inputBytes: null
+  },
+  "schema.list": {
+    capability: null,
+    path: ["schema", "list"],
+    input: null,
+    output: "career.schema_catalog.v1",
+    inputBytes: null
+  },
+  "schema.export": {
+    capability: null,
+    path: ["schema", "export"],
+    input: null,
+    output: "https://json-schema.org/draft/2020-12/schema",
+    inputBytes: null
+  },
+  "schema.bundle": {
+    capability: null,
+    path: ["schema", "bundle"],
+    input: null,
+    output: "https://json-schema.org/draft/2020-12/schema",
+    inputBytes: null
+  },
+  "resume.evaluate": {
+    capability: "resume.evaluate",
+    path: ["resume", "evaluate"],
+    input: "career.resume_input.v1",
+    output: "career.resume_evaluation.v1",
+    inputBytes: 262144
+  },
+  "resume.analyze": {
+    capability: "resume.analyze",
+    path: ["resume", "analyze"],
+    input: "career.resume_input.v1",
+    output: "career.resume_analysis.v1",
+    inputBytes: 262144
+  },
+  "resume.normalize": {
+    capability: "resume.normalize",
+    path: ["resume", "normalize"],
+    input: "career.resume_input.v1",
+    output: "career.resume_normalization.v1",
+    inputBytes: 262144
+  },
+  "resume.enrich": {
+    capability: "resume.enrich",
+    path: ["resume", "enrich"],
+    input: "career.resume_enrichment_input.v1",
+    output: "career.resume_enrichment_result.v1",
+    inputBytes: 262144
+  },
+  "resume.analysis-suggestions.review": {
+    capability: "resume.analysis-suggestions.review",
+    path: ["resume", "analysis-suggestions-review"],
+    input: "career.resume_analysis_suggestion_review_input.v1",
+    output: "career.resume_analysis_suggestion_review.v1",
+    inputBytes: 262144
+  },
+  "resume.analysis-replacements.review": {
+    capability: "resume.analysis-replacements.review",
+    path: ["resume", "analysis-replacements-review"],
+    input: "career.resume_analysis_replacement_review_input.v1",
+    output: "career.resume_analysis_replacement_review.v1",
+    inputBytes: 262144
+  },
+  "resume.variant.review": {
+    capability: "resume.variant.review",
+    path: ["resume", "variant-review"],
+    input: "career.resume_variant_review_input.v1",
+    output: "career.resume_variant_review.v1",
+    inputBytes: 1048576
+  },
+  "resume.variant.materialize": {
+    capability: "resume.variant.materialize",
+    path: ["resume", "variant-materialize"],
+    input: "career.resume_variant_materialization_input.v1",
+    output: "career.resume_variant.v1",
+    inputBytes: 1048576
+  },
+  "job.normalize": {
+    capability: "job.normalize",
+    path: ["job", "normalize"],
+    input: "career.job_input.v1",
+    output: "career.job_normalization.v1",
+    inputBytes: 262144
+  },
+  "job.match": {
+    capability: "job.match",
+    path: ["job", "match"],
+    input: "career.job_match_input.v1",
+    output: "career.job_match.v1",
+    inputBytes: 1048576
   }
 };
-var verifiedRuntimeKeys = /* @__PURE__ */ new Set();
-var pendingRuntimeVerifications = /* @__PURE__ */ new Map();
-function detectedGlibcVersion() {
-  if (process.platform !== "linux") return void 0;
+var REQUIRED_BUNDLES = [
+  ["career.resume_analysis_suggestion_review_input.v1", "resume-analysis-suggestion-review-input-v1.schema.json"],
+  ["career.resume_analysis_replacement_review_input.v1", "resume-analysis-replacement-review-input-v1.schema.json"],
+  ["career.resume_variant_review_input.v1", "resume-variant-review-input-v1.schema.json"],
+  ["career.resume_variant_materialization_input.v1", "resume-variant-materialization-input-v1.schema.json"]
+];
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function parseObject(json) {
+  const value = JSON.parse(json);
+  if (!isRecord(value)) throw new Error("managed_contract_invalid");
+  return value;
+}
+function exactKeys(value, expected) {
+  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+function parseDescriptor(value) {
+  if (!isRecord(value) || !exactKeys(value, [
+    "operation_id",
+    "capability_id",
+    "availability",
+    "cli_path",
+    "input_transport",
+    "input_schema_id",
+    "output_schema_id",
+    "maximum_input_bytes",
+    "maximum_successful_machine_output_bytes"
+  ])) throw new Error("managed_contract_invalid");
+  if (typeof value.operation_id !== "string" || value.capability_id !== null && typeof value.capability_id !== "string" || value.availability !== "available" || !Array.isArray(value.cli_path) || value.cli_path.length === 0 || !value.cli_path.every((part) => typeof part === "string" && /^[a-z-]+$/.test(part)) || value.input_transport !== "none" && value.input_transport !== "cli_arguments" && value.input_transport !== "json_file_or_stdin" || value.input_schema_id !== null && typeof value.input_schema_id !== "string" || typeof value.output_schema_id !== "string" || value.maximum_input_bytes !== null && !Number.isSafeInteger(value.maximum_input_bytes) || value.maximum_successful_machine_output_bytes !== MANAGED_OUTPUT_MAX_BYTES) throw new Error("managed_contract_invalid");
+  return value;
+}
+function verifyDescriptor(descriptor, expected) {
+  const documentOperation = expected.input !== null;
+  if (descriptor.capability_id !== expected.capability || descriptor.cli_path.join("\0") !== expected.path.join("\0") || descriptor.input_schema_id !== expected.input || descriptor.output_schema_id !== expected.output || descriptor.maximum_input_bytes !== expected.inputBytes || descriptor.input_transport !== (documentOperation ? "json_file_or_stdin" : descriptor.operation_id.startsWith("schema.") && descriptor.operation_id !== "schema.list" ? "cli_arguments" : "none")) throw new Error("managed_contract_invalid");
+}
+function inspectReferences(value, root) {
+  if (Array.isArray(value)) {
+    for (const item of value) inspectReferences(item, root);
+    return;
+  }
+  if (!isRecord(value)) return;
+  const reference = value.$ref;
+  if (reference !== void 0) {
+    if (typeof reference !== "string" || !reference.startsWith("#/")) {
+      throw new Error("managed_contract_invalid");
+    }
+    let current = root;
+    for (const rawPart of reference.slice(2).split("/")) {
+      const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
+      if (!isRecord(current) || !Object.hasOwn(current, part)) {
+        throw new Error("managed_contract_invalid");
+      }
+      current = current[part];
+    }
+  }
+  for (const nested of Object.values(value)) inspectReferences(nested, root);
+}
+function verifyBundle(json, fileName) {
+  const bundle = parseObject(json);
+  if (bundle.$schema !== "https://json-schema.org/draft/2020-12/schema" || typeof bundle.$id !== "string" || !bundle.$id.endsWith(`/${fileName}`)) throw new Error("managed_contract_invalid");
+  inspectReferences(bundle, bundle);
+}
+var ManagedContractCache = class {
+  cached;
+  loading;
+  async load(invoke, signal) {
+    if (this.cached !== void 0) return this.cached;
+    if (this.loading !== void 0) return this.loading;
+    this.loading = this.discover(invoke, signal);
+    try {
+      const contracts = await this.loading;
+      if (!signal?.aborted) this.cached = contracts;
+      return contracts;
+    } finally {
+      this.loading = void 0;
+    }
+  }
+  async discover(invoke, signal) {
+    const catalogResult = await invoke(
+      { kind: "discovery", operation: "operations" },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const catalog = parseObject(catalogResult.json);
+    if (!exactKeys(catalog, ["schema_version", "core_version", "operations"]) || catalog.schema_version !== "career.operation_catalog.v1" || catalog.core_version !== EXPECTED_CORE_VERSION || !Array.isArray(catalog.operations)) throw new Error("managed_contract_invalid");
+    const operations = /* @__PURE__ */ new Map();
+    for (const value of catalog.operations) {
+      const descriptor = parseDescriptor(value);
+      if (operations.has(descriptor.operation_id)) throw new Error("managed_contract_invalid");
+      operations.set(descriptor.operation_id, descriptor);
+    }
+    if (operations.size !== Object.keys(EXPECTED_OPERATIONS).length) {
+      throw new Error("managed_contract_invalid");
+    }
+    for (const [operationId, expected] of Object.entries(EXPECTED_OPERATIONS)) {
+      const descriptor = operations.get(operationId);
+      if (descriptor === void 0) throw new Error("managed_contract_invalid");
+      verifyDescriptor(descriptor, expected);
+    }
+    const bundles = await Promise.all(REQUIRED_BUNDLES.map(async ([schemaId, fileName]) => ({
+      fileName,
+      result: await invoke(
+        { kind: "discovery", operation: "schema-bundle", schemaId },
+        signal,
+        MANAGED_INVOKE_OPTIONS
+      )
+    })));
+    for (const bundle of bundles) verifyBundle(bundle.result.json, bundle.fileName);
+    return { coreVersion: catalog.core_version, operations };
+  }
+};
+
+// src/runtime.ts
+import { spawn } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
+import { access, lstat, readFile, realpath } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { TextDecoder } from "node:util";
+var CAREER_PACKAGE_NAME = "@revazi/career";
+var CAREER_PACKAGE_VERSION = "0.1.0";
+var CAREER_PACKAGE_SPEC = `${CAREER_PACKAGE_NAME}@${CAREER_PACKAGE_VERSION}`;
+var EXECUTABLE_MAX_BYTES = 4096;
+var PATH_MAX_BYTES = 65536;
+var PACKAGE_MANIFEST_MAX_BYTES = 32768;
+var LAUNCHER_MAX_BYTES = 65536;
+var ACQUISITION_STDOUT_MAX_BYTES = 8192;
+var ACQUISITION_STDERR_MAX_BYTES = 16384;
+var ACQUISITION_TIMEOUT_MS = 12e4;
+var TERMINATION_GRACE_MS = 250;
+var CANONICAL_NPM_REGISTRY = "https://registry.npmjs.org/";
+var SOURCE_ORDER = ["path", "package-local", "acquired"];
+var requireFromPackage = createRequire(import.meta.url);
+var cachedResolution;
+var pendingResolution;
+function environmentValue(environment, key) {
+  return environment[key];
+}
+function runtimeEnvironmentKey(environment) {
+  return JSON.stringify([
+    environmentValue(environment, "CAREER_CLI_PATH") ?? null,
+    environmentValue(environment, "PATH") ?? null
+  ]);
+}
+function resolveCareerExecutable(environment = process.env) {
+  const override = environmentValue(environment, "CAREER_CLI_PATH");
+  if (override === void 0) return void 0;
+  if (override.length === 0 || override.includes("\0") || Buffer.byteLength(override, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(override)) {
+    throw adapterError("invalid_executable_override");
+  }
+  return override;
+}
+function route(command, argumentPrefix, source) {
+  return Object.freeze({
+    command,
+    argumentPrefix: Object.freeze([...argumentPrefix]),
+    source,
+    identity: `${source}\0${command}\0${argumentPrefix.join("\0")}`
+  });
+}
+function explicitRoute(executable) {
+  return route(executable, [], "explicit");
+}
+function pathEntries(environmentPath, cwd) {
+  if (environmentPath === void 0 || environmentPath.includes("\0") || Buffer.byteLength(environmentPath, "utf8") > PATH_MAX_BYTES) return [];
+  return environmentPath.split(path.delimiter).map((entry) => path.resolve(entry || cwd));
+}
+function executableNames(environment) {
+  if (process.platform !== "win32") return ["career"];
+  const pathExt = environmentValue(environment, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+  const extensions = pathExt.split(";").filter((value) => /^\.[A-Za-z0-9]+$/.test(value));
+  return ["career", ...extensions.map((extension) => `career${extension.toLowerCase()}`)];
+}
+async function pathRoute(environment, cwd) {
+  for (const directory of pathEntries(environmentValue(environment, "PATH"), cwd)) {
+    for (const name of executableNames(environment)) {
+      const candidate = path.join(directory, name);
+      try {
+        const metadata = await lstat(candidate);
+        if (!metadata.isFile() && !metadata.isSymbolicLink()) continue;
+        await access(candidate, fsConstants.X_OK);
+        return route(candidate, [], "path");
+      } catch {
+      }
+    }
+  }
+  return void 0;
+}
+function isRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function boundedRegularFile(metadata, maximumBytes, executable) {
+  return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size >= 2 && metadata.size <= maximumBytes && (!executable || (metadata.mode & 73) !== 0);
+}
+function launcherManifestIsValid(manifest) {
+  if (!isRecord2(manifest) || !isRecord2(manifest.bin) || !isRecord2(manifest.career_launcher)) {
+    return false;
+  }
+  const platformPackages = manifest.career_launcher.platform_packages;
+  return manifest.name === CAREER_PACKAGE_NAME && manifest.version === CAREER_PACKAGE_VERSION && manifest.bin.career === "bin/career.js" && manifest.career_launcher.schema_version === "career.npm_launcher.v1" && manifest.career_launcher.executable === "career" && Array.isArray(platformPackages) && platformPackages.join("\0") === "@revazi/career-darwin-arm64\0@revazi/career-linux-x64-gnu";
+}
+async function readLauncherRoute(manifestPath, source, execPath) {
   try {
-    const report = process.report?.getReport();
-    const header = report?.header;
-    const version = header?.glibcVersionRuntime;
-    return typeof version === "string" && version.length > 0 ? version : void 0;
+    if (!path.isAbsolute(manifestPath) || !path.isAbsolute(execPath)) return void 0;
+    const [manifestMetadata, realNodePath] = await Promise.all([
+      lstat(manifestPath),
+      realpath(execPath)
+    ]);
+    if (!boundedRegularFile(manifestMetadata, PACKAGE_MANIFEST_MAX_BYTES, false)) return void 0;
+    const nodeMetadata = await lstat(realNodePath);
+    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) return void 0;
+    const bytes = await readFile(manifestPath);
+    if (bytes.length !== manifestMetadata.size) return void 0;
+    const manifest = JSON.parse(bytes.toString("utf8"));
+    if (!launcherManifestIsValid(manifest)) return void 0;
+    const launcherPath = path.join(path.dirname(manifestPath), "bin", "career.js");
+    const launcherMetadata = await lstat(launcherPath);
+    if (!boundedRegularFile(launcherMetadata, LAUNCHER_MAX_BYTES, true)) return void 0;
+    return route(realNodePath, [launcherPath], source);
   } catch {
     return void 0;
   }
 }
-function currentPlatformInfo() {
-  const glibcVersionRuntime = detectedGlibcVersion();
+function defaultPackageManifest() {
+  try {
+    return requireFromPackage.resolve(`${CAREER_PACKAGE_NAME}/package.json`);
+  } catch {
+    return void 0;
+  }
+}
+async function packageLocalRoute(dependencies) {
+  const manifestPath = (dependencies.resolvePackageManifest ?? defaultPackageManifest)();
+  if (manifestPath === void 0) return void 0;
+  return readLauncherRoute(
+    manifestPath,
+    "package-local",
+    dependencies.execPath ?? process.execPath
+  );
+}
+function npmExecPathValues(environment) {
+  return Object.entries(environment).filter(([key]) => key.toLowerCase() === "npm_execpath").map(([, value]) => value);
+}
+async function trustedNpm(execPath, environment) {
+  try {
+    if (!path.isAbsolute(execPath)) throw new Error("invalid node path");
+    const realNodePath = await realpath(execPath);
+    const nodeMetadata = await lstat(realNodePath);
+    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) {
+      throw new Error("invalid node executable");
+    }
+    const prefix = path.dirname(path.dirname(realNodePath));
+    const derivedNpmCliPath = path.join(prefix, "lib", "node_modules", "npm", "bin", "npm-cli.js");
+    const realNpmCliPath = await realpath(derivedNpmCliPath);
+    if (realNpmCliPath !== derivedNpmCliPath) throw new Error("invalid npm path");
+    const npmMetadata = await lstat(realNpmCliPath);
+    if (!npmMetadata.isFile() || (npmMetadata.mode & 73) === 0) {
+      throw new Error("invalid npm executable");
+    }
+    const supplied = npmExecPathValues(environment);
+    if (supplied.length > 1) throw new Error("ambiguous npm_execpath");
+    if (supplied.length === 1) {
+      const suppliedPath = supplied[0];
+      if (typeof suppliedPath !== "string" || !path.isAbsolute(suppliedPath)) {
+        throw new Error("invalid npm_execpath");
+      }
+      if (await realpath(suppliedPath) !== realNpmCliPath) {
+        throw new Error("conflicting npm_execpath");
+      }
+    }
+    return { nodePath: realNodePath, npmCliPath: realNpmCliPath };
+  } catch {
+    throw adapterError("runtime_acquisition_failed");
+  }
+}
+var FORBIDDEN_NPM_ENVIRONMENT = /* @__PURE__ */ new Set([
+  "node_env",
+  "node_options",
+  "npm_config_audit_level",
+  "npm_config_global",
+  "npm_config_include",
+  "npm_config_omit",
+  "npm_config_prefix",
+  "npm_config_registry",
+  "npm_config_script_shell"
+]);
+function sanitizedNpmEnvironment(environment, nodePath) {
+  const sanitized = Object.fromEntries(Object.entries(environment).filter(
+    ([key, value]) => typeof value === "string" && key.toLowerCase() !== "path" && !FORBIDDEN_NPM_ENVIRONMENT.has(key.toLowerCase().replaceAll("-", "_"))
+  ));
   return {
-    platform: process.platform,
-    arch: process.arch,
-    ...glibcVersionRuntime === void 0 ? {} : { glibcVersionRuntime }
+    ...sanitized,
+    PATH: [path.dirname(nodePath), "/usr/bin", "/bin"].join(path.delimiter)
   };
 }
-function selectRuntimeTarget(info) {
-  if (info.platform === "darwin" && info.arch === "arm64") return "darwin-arm64";
-  if (info.platform === "linux" && info.arch === "x64" && typeof info.glibcVersionRuntime === "string" && info.glibcVersionRuntime.length > 0) {
-    return "linux-x64-gnu";
-  }
-  throw adapterError("unsupported_platform");
-}
-function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function isSha256(value) {
-  return typeof value === "string" && SHA256_PATTERN.test(value);
-}
-function isBoundedPositiveInteger(value, maximum) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= maximum;
-}
-function isBoundedText(value, maximum) {
-  return typeof value === "string" && value.length > 0 && value.length <= maximum;
-}
-async function readRuntimeManifest(manifestPath) {
+var LOCATE_ACQUIRED_LAUNCHER = String.raw`
+const fs = require("node:fs");
+const path = require("node:path");
+const first = (process.env.PATH || "").split(path.delimiter)[0];
+if (!first || !path.isAbsolute(first)) process.exit(2);
+const name = process.platform === "win32" ? "career.cmd" : "career";
+process.stdout.write(fs.realpathSync(path.join(first, name)));
+`;
+function terminateProcessTree(child, signal) {
   try {
-    const metadata = await lstat(manifestPath);
-    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MANIFEST_MAX_BYTES) {
-      throw adapterError("bundled_runtime_invalid");
+    if (process.platform !== "win32" && child.pid !== void 0) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
     }
-    const bytes = await readFile(manifestPath);
-    if (bytes.length !== metadata.size) throw adapterError("bundled_runtime_invalid");
-    const parsed = JSON.parse(bytes.toString("utf8"));
-    if (!isRecord(parsed)) throw adapterError("bundled_runtime_invalid");
-    return parsed;
-  } catch (error) {
-    if (error instanceof CareerInvocationError) throw error;
-    throw adapterError("bundled_runtime_invalid");
   }
 }
-function manifestHeaderIsValid(manifest) {
-  return manifest.schema_version === "pi.career.runtime_manifest.v2" && typeof manifest.career_core?.commit === "string" && /^[a-f0-9]{40}$/.test(manifest.career_core.commit);
-}
-function targetMatchesLayout(target, layout) {
-  if (!isRecord(target)) return false;
-  return [
-    target.platform === layout.platform,
-    target.arch === layout.arch,
-    target.libc === layout.libc,
-    target.target_triple === layout.targetTriple,
-    target.path === layout.relativePath,
-    target.provenance_path === layout.provenancePath,
-    isSha256(target.sha256),
-    isBoundedPositiveInteger(target.size_bytes, RUNTIME_MAX_BYTES),
-    target.mode === "0755",
-    isBoundedText(target.version_output, 100)
-  ].every(Boolean);
-}
-function validatedTarget(manifest, targetKey) {
-  const target = manifest.targets?.[targetKey];
-  if (!manifestHeaderIsValid(manifest) || !targetMatchesLayout(target, TARGET_LAYOUT[targetKey])) {
-    throw adapterError("bundled_runtime_invalid");
-  }
-  return target;
-}
-async function verifyRuntimeBinary(executablePath, expected) {
-  try {
-    if (!path.isAbsolute(executablePath)) throw adapterError("bundled_runtime_invalid");
-    const metadata = await lstat(executablePath);
-    if (!metadata.isFile() || metadata.size !== expected.size_bytes || (metadata.mode & 511) !== 493 || expected.mode !== "0755") {
-      throw adapterError("bundled_runtime_invalid");
+async function runAcquisition(nodePath, npmCliPath, environment, cwd, signal) {
+  if (signal?.aborted) throw adapterError("cancelled");
+  const arguments_ = [
+    npmCliPath,
+    "exec",
+    "--yes",
+    "--ignore-scripts",
+    "--include=optional",
+    "--node-options=",
+    "--script-shell=/bin/sh",
+    `--registry=${CANONICAL_NPM_REGISTRY}`,
+    `--package=${CAREER_PACKAGE_SPEC}`,
+    "--",
+    nodePath,
+    "-e",
+    LOCATE_ACQUIRED_LAUNCHER
+  ];
+  const completed = await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(nodePath, arguments_, {
+        cwd,
+        detached: process.platform !== "win32",
+        env: sanitizedNpmEnvironment(environment, nodePath),
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true
+      });
+    } catch {
+      resolve({ code: null, signal: null, spawnError: true, stdout: [], stderrBytes: 0 });
+      return;
     }
-    const bytes = await readFile(executablePath);
-    if (bytes.length !== expected.size_bytes) throw adapterError("bundled_runtime_invalid");
-    const digest = createHash("sha256").update(bytes).digest("hex");
-    if (digest !== expected.sha256) throw adapterError("bundled_runtime_invalid");
-  } catch (error) {
-    if (error instanceof CareerInvocationError) throw error;
-    throw adapterError("bundled_runtime_invalid");
-  }
-}
-function defaultManifestPath() {
-  return fileURLToPath(new URL("../runtime/manifest.json", import.meta.url));
-}
-function defaultRuntimeRoot() {
-  return fileURLToPath(new URL("../runtime", import.meta.url));
-}
-async function resolveBundledRuntime(options = {}) {
-  const targetKey = selectRuntimeTarget(options.platformInfo ?? currentPlatformInfo());
-  const manifestPath = options.manifestPath ?? defaultManifestPath();
-  const runtimeRoot = options.runtimeRoot ?? defaultRuntimeRoot();
-  if (!path.isAbsolute(manifestPath) || !path.isAbsolute(runtimeRoot)) {
-    throw adapterError("bundled_runtime_invalid");
-  }
-  const manifest = await readRuntimeManifest(manifestPath);
-  const target = validatedTarget(manifest, targetKey);
-  const executablePath = path.join(runtimeRoot, targetKey, "career");
-  const verificationKey = `${executablePath}\0${target.size_bytes}\0${target.sha256}`;
-  if (verifiedRuntimeKeys.has(verificationKey)) return executablePath;
-  let pending = pendingRuntimeVerifications.get(verificationKey);
-  if (pending === void 0) {
-    pending = verifyRuntimeBinary(executablePath, target);
-    pendingRuntimeVerifications.set(verificationKey, pending);
-  }
+    const stdout = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let closed = false;
+    let spawnError = false;
+    let terminationError;
+    let killTimer;
+    const terminate = (error) => {
+      if (terminationError !== void 0 || closed) return;
+      terminationError = error;
+      terminateProcessTree(child, "SIGTERM");
+      killTimer = setTimeout(() => {
+        if (!closed) terminateProcessTree(child, "SIGKILL");
+      }, TERMINATION_GRACE_MS);
+      killTimer.unref();
+    };
+    const timeout = setTimeout(
+      () => terminate(adapterError("timeout")),
+      ACQUISITION_TIMEOUT_MS
+    );
+    timeout.unref();
+    const onAbort = () => terminate(adapterError("cancelled"));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.once("error", () => {
+      spawnError = true;
+    });
+    child.stdout.on("data", (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > ACQUISITION_STDOUT_MAX_BYTES) terminate(adapterError("stdout_overflow"));
+      else stdout.push(Buffer.from(chunk));
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > ACQUISITION_STDERR_MAX_BYTES) terminate(adapterError("stderr_overflow"));
+    });
+    child.once("close", (code, childSignal) => {
+      closed = true;
+      clearTimeout(timeout);
+      if (killTimer !== void 0) clearTimeout(killTimer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve({
+        code,
+        signal: childSignal,
+        spawnError,
+        ...terminationError === void 0 ? {} : { terminationError },
+        stdout,
+        stderrBytes
+      });
+    });
+  });
+  if (completed.terminationError !== void 0) throw completed.terminationError;
+  if (completed.spawnError || completed.code !== 0 || completed.signal !== null) throw adapterError("runtime_acquisition_failed");
   try {
-    await pending;
-    verifiedRuntimeKeys.add(verificationKey);
-    return executablePath;
+    const launcher = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(completed.stdout));
+    if (launcher.length === 0 || launcher.includes("\0") || Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(launcher)) throw new Error("invalid acquired launcher");
+    return launcher;
+  } catch {
+    throw adapterError("runtime_acquisition_failed");
+  }
+}
+async function defaultAcquireLauncher(signal, environment, dependencies) {
+  const trusted = await trustedNpm(dependencies.execPath ?? process.execPath, environment);
+  return runAcquisition(
+    trusted.nodePath,
+    trusted.npmCliPath,
+    environment,
+    path.dirname(trusted.nodePath),
+    signal
+  );
+}
+async function acquiredRoute(signal, environment, dependencies) {
+  if (environmentValue(environment, "PI_OFFLINE") === "1") {
+    throw adapterError("runtime_unavailable");
+  }
+  const launcherPath = dependencies.acquireLauncher === void 0 ? await defaultAcquireLauncher(signal, environment, dependencies) : await dependencies.acquireLauncher(signal, environment);
+  const manifestPath = path.join(path.dirname(path.dirname(launcherPath)), "package.json");
+  const found = await readLauncherRoute(
+    manifestPath,
+    "acquired",
+    dependencies.execPath ?? process.execPath
+  );
+  if (found === void 0 || found.argumentPrefix[0] !== launcherPath) {
+    throw adapterError("runtime_acquisition_failed");
+  }
+  return found;
+}
+function terminalProbeError(error) {
+  return error instanceof CareerInvocationError && (error.payload.code === "cancelled" || error.payload.code === "timeout");
+}
+function explicitProbeError(error) {
+  if (error instanceof CareerInvocationError) {
+    if (error.payload.code === "missing_executable" || error.payload.code === "executable_unavailable" || error.payload.code === "cancelled" || error.payload.code === "timeout") return error;
+  }
+  return adapterError("managed_contract_invalid");
+}
+function sourceStart(afterSource) {
+  if (afterSource === void 0 || afterSource === "explicit") return 0;
+  const index = SOURCE_ORDER.indexOf(afterSource);
+  return index < 0 ? 0 : index + 1;
+}
+async function probeCandidate(candidate, probe, signal) {
+  try {
+    await probe(candidate, signal);
+    return true;
+  } catch (error) {
+    if (terminalProbeError(error)) throw error;
+    if (candidate.source === "explicit") throw explicitProbeError(error);
+    return false;
+  }
+}
+async function resolveUncached(options) {
+  const environment = options.environment ?? process.env;
+  const dependencies = options.dependencies ?? {};
+  if (options.signal?.aborted) throw adapterError("cancelled");
+  const override = resolveCareerExecutable(environment);
+  if (override !== void 0) {
+    const candidate = explicitRoute(override);
+    await probeCandidate(candidate, options.probe, options.signal);
+    return candidate;
+  }
+  for (let index = sourceStart(options.afterSource); index < SOURCE_ORDER.length; index += 1) {
+    const source = SOURCE_ORDER[index];
+    let candidate;
+    if (source === "path") {
+      candidate = await pathRoute(environment, dependencies.cwd ?? process.cwd());
+    } else if (source === "package-local") {
+      candidate = await packageLocalRoute(dependencies);
+    } else {
+      candidate = await acquiredRoute(options.signal, environment, dependencies);
+    }
+    if (candidate !== void 0 && await probeCandidate(candidate, options.probe, options.signal)) {
+      return candidate;
+    }
+  }
+  throw adapterError("runtime_unavailable");
+}
+async function resolveCareerRuntime(options) {
+  const environment = options.environment ?? process.env;
+  const environmentKey = runtimeEnvironmentKey(environment);
+  const useCache = options.afterSource === void 0 && options.dependencies === void 0;
+  if (options.afterSource !== void 0 && cachedResolution?.environmentKey === environmentKey && cachedResolution.route.source === options.afterSource) cachedResolution = void 0;
+  if (useCache && cachedResolution?.environmentKey === environmentKey) {
+    return cachedResolution.route;
+  }
+  if (useCache && pendingResolution?.environmentKey === environmentKey) {
+    return pendingResolution.promise;
+  }
+  if (cachedResolution?.environmentKey !== environmentKey) cachedResolution = void 0;
+  const promise = resolveUncached(options);
+  if (useCache) pendingResolution = { environmentKey, promise };
+  try {
+    const resolved = await promise;
+    if (useCache && pendingResolution?.promise === promise) {
+      cachedResolution = { environmentKey, route: resolved };
+    } else if (options.afterSource !== void 0 && options.dependencies === void 0) {
+      cachedResolution = { environmentKey, route: resolved };
+    }
+    return resolved;
   } finally {
-    pendingRuntimeVerifications.delete(verificationKey);
+    if (useCache && pendingResolution?.promise === promise) pendingResolution = void 0;
   }
 }
 
@@ -216,8 +688,8 @@ var TOOL_RESULT_MAX_LINES = 2e3;
 var STDOUT_CAPTURE_MAX_BYTES = 1048576;
 var STDERR_CAPTURE_MAX_BYTES = 16384;
 var DEFAULT_TIMEOUT_MS = 3e4;
-var TERMINATION_GRACE_MS = 250;
-var EXECUTABLE_MAX_BYTES = 4096;
+var TERMINATION_GRACE_MS2 = 250;
+var EXECUTABLE_MAX_BYTES2 = 4096;
 var KNOWN_CLI_ERROR_CODES = /* @__PURE__ */ new Set([
   "invalid_arguments",
   "input_read_failed",
@@ -262,14 +734,6 @@ var KNOWN_CLI_ERROR_CODES = /* @__PURE__ */ new Set([
   "variant_selection_too_long",
   "variant_selection_invalid"
 ]);
-function resolveCareerExecutable(environment = process.env) {
-  const override = environment.CAREER_CLI_PATH;
-  if (override === void 0) return void 0;
-  if (override.length === 0 || override.includes("\0") || Buffer.byteLength(override, "utf8") > EXECUTABLE_MAX_BYTES || !isAbsolute(override)) {
-    throw adapterError("invalid_executable_override");
-  }
-  return override;
-}
 var DOCUMENT_INPUT_LIMITS = {
   "resume.evaluate": SINGLE_INPUT_MAX_BYTES,
   "resume.analyze": SINGLE_INPUT_MAX_BYTES,
@@ -335,7 +799,7 @@ function prepareInvocation(invocation) {
 }
 function decodeUtf8(chunks) {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+    return new TextDecoder2("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
   } catch {
     return void 0;
   }
@@ -425,26 +889,36 @@ function completedResult(prepared, completed, limits) {
   if (completed.code !== 0) throwCliFailure(completed.code, stdout, stderr);
   return successfulResult(prepared, stdout, stderr, limits);
 }
-async function invokeCareerCli(invocation, signal, options = {}) {
-  const prepared = prepareInvocation(invocation);
-  if (signal?.aborted) throw adapterError("cancelled");
-  const explicitExecutable = options.executable ?? resolveCareerExecutable();
-  if (explicitExecutable !== void 0 && (explicitExecutable.length === 0 || explicitExecutable.includes("\0") || Buffer.byteLength(explicitExecutable, "utf8") > EXECUTABLE_MAX_BYTES || !isAbsolute(explicitExecutable))) {
-    throw adapterError("invalid_executable_override");
+var ProcessAttemptError = class extends Error {
+  constructor(publicError, started) {
+    super(publicError.message);
+    this.publicError = publicError;
+    this.started = started;
+    this.name = "ProcessAttemptError";
   }
-  const executable = explicitExecutable ?? await resolveBundledRuntime();
-  if (signal?.aborted) throw adapterError("cancelled");
-  const limits = executionLimits(options);
+  publicError;
+  started;
+};
+function injectedRoute(executable) {
+  return Object.freeze({
+    command: executable,
+    argumentPrefix: Object.freeze([]),
+    source: "explicit",
+    identity: `injected\0${executable}`
+  });
+}
+function executePrepared(prepared, runtime, signal, limits) {
+  if (signal?.aborted) return Promise.reject(new ProcessAttemptError(adapterError("cancelled"), false));
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(executable, prepared.args, {
+      child = spawn2(runtime.command, [...runtime.argumentPrefix, ...prepared.args], {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true
       });
     } catch {
-      reject(adapterError("executable_unavailable"));
+      reject(new ProcessAttemptError(adapterError("executable_unavailable"), false));
       return;
     }
     const stdoutChunks = [];
@@ -452,6 +926,7 @@ async function invokeCareerCli(invocation, signal, options = {}) {
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let closed = false;
+    let started = false;
     let spawnErrorCode;
     let terminationError;
     let killTimer;
@@ -468,13 +943,21 @@ async function invokeCareerCli(invocation, signal, options = {}) {
           child.kill("SIGKILL");
         } catch {
         }
-      }, TERMINATION_GRACE_MS);
+      }, TERMINATION_GRACE_MS2);
       killTimer.unref();
     };
     const timeout = setTimeout(() => terminate(adapterError("timeout")), limits.timeoutMs);
     timeout.unref();
     const onAbort = () => terminate(adapterError("cancelled"));
     signal?.addEventListener("abort", onAbort, { once: true });
+    child.once("spawn", () => {
+      started = true;
+      try {
+        child.stdin.end(terminationError === void 0 ? prepared.input : void 0);
+      } catch {
+        terminate(adapterError("process_io_failure"));
+      }
+    });
     child.once("error", (error) => {
       spawnErrorCode = error.code;
     });
@@ -485,19 +968,13 @@ async function invokeCareerCli(invocation, signal, options = {}) {
     });
     child.stdout.on("data", (chunk) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > limits.stdoutMax) {
-        terminate(adapterError("stdout_overflow"));
-        return;
-      }
-      stdoutChunks.push(Buffer.from(chunk));
+      if (stdoutBytes > limits.stdoutMax) terminate(adapterError("stdout_overflow"));
+      else stdoutChunks.push(Buffer.from(chunk));
     });
     child.stderr.on("data", (chunk) => {
       stderrBytes += chunk.length;
-      if (stderrBytes > limits.stderrMax) {
-        terminate(adapterError("stderr_overflow"));
-        return;
-      }
-      stderrChunks.push(Buffer.from(chunk));
+      if (stderrBytes > limits.stderrMax) terminate(adapterError("stderr_overflow"));
+      else stderrChunks.push(Buffer.from(chunk));
     });
     child.once("close", (code, exitSignal) => {
       closed = true;
@@ -505,26 +982,83 @@ async function invokeCareerCli(invocation, signal, options = {}) {
       if (killTimer !== void 0) clearTimeout(killTimer);
       signal?.removeEventListener("abort", onAbort);
       try {
-        resolve(
-          completedResult(
-            prepared,
-            {
-              code,
-              exitSignal,
-              ...spawnErrorCode === void 0 ? {} : { spawnErrorCode },
-              ...terminationError === void 0 ? {} : { terminationError },
-              stdoutChunks,
-              stderrChunks
-            },
-            limits
-          )
-        );
+        resolve(completedResult(
+          prepared,
+          {
+            code,
+            exitSignal,
+            ...spawnErrorCode === void 0 ? {} : { spawnErrorCode },
+            ...terminationError === void 0 ? {} : { terminationError },
+            stdoutChunks,
+            stderrChunks
+          },
+          limits
+        ));
       } catch (error) {
-        reject(publicAdapterError(error));
+        reject(new ProcessAttemptError(publicAdapterError(error), started));
       }
     });
-    child.stdin.end(prepared.input);
   });
+}
+async function probeRuntime(runtime, signal) {
+  const contracts = new ManagedContractCache();
+  await contracts.load(async (invocation, invocationSignal, options = {}) => {
+    const prepared = prepareInvocation(invocation);
+    try {
+      return await executePrepared(
+        prepared,
+        runtime,
+        invocationSignal,
+        executionLimits(options)
+      );
+    } catch (error) {
+      if (error instanceof ProcessAttemptError) throw error.publicError;
+      throw publicAdapterError(error);
+    }
+  }, signal);
+}
+function retryablePrelaunch(error, runtime) {
+  return runtime.source !== "explicit" && !error.started && (error.publicError.payload.code === "missing_executable" || error.publicError.payload.code === "executable_unavailable");
+}
+async function executeResolved(prepared, runtime, signal, limits) {
+  try {
+    return await executePrepared(prepared, runtime, signal, limits);
+  } catch (error) {
+    if (!(error instanceof ProcessAttemptError)) throw publicAdapterError(error);
+    if (!retryablePrelaunch(error, runtime) || signal?.aborted) throw error.publicError;
+    const next = await resolveCareerRuntime({
+      ...signal === void 0 ? {} : { signal },
+      probe: probeRuntime,
+      afterSource: runtime.source
+    });
+    try {
+      return await executePrepared(prepared, next, signal, limits);
+    } catch (retryError) {
+      if (retryError instanceof ProcessAttemptError) throw retryError.publicError;
+      throw publicAdapterError(retryError);
+    }
+  }
+}
+async function invokeCareerCli(invocation, signal, options = {}) {
+  const prepared = prepareInvocation(invocation);
+  if (signal?.aborted) throw adapterError("cancelled");
+  const limits = executionLimits(options);
+  if (options.executable !== void 0) {
+    const executable = options.executable;
+    if (executable.length === 0 || executable.includes("\0") || Buffer.byteLength(executable, "utf8") > EXECUTABLE_MAX_BYTES2 || !isAbsolute(executable)) throw adapterError("invalid_executable_override");
+    try {
+      return await executePrepared(prepared, injectedRoute(executable), signal, limits);
+    } catch (error) {
+      if (error instanceof ProcessAttemptError) throw error.publicError;
+      throw publicAdapterError(error);
+    }
+  }
+  const runtime = await resolveCareerRuntime({
+    ...signal === void 0 ? {} : { signal },
+    probe: probeRuntime
+  });
+  if (signal?.aborted) throw adapterError("cancelled");
+  return executeResolved(prepared, runtime, signal, limits);
 }
 
 // src/managed/tool.ts
@@ -533,21 +1067,21 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 // src/workflow/config.ts
-import { createHash as createHash2, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
-  access,
+  access as access2,
   chmod,
   lstat as lstat2,
   mkdir,
   open,
   readFile as readFile2,
-  realpath,
+  realpath as realpath2,
   rename,
   rm
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import path2 from "node:path";
-import { TextDecoder as TextDecoder2 } from "node:util";
+import { TextDecoder as TextDecoder3 } from "node:util";
 
 // src/workflow/types.ts
 var WORKFLOW_CUSTOM_TYPE = "career.workflow";
@@ -592,7 +1126,7 @@ function workflowErrorMessage(code) {
 var CONFIG_SCHEMA = "pi.career.config.v1";
 var CONFIG_MAX_BYTES = 65536;
 var LABEL_MAX_CHARACTERS = 80;
-var PATH_MAX_BYTES = 4096;
+var PATH_MAX_BYTES2 = 4096;
 var SHA256 = /^[a-f0-9]{64}$/;
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function emptyConfig() {
@@ -603,12 +1137,12 @@ function configPath(agentDir) {
   return path2.join(agentDir, "career", "config.v1.json");
 }
 function rootId(canonicalPath) {
-  return createHash2("sha256").update(canonicalPath).digest("hex");
+  return createHash("sha256").update(canonicalPath).digest("hex");
 }
 function isPlainRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exactKeys(value, required, optional = []) {
+function exactKeys2(value, required, optional = []) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
@@ -616,17 +1150,17 @@ function validLabel(value) {
   return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
 }
 function normalizeGeneratedVariantsRoot(value) {
-  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES || !path2.isAbsolute(value) || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
+  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || !path2.isAbsolute(value) || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
   const normalized = path2.normalize(value);
   return path2.dirname(normalized) === normalized ? void 0 : normalized;
 }
 function parseRoot(value) {
-  if (!isPlainRecord(value) || !exactKeys(value, ["id", "path", "label"])) return void 0;
+  if (!isPlainRecord(value) || !exactKeys2(value, ["id", "path", "label"])) return void 0;
   if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
   return { id: value.id, path: value.path, label: value.label };
 }
 function parseConfig(value) {
-  if (!isPlainRecord(value) || !exactKeys(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
+  if (!isPlainRecord(value) || !exactKeys2(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
   const roots = [];
   const ids = /* @__PURE__ */ new Set();
   const paths = /* @__PURE__ */ new Set();
@@ -657,7 +1191,7 @@ async function loadConfig(agentDir) {
     if ((metadata.mode & 511) !== 384) throw workflowError("config_invalid");
     const bytes = await readFile2(file);
     if (bytes.length !== metadata.size) throw workflowError("config_invalid");
-    const text = new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
+    const text = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
     return parseConfig(JSON.parse(text));
   } catch (error) {
     if (error?.code === "ENOENT") return emptyConfig();
@@ -673,10 +1207,10 @@ async function canonicalizeRoot(inputPath) {
     if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) {
       throw workflowError("root_invalid");
     }
-    const canonical = await realpath(absolute);
+    const canonical = await realpath2(absolute);
     const metadata = await lstat2(canonical);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw workflowError("root_invalid");
-    await access(canonical, constants.R_OK);
+    await access2(canonical, constants.R_OK);
     return canonical;
   } catch (error) {
     if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
@@ -782,10 +1316,10 @@ function serializeCoreInput(value) {
 }
 
 // src/workflow/scan.ts
-import { createHash as createHash3 } from "node:crypto";
-import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath2 } from "node:fs/promises";
+import { createHash as createHash2 } from "node:crypto";
+import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath3 } from "node:fs/promises";
 import path3 from "node:path";
-import { TextDecoder as TextDecoder3 } from "node:util";
+import { TextDecoder as TextDecoder4 } from "node:util";
 
 // src/workflow/pdf.ts
 import { Worker } from "node:worker_threads";
@@ -869,7 +1403,7 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 function sha256(value) {
-  return createHash3("sha256").update(value).digest("hex");
+  return createHash2("sha256").update(value).digest("hex");
 }
 function normalizeDocumentText(value) {
   return value.replace(/\r\n?/g, "\n");
@@ -921,7 +1455,7 @@ async function readSidecar(file) {
     if (invalidMetadata) return { kind: "original", invalid: true };
     const bytes = await readFile3(sidecar);
     if (bytes.length !== metadata.size) return { kind: "original", invalid: true };
-    const text = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+    const text = new TextDecoder4("utf-8", { fatal: true }).decode(bytes);
     const parsed = JSON.parse(text);
     if (!validSidecar(parsed)) return { kind: "original", invalid: true };
     return { kind: "assisted_variant", variantGroupId: parsed.base_document_id, invalid: false };
@@ -933,7 +1467,7 @@ async function readSidecar(file) {
 async function scanRootIsCurrent(root) {
   try {
     const metadata = await lstat3(root.path);
-    const canonical = await realpath2(root.path);
+    const canonical = await realpath3(root.path);
     return metadata.isDirectory() && !metadata.isSymbolicLink() && canonical === root.path;
   } catch {
     return false;
@@ -1017,7 +1551,7 @@ async function scanCandidate(root, candidate, warnings2) {
   let canonical;
   try {
     metadata = await lstat3(candidate.absolute);
-    canonical = await realpath2(candidate.absolute);
+    canonical = await realpath3(candidate.absolute);
     if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== candidate.absolute || !canonical.startsWith(`${root.path}${path3.sep}`)) return void 0;
   } catch {
     warnings2.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
@@ -1049,7 +1583,7 @@ async function scanCandidate(root, candidate, warnings2) {
     decoded = extracted.text;
   } else {
     try {
-      decoded = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+      decoded = new TextDecoder4("utf-8", { fatal: true }).decode(bytes);
     } catch {
       warnings2.push({ code: "invalid_utf8", root_id: root.id, relative_path: candidate.relative });
       return void 0;
@@ -1129,7 +1663,7 @@ function eligibleOriginals(scan) {
 }
 
 // src/workflow/result-projection.ts
-function isRecord2(value) {
+function isRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function numberField(value, field) {
@@ -1139,7 +1673,7 @@ function numberField(value, field) {
 }
 function recordField(value, field) {
   const found = value[field];
-  if (!isRecord2(found)) throw workflowError("core_result_invalid");
+  if (!isRecord3(found)) throw workflowError("core_result_invalid");
   return found;
 }
 function arrayField(value, field) {
@@ -1149,7 +1683,7 @@ function arrayField(value, field) {
 }
 function compactObjects(value, fields, maximum) {
   return value.slice(0, maximum).flatMap((candidate) => {
-    if (!isRecord2(candidate)) return [];
+    if (!isRecord3(candidate)) return [];
     const selected = {};
     for (const field of fields) {
       if (candidate[field] !== void 0) selected[field] = candidate[field];
@@ -1161,7 +1695,7 @@ function compactWarnings(value) {
   return compactObjects(value, ["code", "message", "related_fields", "related_categories"], 3);
 }
 function parseConfidencePreview(value) {
-  if (!isRecord2(value) || typeof value.label !== "string" || typeof value.score !== "number") {
+  if (!isRecord3(value) || typeof value.label !== "string" || typeof value.score !== "number") {
     throw workflowError("core_result_invalid");
   }
   return { label: value.label, score: value.score };
@@ -1169,7 +1703,7 @@ function parseConfidencePreview(value) {
 function parseCoreJson(json) {
   try {
     const value = JSON.parse(json);
-    if (!isRecord2(value)) throw workflowError("core_result_invalid");
+    if (!isRecord3(value)) throw workflowError("core_result_invalid");
     return value;
   } catch (error) {
     if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
@@ -1181,7 +1715,7 @@ function projectResumeAnalysis(result) {
   const checks = arrayField(result, "checks");
   const confidence = recordField(result, "confidence_context");
   const parseConfidence = parseConfidencePreview(confidence.parse_confidence);
-  const adjusted = checks.some((check) => isRecord2(check) && check.score_adjusted === true);
+  const adjusted = checks.some((check) => isRecord3(check) && check.score_adjusted === true);
   return {
     schema_version: RESULT_PROJECTION_SCHEMA,
     core_schema_version: "career.resume_analysis.v1",
@@ -1208,7 +1742,7 @@ function projectJobMatch(result) {
   const recommendation = recordField(result, "recommendation");
   if (typeof recommendation.label !== "string") throw workflowError("core_result_invalid");
   const provisional = confidence.is_uncertain === true;
-  const adjusted = categories.some((category) => isRecord2(category) && category.score_adjusted === true);
+  const adjusted = categories.some((category) => isRecord3(category) && category.score_adjusted === true);
   return {
     schema_version: RESULT_PROJECTION_SCHEMA,
     core_schema_version: "career.job_match.v1",
@@ -1301,10 +1835,10 @@ var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 var SHA2563 = /^[a-f0-9]{64}$/;
 var ISO_UTC2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 var CARD_MAX_BYTES = 16384;
-function isRecord3(value) {
+function isRecord4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exactKeys2(value, required, optional = []) {
+function exactKeys3(value, required, optional = []) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
@@ -1318,7 +1852,7 @@ function validBase(value) {
   return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
 }
 function validFlags(value) {
-  if (!isRecord3(value) || !exactKeys2(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
+  if (!isRecord4(value) || !exactKeys3(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
     return false;
   }
   return [value.adjusted, value.provisional, value.close_cluster, value.stale].every(
@@ -1326,21 +1860,21 @@ function validFlags(value) {
   );
 }
 function validProjection(value) {
-  if (!isRecord3(value) || !exactKeys2(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
+  if (!isRecord4(value) || !exactKeys3(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
     return false;
   }
-  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord3(value.summary) || !validFlags(value.ui_flags)) return false;
+  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord4(value.summary) || !validFlags(value.ui_flags)) return false;
   return Buffer.byteLength(JSON.stringify(value), "utf8") <= CARD_MAX_BYTES;
 }
 function isUuid(value) {
   return typeof value === "string" && UUID2.test(value);
 }
-function isSha2562(value) {
+function isSha256(value) {
   return typeof value === "string" && SHA2563.test(value);
 }
 var APPLICATION_STATUSES = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
 function parseApplication(value) {
-  if (!exactKeys2(value, [
+  if (!exactKeys3(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1355,10 +1889,10 @@ function parseApplication(value) {
 }
 function parseApplicationClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys2(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys3(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseVacancy(value) {
-  if (!exactKeys2(value, [
+  if (!exactKeys3(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1369,7 +1903,7 @@ function parseVacancy(value) {
     "source"
   ], ["application_id"])) return void 0;
   if (!boundedText(value.vacancy_label, 120) || typeof value.vacancy_text !== "string" || value.vacancy_text.trim().length === 0 || !isWithinCoreCharacterLimit(value.vacancy_text)) return void 0;
-  if (!isSha2562(value.vacancy_text_sha256) || value.vacancy_text_sha256 !== sha256(value.vacancy_text)) {
+  if (!isSha256(value.vacancy_text_sha256) || value.vacancy_text_sha256 !== sha256(value.vacancy_text)) {
     return void 0;
   }
   if (value.source !== "paste" && value.source !== "replace") return void 0;
@@ -1378,21 +1912,21 @@ function parseVacancy(value) {
 }
 function parseVacancyClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys2(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys3(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseConsent(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "granted"];
-  return exactKeys2(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
+  return exactKeys3(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
 }
 function parseConsentClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "clears_state_id"];
-  return exactKeys2(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys3(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
 }
 function validInputDigests(value) {
-  return isRecord3(value) && exactKeys2(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha2562(value.resume_text_sha256) && isSha2562(value.vacancy_text_sha256);
+  return isRecord4(value) && exactKeys3(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha256(value.resume_text_sha256) && isSha256(value.vacancy_text_sha256);
 }
 function parseResultCard(value) {
-  if (!exactKeys2(value, [
+  if (!exactKeys3(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1406,17 +1940,17 @@ function parseResultCard(value) {
     "projection"
   ], ["application_id"])) return void 0;
   if (value.workflow !== "analyze" && value.workflow !== "match") return void 0;
-  if (!isUuid(value.run_id) || !isSha2562(value.resume_id) || !boundedText(value.resume_label, 120)) {
+  if (!isUuid(value.run_id) || !isSha256(value.resume_id) || !boundedText(value.resume_label, 120)) {
     return void 0;
   }
-  if (!isSha2562(value.resume_path_fingerprint) || !validInputDigests(value.input_digests)) {
+  if (!isSha256(value.resume_path_fingerprint) || !validInputDigests(value.input_digests)) {
     return void 0;
   }
   if (value.application_id !== void 0 && !isUuid(value.application_id)) return void 0;
   return validProjection(value.projection) ? value : void 0;
 }
 function parseWorkflowEntryData(value) {
-  if (!isRecord3(value) || !validBase(value)) return void 0;
+  if (!isRecord4(value) || !validBase(value)) return void 0;
   switch (value.kind) {
     case "application":
       return parseApplication(value);
@@ -1559,220 +2093,6 @@ function withCurrentStaleness(state, scan) {
   return { ...state, result_cards: cards };
 }
 
-// src/managed/catalog.ts
-var MANAGED_OUTPUT_MAX_BYTES = 33554432;
-var MANAGED_STDOUT_CAPTURE_MAX_BYTES = MANAGED_OUTPUT_MAX_BYTES + 1;
-var MANAGED_RESULT_MAX_LINES = 2;
-var MANAGED_INVOKE_OPTIONS = {
-  stdoutCaptureMaxBytes: MANAGED_STDOUT_CAPTURE_MAX_BYTES,
-  toolResultMaxBytes: MANAGED_OUTPUT_MAX_BYTES,
-  toolResultMaxLines: MANAGED_RESULT_MAX_LINES
-};
-var EXPECTED_OPERATIONS = {
-  "core.capabilities": {
-    path: ["capabilities"],
-    input: null,
-    output: "career.capabilities.v1",
-    inputBytes: null
-  },
-  "core.operations": {
-    path: ["operations"],
-    input: null,
-    output: "career.operation_catalog.v1",
-    inputBytes: null
-  },
-  "schema.list": {
-    path: ["schema", "list"],
-    input: null,
-    output: "career.schema_catalog.v1",
-    inputBytes: null
-  },
-  "schema.export": {
-    path: ["schema", "export"],
-    input: null,
-    output: "https://json-schema.org/draft/2020-12/schema",
-    inputBytes: null
-  },
-  "schema.bundle": {
-    path: ["schema", "bundle"],
-    input: null,
-    output: "https://json-schema.org/draft/2020-12/schema",
-    inputBytes: null
-  },
-  "resume.evaluate": {
-    path: ["resume", "evaluate"],
-    input: "career.resume_input.v1",
-    output: "career.resume_evaluation.v1",
-    inputBytes: 262144
-  },
-  "resume.analyze": {
-    path: ["resume", "analyze"],
-    input: "career.resume_input.v1",
-    output: "career.resume_analysis.v1",
-    inputBytes: 262144
-  },
-  "resume.normalize": {
-    path: ["resume", "normalize"],
-    input: "career.resume_input.v1",
-    output: "career.resume_normalization.v1",
-    inputBytes: 262144
-  },
-  "resume.enrich": {
-    path: ["resume", "enrich"],
-    input: "career.resume_enrichment_input.v1",
-    output: "career.resume_enrichment_result.v1",
-    inputBytes: 262144
-  },
-  "resume.analysis-suggestions.review": {
-    path: ["resume", "analysis-suggestions-review"],
-    input: "career.resume_analysis_suggestion_review_input.v1",
-    output: "career.resume_analysis_suggestion_review.v1",
-    inputBytes: 262144
-  },
-  "resume.analysis-replacements.review": {
-    path: ["resume", "analysis-replacements-review"],
-    input: "career.resume_analysis_replacement_review_input.v1",
-    output: "career.resume_analysis_replacement_review.v1",
-    inputBytes: 262144
-  },
-  "resume.variant.review": {
-    path: ["resume", "variant-review"],
-    input: "career.resume_variant_review_input.v1",
-    output: "career.resume_variant_review.v1",
-    inputBytes: 1048576
-  },
-  "resume.variant.materialize": {
-    path: ["resume", "variant-materialize"],
-    input: "career.resume_variant_materialization_input.v1",
-    output: "career.resume_variant.v1",
-    inputBytes: 1048576
-  },
-  "job.normalize": {
-    path: ["job", "normalize"],
-    input: "career.job_input.v1",
-    output: "career.job_normalization.v1",
-    inputBytes: 262144
-  },
-  "job.match": {
-    path: ["job", "match"],
-    input: "career.job_match_input.v1",
-    output: "career.job_match.v1",
-    inputBytes: 1048576
-  }
-};
-var REQUIRED_BUNDLES = [
-  ["career.resume_analysis_suggestion_review_input.v1", "resume-analysis-suggestion-review-input-v1.schema.json"],
-  ["career.resume_analysis_replacement_review_input.v1", "resume-analysis-replacement-review-input-v1.schema.json"],
-  ["career.resume_variant_review_input.v1", "resume-variant-review-input-v1.schema.json"],
-  ["career.resume_variant_materialization_input.v1", "resume-variant-materialization-input-v1.schema.json"]
-];
-function isRecord4(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function parseObject(json) {
-  const value = JSON.parse(json);
-  if (!isRecord4(value)) throw new Error("managed_contract_invalid");
-  return value;
-}
-function exactKeys3(value, expected) {
-  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
-}
-function parseDescriptor(value) {
-  if (!isRecord4(value) || !exactKeys3(value, [
-    "operation_id",
-    "capability_id",
-    "availability",
-    "cli_path",
-    "input_transport",
-    "input_schema_id",
-    "output_schema_id",
-    "maximum_input_bytes",
-    "maximum_successful_machine_output_bytes"
-  ])) throw new Error("managed_contract_invalid");
-  if (typeof value.operation_id !== "string" || value.capability_id !== null && typeof value.capability_id !== "string" || value.availability !== "available" || !Array.isArray(value.cli_path) || value.cli_path.length === 0 || !value.cli_path.every((part) => typeof part === "string" && /^[a-z-]+$/.test(part)) || value.input_transport !== "none" && value.input_transport !== "cli_arguments" && value.input_transport !== "json_file_or_stdin" || value.input_schema_id !== null && typeof value.input_schema_id !== "string" || typeof value.output_schema_id !== "string" || value.maximum_input_bytes !== null && !Number.isSafeInteger(value.maximum_input_bytes) || value.maximum_successful_machine_output_bytes !== MANAGED_OUTPUT_MAX_BYTES) throw new Error("managed_contract_invalid");
-  return value;
-}
-function verifyDescriptor(descriptor, expected) {
-  const documentOperation = expected.input !== null;
-  if (descriptor.cli_path.join("\0") !== expected.path.join("\0") || descriptor.input_schema_id !== expected.input || descriptor.output_schema_id !== expected.output || descriptor.maximum_input_bytes !== expected.inputBytes || descriptor.input_transport !== (documentOperation ? "json_file_or_stdin" : descriptor.operation_id.startsWith("schema.") && descriptor.operation_id !== "schema.list" ? "cli_arguments" : "none")) throw new Error("managed_contract_invalid");
-}
-function inspectReferences(value, root) {
-  if (Array.isArray(value)) {
-    for (const item of value) inspectReferences(item, root);
-    return;
-  }
-  if (!isRecord4(value)) return;
-  const reference = value.$ref;
-  if (reference !== void 0) {
-    if (typeof reference !== "string" || !reference.startsWith("#/")) {
-      throw new Error("managed_contract_invalid");
-    }
-    let current = root;
-    for (const rawPart of reference.slice(2).split("/")) {
-      const part = rawPart.replaceAll("~1", "/").replaceAll("~0", "~");
-      if (!isRecord4(current) || !Object.hasOwn(current, part)) {
-        throw new Error("managed_contract_invalid");
-      }
-      current = current[part];
-    }
-  }
-  for (const nested of Object.values(value)) inspectReferences(nested, root);
-}
-function verifyBundle(json, fileName) {
-  const bundle = parseObject(json);
-  if (bundle.$schema !== "https://json-schema.org/draft/2020-12/schema" || typeof bundle.$id !== "string" || !bundle.$id.endsWith(`/${fileName}`)) throw new Error("managed_contract_invalid");
-  inspectReferences(bundle, bundle);
-}
-var ManagedContractCache = class {
-  cached;
-  loading;
-  async load(invoke, signal) {
-    if (this.cached !== void 0) return this.cached;
-    if (this.loading !== void 0) return this.loading;
-    this.loading = this.discover(invoke, signal);
-    try {
-      const contracts = await this.loading;
-      if (!signal?.aborted) this.cached = contracts;
-      return contracts;
-    } finally {
-      this.loading = void 0;
-    }
-  }
-  async discover(invoke, signal) {
-    const catalogResult = await invoke(
-      { kind: "discovery", operation: "operations" },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const catalog = parseObject(catalogResult.json);
-    if (!exactKeys3(catalog, ["schema_version", "core_version", "operations"]) || catalog.schema_version !== "career.operation_catalog.v1" || typeof catalog.core_version !== "string" || catalog.core_version.length === 0 || catalog.core_version.length > 64 || !Array.isArray(catalog.operations)) throw new Error("managed_contract_invalid");
-    const operations = /* @__PURE__ */ new Map();
-    for (const value of catalog.operations) {
-      const descriptor = parseDescriptor(value);
-      if (operations.has(descriptor.operation_id)) throw new Error("managed_contract_invalid");
-      operations.set(descriptor.operation_id, descriptor);
-    }
-    if (operations.size !== Object.keys(EXPECTED_OPERATIONS).length) {
-      throw new Error("managed_contract_invalid");
-    }
-    for (const [operationId, expected] of Object.entries(EXPECTED_OPERATIONS)) {
-      const descriptor = operations.get(operationId);
-      if (descriptor === void 0) throw new Error("managed_contract_invalid");
-      verifyDescriptor(descriptor, expected);
-    }
-    const bundles = await Promise.all(REQUIRED_BUNDLES.map(async ([schemaId, fileName]) => ({
-      fileName,
-      result: await invoke(
-        { kind: "discovery", operation: "schema-bundle", schemaId },
-        signal,
-        MANAGED_INVOKE_OPTIONS
-      )
-    })));
-    for (const bundle of bundles) verifyBundle(bundle.result.json, bundle.fileName);
-    return { coreVersion: catalog.core_version, operations };
-  }
-};
-
 // src/managed/errors.ts
 var MESSAGES = {
   invalid_request: "The career_run request is invalid.",
@@ -1784,7 +2104,7 @@ var MESSAGES = {
   result_not_found: "The requested ephemeral result handle is unavailable or expired.",
   review_not_found: "The requested ephemeral review handle is unavailable or expired.",
   selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
-  managed_contract_invalid: "The bundled Career Core managed-adapter contracts are incompatible.",
+  managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
   managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
@@ -4137,8 +4457,8 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_discover",
     label: "Career Core Discovery",
-    description: "Discover the package-owned deterministic Career Core runtime capabilities and embedded JSON schemas. Makes no network or model request.",
-    promptSnippet: "Discover bundled Career Core capabilities and exact embedded schemas before document operations",
+    description: "Discover deterministic Career Core capabilities and embedded JSON schemas through the reviewed external resolver. May acquire the exact pinned Career package unless PI_OFFLINE=1; never calls a model.",
+    promptSnippet: "Discover compatible Career Core capabilities and exact embedded schemas before document operations",
     promptGuidelines: [
       "Use career_core_discover before career_core_resume or career_core_job; invoke only capabilities reported as available and do not infer contract shapes."
     ],
@@ -4162,8 +4482,8 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_resume",
     label: "Career Core Resume",
-    description: "Run one bounded package-owned Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
-    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the bundled deterministic runtime",
+    description: "Run one bounded compatible Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Runtime acquisition, when needed, completes before private stdin opens.",
+    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the compatible deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_resume only with an exact schema discovered through career_core_discover; preserve every warning, evidence item, uncertainty status, baseline boundary, and assisted/non-authoritative label returned by the tool.",
@@ -4189,8 +4509,8 @@ function careerCoreExtension(pi) {
   pi.registerTool({
     name: "career_core_job",
     label: "Career Core Job",
-    description: "Run package-owned Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
-    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the bundled deterministic runtime",
+    description: "Run compatible Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches vacancy URLs or invokes Cargo/a provider.",
+    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the compatible deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_job only with an exact schema discovered through career_core_discover; preserve source spans, confidence, warnings, uncertainty, conservative equivalence, and recommendation limitations exactly.",

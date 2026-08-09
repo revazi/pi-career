@@ -9,10 +9,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ignoredDirectories = new Set([".fallow", ".git", "node_modules"]);
 const ignoredFiles = new Set(["package-lock.json"]);
-const ignoredRelativePaths = new Set([
-  "runtime/darwin-arm64/career",
-  "runtime/linux-x64-gnu/career",
-]);
+const ignoredRelativePaths = new Set();
 const textExtensions = new Set([".js", ".json", ".md", ".mjs", ".ts", ".yml", ".yaml", ""]);
 const patterns = [
   new RegExp(["BEGIN ", "PRIVATE KEY"].join("")),

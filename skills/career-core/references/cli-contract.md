@@ -1,19 +1,22 @@
-# Bundled runtime contract reference
+# External runtime contract reference
 
 Use this reference only after reading the parent skill. Career Core remains authoritative; pi-career validates its managed operation catalog and self-contained schema bundles rather than copying Core algorithms or public schemas.
 
 ## Runtime selection
 
-Normal operations use the reviewed package-owned runtime for exactly:
+Resolution order is fixed:
 
-- `darwin-arm64`
-- `linux-x64-gnu` with positive glibc detection
+1. bounded absolute `CAREER_CLI_PATH`;
+2. `career` on PATH;
+3. package-local exact `@revazi/career@0.1.0`;
+4. acquisition of exact `@revazi/career@0.1.0` from the canonical npm registry;
+5. stable installation guidance.
 
-Selection order is a bounded absolute `CAREER_CLI_PATH` developer/recovery override first, then the verified bundled target. There is no PATH, sibling-checkout, Cargo, install-script, npx, or download fallback. Every unsupported target fails closed.
+There is no sibling-checkout, Cargo, source-build, lifecycle-script, arbitrary download, PATH-selected npm/npx, or unpinned package fallback. `PI_OFFLINE=1` disables acquisition. A route is cached only in memory and invalidated when `CAREER_CLI_PATH` or PATH changes. npm acquisition may leave ordinary cache/`_npx` data and does not provide secure erasure.
 
-Before first bundled execution per process, pi-career verifies the regular file's exact mode, size, and SHA-256 against its committed runtime manifest. A mismatch fails as `bundled_runtime_invalid`. These errors remain payload-free.
+Every caller-controlled route must pass the exact Core 0.1.0 operation catalog and required self-contained schema bundles before private stdin opens. An invalid explicit override never falls back. Compatibility probes contain no private document input. If a cached automatic executable later fails before its operation emits `spawn`, pi-career may advance once; cancellation, timeout, and any started operation never retry another route.
 
-The current binaries come from exact Career Core commit `f6d17835de4817e28ce84e8e5734ff592687dfcc` and reviewed short-retention artifact run `31274605956`. They are unsigned maintainer handoff inputs, not public Core releases.
+Package-local/acquired routes invoke the reviewed package launcher directly with the real Node executable. The launcher owns native target/libc, package/provenance mapping, mode, size, format, and SHA-256 verification. Its reviewed targets are `darwin-arm64` and `linux-x64-gnu`.
 
 ## Managed discovery
 
@@ -24,7 +27,7 @@ The current binaries come from exact Career Core commit `f6d17835de4817e28ce84e8
 
 The adapter requires exact `career.operation_catalog.v1` capability mappings, CLI paths, transports, input/output schemas, byte ceilings, and all-local bundle references. Incompatibility fails closed. These bootstrap results are not exposed to the model during the normal managed flow.
 
-Every successful machine JSON result is completely serialized by Core before stdout and is bounded to 33,554,432 bytes including its framing newline. Managed execution captures that complete result in bounded ephemeral memory, removes only the framing newline, and projects a model-visible result no larger than 50,000 bytes. It never truncates Core output or writes a result file.
+Every successful machine JSON result is completely serialized by Core before stdout and bounded to 33,554,432 bytes including framing. Managed execution captures the complete result in bounded ephemeral memory, removes only one framing newline, and projects model-visible results no larger than 50,000 bytes. It never truncates Core output or writes a result file.
 
 ## Tool surfaces
 
@@ -42,17 +45,20 @@ The following raw tools stay registered but are normally inactive:
 
 ## Process and machine framing
 
-- Direct `spawn(executable, argv, { shell: false })` only.
-- Document content appears only in stdin with `--input -`, never argv.
+- Direct `spawn(command, fixedArgv, { shell: false })` only.
+- Package launchers are fixed argument prefixes invoked by the real Node executable.
+- Document content appears only in stdin with `--input -`, never argv, and stdin opens only after `spawn`.
 - Machine output uses `--format json-compact`.
-- Successful runtime output is exactly one JSON object and one framing newline.
-- Known diagnostics are one bounded `career.error.v1` on stderr with a nonzero status.
-- Single-document input is bounded at 262,144 bytes; match and variant composite envelopes at 1,048,576 bytes.
+- Successful Core output is exactly one JSON object with one framing newline and no stderr.
+- Known diagnostics are one bounded `career.error.v1` on stderr with nonzero status.
+- Single-document input is bounded at 262,144 bytes; match and variant composites at 1,048,576 bytes.
 - Timeout/cancellation owns child termination and cleanup.
 - Fatal UTF-8, multiple JSON documents, unexpected successful stderr, or capture overflow fail closed.
-- No payload/result temp file, model/provider call, network request, URL fetch, telemetry, or retry exists at this boundary.
+- No payload/result temp file, model/provider call, vacancy URL fetch, telemetry, post-launch retry, or repair exists at this boundary.
 
-Raw tools retain the prior 50,000-byte/2,000-line model-context ceiling and fail without partial output. Managed operations use the Core-declared 32 MiB capture ceiling internally and expose compact/hydratable results instead.
+The sole network-capable behavior is bounded acquisition of exact `@revazi/career@0.1.0` after local routes fail. It derives npm from real Node, rejects conflicting `npm_execpath`, has fixed time/output bounds and process-tree cancellation, receives no private input, and finishes before document stdin opens.
+
+Raw tools retain the 50,000-byte/2,000-line model-context ceiling and fail without partial output. Managed operations use Core's 32-MiB capture ceiling internally and expose compact/hydratable results.
 
 ## Ephemeral handles and privacy
 

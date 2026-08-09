@@ -53,13 +53,13 @@ try {
       (source) => typeof source === "string" && path.resolve(agentDir, source) === root,
     ),
   );
-  const runtimeSmoke = spawnSync(process.execPath, [path.join(harnessRoot, "scripts", "test-bundled-runtime.mjs")], {
+  const runtimeSmoke = spawnSync(process.execPath, [path.join(harnessRoot, "scripts", "test-offline-resolution.mjs")], {
     cwd,
     env: { ...env, PI_CAREER_PACKAGE_ROOT: root },
     encoding: "utf8",
     shell: false,
   });
-  assert.equal(runtimeSmoke.status, 0, "registered local package bundled-runtime smoke failed");
+  assert.equal(runtimeSmoke.status, 0, "registered local package offline resolver smoke failed");
 
   pi(["remove", root]);
   assert.equal(pi(["list"]).includes(root), false);
@@ -67,7 +67,7 @@ try {
   assert.equal(removedSettings.packages?.includes(root) ?? false, false);
 
   assert.equal(await digestIfPresent(maintainerSettings), maintainerBefore);
-  process.stdout.write("Isolated pi install/list/bundled-runtime/remove acceptance passed\n");
+  process.stdout.write("Isolated pi install/list/offline-resolution/remove acceptance passed\n");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

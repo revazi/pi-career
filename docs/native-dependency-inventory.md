@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is reproducible dependency evidence for the two native `career` binaries tracked by pi-career. It is **not legal advice**, a legal-compliance conclusion, an SPDX/CycloneDX SBOM, or release approval. A human license review remains mandatory under [`releasing.md`](releasing.md).
+This is historical reproducible dependency evidence for the two native `career` binaries packaged by pi-career `v0.1.0` and its unreleased Phase 8 candidate. The current external-resolver package tracks and packages no native binary; native distribution evidence now belongs to `@revazi/career`. This document is **not legal advice**, a legal-compliance conclusion, an SPDX/CycloneDX SBOM, or release approval.
 
 The inventory is pinned to:
 
@@ -12,7 +12,7 @@ The inventory is pinned to:
 - build edges `normal,build`, excluding development dependencies
 - targets `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`
 
-The per-target provenance records show the corresponding locked release builds:
+The historical per-target provenance records showed the corresponding locked release builds:
 
 ```text
 cargo build --release --locked -p career-cli --target aarch64-apple-darwin
