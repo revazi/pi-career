@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   native:
-    name: Native runtime (${{ matrix.runtime_target }})
+    name: External Career package (${{ matrix.runtime_target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -27,7 +27,6 @@ jobs:
             runtime_target: darwin-arm64
     env:
       EXPECTED_RUNTIME_TARGET: ${{ matrix.runtime_target }}
-      PI_OFFLINE: "1"
       PI_TELEMETRY: "0"
       PI_SKIP_VERSION_CHECK: "1"
     steps:
@@ -39,9 +38,18 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: git diff --exit-code -- dist/index.js dist/pdf-worker.js
+      - run: npm run bench:tokens
       - run: npm run check
-      - run: npm run test:bundled-runtime
+      - run: npm run test:runtime-resolution
+      - run: npm run test:career-package
+      - run: npm run audit:production
+      - run: npm run audit:full
       - run: npm run check:publish
       - run: npm run test:pi-smoke
+        env:
+          PI_OFFLINE: "1"
       - run: npm run test:install
+        env:
+          PI_OFFLINE: "1"
+      - run: npm run test:compat
       - run: git diff --check

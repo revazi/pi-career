@@ -1,8 +1,10 @@
 # Product flow roadmap
 
-## Current phase: deterministic tools and slash-command MVP
+The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8 and the first managed `career_run` implementation are now complete on this branch; package-owned saving and PDF extraction expansion remain later phases.
 
-This package preserves the three stable native tools:
+## Current phase: managed agent tool and deterministic slash commands
+
+The normal active model surface is one compact `career_run` tool. The exact raw compatibility tools remain registered but inactive until `/career-tools raw` explicitly enables them:
 
 - `career_core_discover`
 - `career_core_resume`
@@ -17,12 +19,13 @@ It also registers:
 - `/career-match` for deterministic multi-resume matching and conservative ranking
 - `/career-analyze` for deterministic single-resume readiness detail
 - `/career-workbench` for a bounded, guided, visibly reviewable rebuild handoff to the user's normal Pi editor
+- `/career-tools` to switch between the managed-only and advanced raw model-tool surfaces
 
-On supported targets the three native tools plus `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the package-owned Career Core runtime. Setup/library scanning remains local. `/career-application` manages consented session state only. `/career-workbench` does not invoke Core or a provider/model itself: it prepares an ordinary editor message containing one original resume and, only for tailoring, the current vacancy. Guided modes cover complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, and vacancy-specific variant review. The user must review and submit that message separately through Pi.
+`career_run`, the raw compatibility tools, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the compatible Career Core route selected by the external resolver. Managed compatibility is validated before private input, and the reviewed exact package may be acquired only after local routes fail unless `PI_OFFLINE=1`. `career_run` validates Phase 8 operation/schema contracts internally, resolves current originals/vacancy through ephemeral handles, keeps complete results in bounded process memory, and exposes compact detail hydration without nested `input_json`. Setup/library scanning remains local. `/career-application` manages consented session state only. `/career-workbench` does not invoke Core or a provider/model itself: it prepares an ordinary editor message containing one original resume and, only for tailoring, the current vacancy. Guided modes cover complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, and vacancy-specific variant review. The user must review and submit that message separately through Pi.
 
 Binding boundaries:
 
-- no provider/model calls in package commands; the workbench stops at a reviewable editor prompt
+- no provider/model calls in package commands; the sole network-capable runtime behavior is exact-package acquisition before private stdin, and the workbench stops at a reviewable editor prompt
 - agent-directory-relative non-sensitive config only; it may contain canonical library roots and one bounded absolute preferred variation-directory suggestion
 - no resume or vacancy text in global config; a variation-directory preference is destination guidance, not write approval
 - session entries only after explicit persistence consent; entries persist to JSONL even when excluded from model context
@@ -31,12 +34,12 @@ Binding boundaries:
 - assisted variants remain labeled and excluded from authoritative reranking
 - stable path/id tie-breaking; any close-cluster label is a UI heuristic, not a Core result
 - cancellation aborts the active child and stops remaining batch work
-- complete successful Core results remain transient but can be inspected through a read-only pager with bounded visible lines; no full JSON is added to session state or written to a file
+- complete slash-command Core results remain transiently inspectable through a read-only pager; managed full results/exact review inputs remain only in a 16-entry/64-MiB ephemeral registry, and no full JSON is added to session state or written to a file
 - searchable PDF text extraction is local and isolated with fixed byte/page/time/memory/result ceilings; OCR and document rewriting remain out of scope
 - workbench prompts keep originals immutable, omit absolute source paths, treat document text as untrusted data, rerun complete deterministic baselines after submission, and require Career Core review of external suggestions, replacements, and variant changes
 - workbench prompts may include a privacy-reduced preferred variation-directory display path from setup; the selected agent recommends it first only after a separate user request and receives no automatic write authority
 - review proposals use verbatim source targets and in-range evidence, prefer single-line targets, make one review attempt, and surface discard codes instead of model-led repair/retry loops
-- complete tool JSON remains authoritative, while prose avoids duplicating unchanged review-embedded baselines and limits source repetition to requested evidence and retained items
+- raw tool JSON remains authoritative; managed projections refer to complete authoritative in-memory results by handle, while prose hydrates only requested evidence and retained items
 - PDF workbench output is suggestion-only because extracted text cannot expose or preserve visual layout; Markdown/text prompts require existing structure and unchanged wording to remain intact
 - no full-result file export unless a separate bounded local-file workflow is designed and tested
 
@@ -44,7 +47,7 @@ The approved workflow specification fixes command behavior, persistence format, 
 
 ## Assisted handoff and later materialization
 
-The current workbench prepares private context in Pi's editor only. It does not call a model, hide the source payload, or write a document. Submitting is the user's separate provider action. The prompt directs the selected Pi agent to discover exact schemas once per unchanged Core version, rerun and preserve complete deterministic baselines, and pass external suggestions, replacements, or variant changes through the corresponding Career Core review before presenting them. The question-led rewrite mode reviews first, asks one bounded batch of user-verifiable factual questions, and waits for a later turn before drafting or reviewing exact replacements.
+The current workbench prepares private context in Pi's editor only. It does not call a model, hide the source payload, or write a document. Submitting is the user's separate provider action. The prompt directs the selected Pi agent to start with `career_run context`, use internal exact Phase 8 contract discovery, rerun and preserve complete deterministic baselines behind ephemeral handles, and pass external suggestions, replacements, or variant changes through the corresponding Career Core review before presenting them. The question-led rewrite mode reviews first, asks one bounded batch of user-verifiable factual questions, and waits for a later turn before drafting or reviewing exact replacements.
 
 For a non-PDF vacancy-specific variant, the first assisted turn must stop after review and ask the user to explicitly select Core-assigned canonical change IDs. Only a later turn may invoke deterministic materialization with exactly those selected IDs. The result remains assisted/non-authoritative and cannot enter authoritative analysis or matching. PDF workbenches stop after reviewed targeted changes for manual application and never materialize extracted text as a styled resume.
 
@@ -58,4 +61,4 @@ Automatic variant saving remains deferred. Setup now records or derives only a p
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
 - career-document publication/export, release-asset downloads, signing, or notarization
-- expanded runtime platform claims beyond `darwin-arm64` and `linux-x64-gnu`
+- expanded reviewed `@revazi/career` native-package claims beyond `darwin-arm64` and `linux-x64-gnu`

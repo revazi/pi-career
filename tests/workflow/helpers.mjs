@@ -117,13 +117,24 @@ export function makeFakePi() {
   const events = new Map();
   const entries = [];
   const renderers = new Map();
+  const tools = new Map();
+  let activeTools = [];
   let sessionName;
   return {
     commands,
     events,
     entries,
     renderers,
+    tools,
+    get activeTools() { return [...activeTools]; },
     api: {
+      registerTool(definition) {
+        tools.set(definition.name, definition);
+        if (!activeTools.includes(definition.name)) activeTools.push(definition.name);
+      },
+      getActiveTools() { return [...activeTools]; },
+      getAllTools() { return [...tools].map(([name, definition]) => ({ name, description: definition.description })); },
+      setActiveTools(names) { activeTools = names.filter((name) => tools.has(name)); },
       registerCommand(name, definition) { commands.set(name, definition); },
       registerEntryRenderer(name, renderer) { renderers.set(name, renderer); },
       getSessionName() { return sessionName; },

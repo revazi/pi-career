@@ -1,22 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import { CareerInvocationError } from "../../src/errors.ts";
 import {
-  resolveBundledRuntime,
-  selectRuntimeTarget,
-  verifyRuntimeBinary,
+  CAREER_PACKAGE_SPEC,
+  clearRuntimeResolutionCache,
+  resolveCareerExecutable,
+  resolveCareerRuntime,
 } from "../../src/runtime.ts";
-
-const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-const sourceManifest = JSON.parse(await readFile(path.join(repositoryRoot, "runtime", "manifest.json"), "utf8"));
 
 function expectedError(code) {
   return (error) => {
@@ -29,126 +25,217 @@ function expectedError(code) {
   };
 }
 
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
+async function executable(file) {
+  await writeFile(file, "#!/bin/sh\nexit 0\n");
+  await chmod(file, 0o755);
+  return file;
 }
 
-async function makeFakeRuntime(root, bytes, expectedBytes = bytes) {
-  const targetRoot = path.join(root, "darwin-arm64");
-  await mkdir(targetRoot, { recursive: true });
-  const binaryPath = path.join(targetRoot, "career");
-  await writeFile(binaryPath, bytes);
-  await chmod(binaryPath, 0o755);
-  const manifest = structuredClone(sourceManifest);
-  manifest.targets["darwin-arm64"] = {
-    ...manifest.targets["darwin-arm64"],
-    sha256: sha256(expectedBytes),
-    size_bytes: expectedBytes.length,
-  };
-  const manifestPath = path.join(root, "manifest.json");
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  return { binaryPath, manifestPath };
+async function launcherPackage(root) {
+  const packageRoot = path.join(root, "node_modules", "@revazi", "career");
+  const binRoot = path.join(packageRoot, "bin");
+  await mkdir(binRoot, { recursive: true });
+  const manifestPath = path.join(packageRoot, "package.json");
+  const launcherPath = path.join(binRoot, "career.js");
+  await writeFile(manifestPath, `${JSON.stringify({
+    name: "@revazi/career",
+    version: "0.1.0",
+    bin: { career: "bin/career.js" },
+    career_launcher: {
+      schema_version: "career.npm_launcher.v1",
+      executable: "career",
+      platform_packages: ["@revazi/career-darwin-arm64", "@revazi/career-linux-x64-gnu"],
+    },
+  })}\n`);
+  await writeFile(launcherPath, "#!/usr/bin/env node\n");
+  await chmod(launcherPath, 0o755);
+  return { launcherPath, manifestPath };
 }
 
-test("selects only the two reviewed runtime targets", () => {
-  assert.equal(selectRuntimeTarget({ platform: "darwin", arch: "arm64" }), "darwin-arm64");
-  assert.equal(
-    selectRuntimeTarget({ platform: "linux", arch: "x64", glibcVersionRuntime: "2.39" }),
-    "linux-x64-gnu",
+test("pins the reviewed external Career package coordinate", () => {
+  assert.equal(CAREER_PACKAGE_SPEC, "@revazi/career@0.1.0");
+});
+
+test("validates an explicit CAREER_CLI_PATH and never falls back from incompatibility", async () => {
+  clearRuntimeResolutionCache();
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-explicit-"));
+  try {
+    const career = await executable(path.join(root, "career"));
+    assert.equal(resolveCareerExecutable({ CAREER_CLI_PATH: career }), career);
+    assert.throws(
+      () => resolveCareerExecutable({ CAREER_CLI_PATH: "relative/career" }),
+      expectedError("invalid_executable_override"),
+    );
+    let acquisitionAttempts = 0;
+    await assert.rejects(
+      resolveCareerRuntime({
+        environment: { CAREER_CLI_PATH: career, PATH: "", PI_OFFLINE: "0" },
+        probe: async () => { throw new Error("incompatible"); },
+        dependencies: {
+          resolvePackageManifest: () => undefined,
+          acquireLauncher: async () => {
+            acquisitionAttempts += 1;
+            return "unreachable";
+          },
+        },
+      }),
+      expectedError("managed_contract_invalid"),
+    );
+    assert.equal(acquisitionAttempts, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resolves PATH first, caches in memory, and invalidates when PATH changes", async () => {
+  clearRuntimeResolutionCache();
+  const firstRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-path-first-"));
+  const secondRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-path-second-"));
+  try {
+    const first = await executable(path.join(firstRoot, "career"));
+    const second = await executable(path.join(secondRoot, "career"));
+    let probes = 0;
+    const probe = async () => { probes += 1; };
+    const firstEnvironment = { PATH: firstRoot, PI_OFFLINE: "1" };
+    const firstRoute = await resolveCareerRuntime({ environment: firstEnvironment, probe });
+    assert.equal(firstRoute.source, "path");
+    assert.equal(firstRoute.command, first);
+    assert.equal((await resolveCareerRuntime({ environment: firstEnvironment, probe })).command, first);
+    assert.equal(probes, 1);
+
+    const secondRoute = await resolveCareerRuntime({
+      environment: { PATH: secondRoot, PI_OFFLINE: "1" },
+      probe,
+    });
+    assert.equal(secondRoute.command, second);
+    assert.equal(probes, 2);
+  } finally {
+    clearRuntimeResolutionCache();
+    await rm(firstRoot, { recursive: true, force: true });
+    await rm(secondRoot, { recursive: true, force: true });
+  }
+});
+
+test("skips an incompatible PATH route and uses the exact package-local launcher", async () => {
+  clearRuntimeResolutionCache();
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-package-local-"));
+  try {
+    await executable(path.join(root, "career"));
+    const local = await launcherPackage(root);
+    const seen = [];
+    const resolved = await resolveCareerRuntime({
+      environment: { PATH: root, PI_OFFLINE: "1" },
+      probe: async (candidate) => {
+        seen.push(candidate.source);
+        if (candidate.source === "path") throw new Error("incompatible PATH career");
+      },
+      dependencies: {
+        resolvePackageManifest: () => local.manifestPath,
+        execPath: process.execPath,
+      },
+    });
+    assert.deepEqual(seen, ["path", "package-local"]);
+    assert.equal(resolved.source, "package-local");
+    assert.deepEqual(resolved.argumentPrefix, [local.launcherPath]);
+    assert.equal(resolved.command, await (await import("node:fs/promises")).realpath(process.execPath));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("uses acquisition only after local routes fail and executes the acquired launcher directly", async () => {
+  clearRuntimeResolutionCache();
+  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-acquired-"));
+  try {
+    const acquired = await launcherPackage(root);
+    let acquisitions = 0;
+    const resolved = await resolveCareerRuntime({
+      environment: { PATH: "", PI_OFFLINE: "0" },
+      probe: async () => {},
+      dependencies: {
+        resolvePackageManifest: () => undefined,
+        acquireLauncher: async () => {
+          acquisitions += 1;
+          return acquired.launcherPath;
+        },
+      },
+    });
+    assert.equal(acquisitions, 1);
+    assert.equal(resolved.source, "acquired");
+    assert.deepEqual(resolved.argumentPrefix, [acquired.launcherPath]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("PI_OFFLINE=1 disables acquisition with stable installation guidance", async () => {
+  clearRuntimeResolutionCache();
+  let acquisitions = 0;
+  await assert.rejects(
+    resolveCareerRuntime({
+      environment: { PATH: "", PI_OFFLINE: "1" },
+      probe: async () => {},
+      dependencies: {
+        resolvePackageManifest: () => undefined,
+        acquireLauncher: async () => {
+          acquisitions += 1;
+          return "unreachable";
+        },
+      },
+    }),
+    expectedError("runtime_unavailable"),
   );
+  assert.equal(acquisitions, 0);
+});
 
-  for (const info of [
-    { platform: "win32", arch: "x64" },
-    { platform: "darwin", arch: "x64" },
-    { platform: "linux", arch: "arm64", glibcVersionRuntime: "2.39" },
-    { platform: "linux", arch: "x64" },
-    { platform: "linux", arch: "x64", glibcVersionRuntime: "" },
-    { platform: "freebsd", arch: "x64" },
-  ]) {
-    assert.throws(() => selectRuntimeTarget(info), expectedError("unsupported_platform"));
+test("cancellation and timeout during compatibility probing never advance routes", async (t) => {
+  for (const code of ["cancelled", "timeout"]) {
+    await t.test(code, async () => {
+      clearRuntimeResolutionCache();
+      const root = await mkdtemp(path.join(os.tmpdir(), `pi-career-${code}-`));
+      try {
+        await executable(path.join(root, "career"));
+        let acquisitions = 0;
+        await assert.rejects(
+          resolveCareerRuntime({
+            environment: { PATH: root, PI_OFFLINE: "0" },
+            probe: async () => {
+              throw new CareerInvocationError({
+                schema_version: "career.pi_error.v1",
+                code,
+                message: "synthetic terminal probe error",
+              });
+            },
+            dependencies: {
+              resolvePackageManifest: () => undefined,
+              acquireLauncher: async () => {
+                acquisitions += 1;
+                return "unreachable";
+              },
+            },
+          }),
+          expectedError(code),
+        );
+        assert.equal(acquisitions, 0);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
   }
 });
 
-test("verifies size, mode, regular-file status, and SHA-256 without leaking details", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-runtime-unit-"));
-  try {
-    const binaryPath = path.join(root, "career");
-    const bytes = Buffer.from("synthetic-runtime-bytes");
-    const expected = { sha256: sha256(bytes), size_bytes: bytes.length, mode: "0755" };
-    await writeFile(binaryPath, bytes);
-    await chmod(binaryPath, 0o755);
-    await verifyRuntimeBinary(binaryPath, expected);
-
-    await assert.rejects(
-      verifyRuntimeBinary(binaryPath, { ...expected, size_bytes: bytes.length + 1 }),
-      expectedError("bundled_runtime_invalid"),
-    );
-    await assert.rejects(
-      verifyRuntimeBinary(binaryPath, { ...expected, sha256: "0".repeat(64) }),
-      expectedError("bundled_runtime_invalid"),
-    );
-    await chmod(binaryPath, 0o644);
-    await assert.rejects(
-      verifyRuntimeBinary(binaryPath, expected),
-      expectedError("bundled_runtime_invalid"),
-    );
-
-    const symlinkPath = path.join(root, "career-link");
-    await symlink(binaryPath, symlinkPath);
-    await assert.rejects(
-      verifyRuntimeBinary(symlinkPath, expected),
-      expectedError("bundled_runtime_invalid"),
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("caches only successful bundled verification in memory", async () => {
-  const successfulRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-runtime-cache-ok-"));
-  const retryRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-runtime-cache-retry-"));
-  try {
-    const original = Buffer.from("first-runtime");
-    const successful = await makeFakeRuntime(successfulRoot, original);
-    const options = {
-      platformInfo: { platform: "darwin", arch: "arm64" },
-      manifestPath: successful.manifestPath,
-      runtimeRoot: successfulRoot,
-    };
-    assert.equal(await resolveBundledRuntime(options), successful.binaryPath);
-    await writeFile(successful.binaryPath, Buffer.from("other-runtime"));
-    await chmod(successful.binaryPath, 0o755);
-    assert.equal(await resolveBundledRuntime(options), successful.binaryPath);
-
-    const expected = Buffer.from("fixed-runtime");
-    const retry = await makeFakeRuntime(retryRoot, Buffer.from("wrong-runtime"), expected);
-    const retryOptions = {
-      platformInfo: { platform: "darwin", arch: "arm64" },
-      manifestPath: retry.manifestPath,
-      runtimeRoot: retryRoot,
-    };
-    await assert.rejects(resolveBundledRuntime(retryOptions), expectedError("bundled_runtime_invalid"));
-    await writeFile(retry.binaryPath, expected);
-    await chmod(retry.binaryPath, 0o755);
-    assert.equal(await resolveBundledRuntime(retryOptions), retry.binaryPath);
-  } finally {
-    await rm(successfulRoot, { recursive: true, force: true });
-    await rm(retryRoot, { recursive: true, force: true });
-  }
-});
-
-test("maps missing or malformed manifests to one payload-free runtime error", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-runtime-manifest-"));
-  try {
-    const options = {
-      platformInfo: { platform: "darwin", arch: "arm64" },
-      manifestPath: path.join(root, "missing.json"),
-      runtimeRoot: root,
-    };
-    await assert.rejects(resolveBundledRuntime(options), expectedError("bundled_runtime_invalid"));
-    await writeFile(options.manifestPath, "[]\n");
-    await assert.rejects(resolveBundledRuntime(options), expectedError("bundled_runtime_invalid"));
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("runtime npm acquisition rejects a conflicting npm_execpath before network use", async () => {
+  clearRuntimeResolutionCache();
+  await assert.rejects(
+    resolveCareerRuntime({
+      environment: {
+        PATH: "",
+        PI_OFFLINE: "0",
+        npm_execpath: path.join(os.tmpdir(), "untrusted-npm-cli.js"),
+      },
+      probe: async () => {},
+      dependencies: { resolvePackageManifest: () => undefined },
+    }),
+    expectedError("runtime_acquisition_failed"),
+  );
 });

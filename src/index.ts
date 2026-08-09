@@ -13,9 +13,16 @@ import {
   type JobOperation,
   type ResumeOperation,
 } from "./process.ts";
+import { registerCareerRun } from "./managed/tool.ts";
 import { registerCareerCommands } from "./workflow/commands.ts";
 
-const DISCOVERY_OPERATIONS = ["capabilities", "schema-list", "schema-export"] as const;
+const DISCOVERY_OPERATIONS = [
+  "capabilities",
+  "operations",
+  "schema-list",
+  "schema-export",
+  "schema-bundle",
+] as const;
 const RESUME_OPERATIONS = [
   "evaluate",
   "analyze",
@@ -31,11 +38,11 @@ const JOB_OPERATIONS = ["normalize", "match"] as const;
 const discoveryParameters = Type.Object(
   {
     operation: StringEnum(DISCOVERY_OPERATIONS, {
-      description: "Discover capabilities, list embedded schemas, or export one embedded schema.",
+      description: "Discover capabilities/operations, list schemas, or export/bundle one schema.",
     }),
     schema_id: Type.Optional(
       Type.String({
-        description: "Required only for schema-export; use an exact ID returned by schema-list.",
+        description: "Required only for schema-export/schema-bundle; use an exact ID from schema-list.",
         minLength: 1,
         maxLength: 100,
         pattern: "^career\\.[a-z0-9_.-]+\\.v[0-9]+$",
@@ -95,8 +102,8 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_discover",
     label: "Career Core Discovery",
     description:
-      "Discover the package-owned deterministic Career Core runtime capabilities and embedded JSON schemas. Makes no network or model request.",
-    promptSnippet: "Discover bundled Career Core capabilities and exact embedded schemas before document operations",
+      "Discover deterministic Career Core capabilities and embedded JSON schemas through the reviewed external resolver. May acquire the exact pinned Career package unless PI_OFFLINE=1; never calls a model.",
+    promptSnippet: "Discover compatible Career Core capabilities and exact embedded schemas before document operations",
     promptGuidelines: [
       "Use career_core_discover before career_core_resume or career_core_job; invoke only capabilities reported as available and do not infer contract shapes.",
     ],
@@ -122,8 +129,8 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_resume",
     label: "Career Core Resume",
     description:
-      "Run one bounded package-owned Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Never invokes Cargo, a provider, or the network.",
-    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the bundled deterministic runtime",
+      "Run one bounded compatible Career Core resume operation with JSON over stdin. Returns the complete authoritative JSON or fails without truncation. Runtime acquisition, when needed, completes before private stdin opens.",
+    promptSnippet: "Evaluate, analyze, normalize, or review bounded resume inputs through the compatible deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_resume only with an exact schema discovered through career_core_discover; preserve every warning, evidence item, uncertainty status, baseline boundary, and assisted/non-authoritative label returned by the tool.",
@@ -151,8 +158,8 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
     name: "career_core_job",
     label: "Career Core Job",
     description:
-      "Run package-owned Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches URLs, invokes Cargo, a provider, or the network.",
-    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the bundled deterministic runtime",
+      "Run compatible Career Core job normalization or conservative matching with JSON over stdin. Returns complete authoritative JSON or fails without truncation. Never fetches vacancy URLs or invokes Cargo/a provider.",
+    promptSnippet: "Normalize job text or conservatively match original resume and job inputs through the compatible deterministic runtime",
     promptGuidelines: [
       privacyGuideline,
       "Use career_core_job only with an exact schema discovered through career_core_discover; preserve source spans, confidence, warnings, uncertainty, conservative equivalence, and recommendation limitations exactly.",
@@ -175,4 +182,6 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
       }
     },
   });
+
+  registerCareerRun(pi);
 }
