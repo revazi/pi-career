@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded manual release process for `pi-career@0.2.0` and records the historical `v0.1.0` outcome.
+This document defines the bounded trusted-publishing release process for `pi-career@0.2.0` and records the historical `v0.1.0` outcome.
 
 ## Release boundary
 
@@ -16,7 +16,7 @@ Career Core distribution remains external. The candidate pins exact [`@revazi/ca
 
 The reviewed external release is bound to Career Core commit/tag `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`/`v0.1.1` and successful protected publication run [`31346152236`](https://github.com/revazi/career-core/actions/runs/31346152236). The launcher registry integrity is `sha512-K2WojK0wbuMt4WWT87jrLUiRWLwlDeYR0BcSTqlaTGc0SNw4z7VWkSe7utFwH2MFhHaIE1iHWfpsj+nNlHklvQ==`; registry metadata reports SLSA v1 provenance for the launcher and all eight lockstep native packages.
 
-There is no automated publication workflow. Preparation, CI success, a version bump, or this document does **not** authorize npm publication, tag creation/push, or a GitHub Release. Release execution remains a separate explicit maintainer action. Do not publish to crates.io, attach an npm tarball/native binary as a custom GitHub Release asset, add signing/notarization claims, or add lifecycle/publication scripts.
+The sole permitted automated publication path is the tag-triggered `.github/workflows/release.yml` workflow using npm Trusted Publishing through GitHub OIDC and the protected `npm` environment. It must use no `NPM_TOKEN`, `NODE_AUTH_TOKEN`, OTP, or other long-lived publication credential. Preparation, CI success, a version bump, workflow availability, or this document does **not** authorize tag creation/push, npm publication, or a GitHub Release; release execution remains a separate explicit maintainer action. Do not publish to crates.io, attach an npm tarball/native binary as a custom GitHub Release asset, add signing/notarization claims, or add lifecycle/publication scripts.
 
 The exact npm version and full published commit SHA are the canonical installation and audit coordinates. The GitHub Release notes must state that SHA and the npm registry integrity. A tag is a discovery label, not a substitute for immutable commit review.
 
@@ -137,30 +137,25 @@ The finalization commit cannot contain its own SHA. Only the separately authoriz
 
 ## Manual pre-publication checks
 
-Run these only on the frozen clean candidate and do not expose credentials or one-time passwords in repository files, Pi messages, logs, or release notes:
+Run these only on the frozen clean candidate:
 
-1. Confirm the intended npm account with `npm whoami` and registry `https://registry.npmjs.org/`.
-2. Confirm `npm view pi-career@0.2.0 version --json` reports no existing version. npm versions are immutable.
-3. Run trusted `npm pack --dry-run --json --ignore-scripts` or rely on the stricter recorded `check:publish` artifact proof.
-4. Record the candidate full SHA, package filename/size, clean audit results, hosted run URLs, and reviewed fixture SHA outside private content.
-5. Obtain explicit release authorization. Do not infer authorization from readiness work.
+1. Confirm npm package `pi-career` has exactly the GitHub Actions trusted publisher `revazi/pi-career`, workflow `release.yml`, environment `npm`.
+2. Confirm the GitHub `npm` environment exists and applies the reviewed deployment protections. No npm token or OTP may be stored in GitHub, npm configuration, repository files, Pi messages, logs, or release notes.
+3. Confirm `npm view pi-career@0.2.0 version --json` reports no existing version. npm versions are immutable.
+4. Run trusted `npm pack --dry-run --json --ignore-scripts` or rely on the stricter recorded `check:publish` artifact proof.
+5. Record the candidate full SHA, package filename/size, clean audit results, hosted run URLs, and reviewed fixture SHA outside private content.
+6. Obtain explicit release authorization. Do not infer authorization from readiness work.
 
 ## Authorized release execution
 
 Only after every gate passes and the maintainer explicitly authorizes release execution:
 
-1. Reconfirm the clean SHA, branch protection checks, npm identity/registry, and absence of `pi-career@0.2.0`.
-2. Publish from the exact candidate with lifecycle scripts disabled:
-
-   ```bash
-   npm publish --access public --tag latest --ignore-scripts
-   ```
-
-3. If publication returns an ambiguous response, query the registry before any retry. Never attempt to overwrite or blindly republish the version.
-4. Verify registry metadata: version, repository, four wildcard peers, no dependency tree/lifecycle scripts, tarball integrity, shasum, and `gitHead` equal to the candidate SHA.
-5. In an isolated Pi agent directory, install exact `npm:pi-career@0.2.0`, list/load it, exercise exact-package runtime acquisition with synthetic operations on a supported target, test offline failure, and remove it.
-6. Create and push one annotated unsigned `v0.2.0` tag for the exact published commit.
-7. Create the GitHub Release from `v0.2.0` with:
+1. Reconfirm the clean SHA, branch protection checks, trusted-publisher/environment configuration, canonical registry, and absence of `pi-career@0.2.0`.
+2. Create one annotated unsigned `v0.2.0` tag on the exact candidate and push only that tag. The tag is the immutable input that triggers `.github/workflows/release.yml`; the workflow must never create or move it.
+3. The workflow must verify the tag/version/changelog/SHA, install exact trusted-publishing-compatible npm tooling, run the complete package publication gate, and publish with lifecycle scripts disabled, public/latest coordinates, and npm provenance through OIDC.
+4. If publication returns an ambiguous response, query the registry before any rerun. Never move the tag, attempt to overwrite the version, or blindly republish.
+5. Before creating the GitHub Release, the workflow must verify registry metadata: version, repository, four wildcard peers, no dependency tree/lifecycle scripts, tarball integrity, shasum, provenance, and `gitHead` equal to the tagged candidate SHA.
+6. The workflow must create the GitHub Release from the existing `v0.2.0` tag with:
    - full commit SHA;
    - npm integrity and shasum;
    - exact external `@revazi/career@0.1.1` coordinate;
@@ -168,6 +163,7 @@ Only after every gate passes and the maintainer explicitly authorizes release ex
    - native-free pi-career package statement;
    - clean production/full audit statement;
    - no crate publication, signing/notarization claim, or custom release asset.
-8. Recheck the npm dist-tag, Git tag target, GitHub Release target, and main CI after all channels settle.
+7. In an isolated Pi agent directory, install exact `npm:pi-career@0.2.0`, list/load it, exercise exact-package runtime acquisition with synthetic operations on a supported target, test offline failure, and remove it.
+8. Recheck the npm dist-tag, Git tag target, GitHub Release target, provenance, and main CI after all channels settle.
 
-Do not sign, attach assets, change repository visibility/settings, add a publication workflow, publish another registry tag/version, or retry an ambiguous operation without first querying authoritative state. A failed post-publication check is an incident, not permission to replace `0.2.0`.
+Do not sign, attach assets, change repository visibility, add an alternate publication workflow or token-based path, publish another registry tag/version, or retry an ambiguous operation without first querying authoritative state. A failed post-publication check is an incident, not permission to replace `0.2.0`.
