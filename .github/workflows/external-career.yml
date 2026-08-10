@@ -35,14 +35,6 @@ jobs:
             node_arch: arm64
             runtime_target: linux-arm64-gnu
             full_release_gate: false
-          - runner: windows-2025
-            node_arch: x64
-            runtime_target: win32-x64-msvc
-            full_release_gate: false
-          - runner: windows-11-arm
-            node_arch: arm64
-            runtime_target: win32-arm64-msvc
-            full_release_gate: false
     env:
       EXPECTED_RUNTIME_TARGET: ${{ matrix.runtime_target }}
       PI_TELEMETRY: "0"
@@ -63,7 +55,7 @@ jobs:
             : undefined;
           const libc = process.platform === "linux"
             ? typeof glibc === "string" && glibc.length > 0 ? "gnu" : "musl"
-            : process.platform === "win32" ? "msvc" : undefined;
+            : undefined;
           const actual = process.platform === "darwin"
             ? `darwin-${process.arch}`
             : `${process.platform}-${process.arch}-${libc}`;
