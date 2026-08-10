@@ -62,8 +62,8 @@ Original resumes are immutable:
 
 - Never overwrite, rename, move, or reformat an original automatically.
 - A PDF workbench has extracted text only. It cannot inspect or preserve typography, columns, spacing, graphics, or other visual layout.
-- PDF changes are stored as a reviewed change plan and bounded before/after snippets for manual application in the styled source.
-- Markdown/text variants may preserve existing structure by applying only user-selected, Career Core-reviewed exact changes to a new file.
+- Current PDF workbench output is limited to reviewed change guidance and bounded before/after snippets for manual application; pi-career does not save a PDF change plan.
+- Current Markdown/text materialization can return assisted text in process memory after user selection. A future save phase may write that text to a new file only under the approval and sidecar rules below.
 - DOCX/Pages/other styled-source mutation remains unsupported until format-specific fidelity and safety are designed and tested.
 - Every generated resume file is assisted/non-authoritative, has a valid sidecar, and is excluded from authoritative readiness analysis and job matching.
 
@@ -86,24 +86,23 @@ No raw provider response should be written automatically. A bounded artifact is 
 
 Use one Pi session per application. Start `/new` before `/career-application` for another company/role so earlier private prompts and provider responses do not remain in the next application conversation.
 
-Each active application binds:
+The current application workflow binds only:
 
-- application ID and labels
-- current vacancy
-- selected original resume
-- deterministic analysis/match cards
-- prepared workbench conversation
-- reviewed suggestions/replacements
-- assisted artifact references
-- application status
+- application ID, company/role labels, and status;
+- the current vacancy;
+- bounded deterministic analysis/match cards.
+
+Selected-original handles, complete Core results, exact review inputs, and materialized text remain process-memory-only. A submitted workbench message may persist as an ordinary Pi conversation entry, but pi-career does not store it as application workspace state. Assisted artifact references are not implemented yet.
 
 A persisted Pi session can still contain private prompts and tool arguments. Application-file approval is separate from Pi session persistence and separate from provider disclosure. The workflow must ask before the first private workspace write and show the exact workspace path and files to be created.
 
 A transient `pi --no-session` run prevents Pi session JSONL persistence but does not imply temporary application files or secure erasure. Workspace creation must remain an explicit independent action.
 
-## Proposed workflow
+## Target workflow for future workspace persistence
 
-1. `/career-setup` configures original-resume roots and a separate application workspace root.
+This sequence extends the current in-session flow; steps involving an application workspace root or file writes are not implemented.
+
+1. A future `/career-setup` phase configures original-resume roots and a separate application workspace root.
 2. In a fresh Pi session, `/career-application` creates one consented company/role context; it does not write files or switch that session to another company.
 3. `/career-vacancy` binds the vacancy to that application.
 4. `/career-match` ranks eligible originals and records the selected original reference.
@@ -115,7 +114,7 @@ A transient `pi --no-session` run prevents Pi session JSONL persistence but does
 
 ## Implementation phases
 
-### Phase A: current PR
+### Phase A: implemented
 
 - searchable PDF indexing and actionable notices
 - visible, bounded workbench editor handoff

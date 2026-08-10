@@ -2,10 +2,10 @@
 name: career-core
 description: Resolves and invokes a compatible deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
 license: MIT OR Apache-2.0
-compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.0 targets are darwin-arm64 and linux-x64-gnu.
+compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.1 targets are ARM64/x64 macOS, GNU/musl Linux, and MSVC Windows.
 metadata:
   author: revazi
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Career Core through pi-career
@@ -99,13 +99,13 @@ A workbench `local_save_guidance` destination is suggestion-only. Never save aut
 - `career_core_resume`: `evaluate`, `analyze`, `analysis-suggestions-review`, `analysis-replacements-review`, `normalize`, `enrich`, `variant-review`, `variant-materialize`
 - `career_core_job`: `normalize`, `match`
 
-Raw agents remain discovery-first. Run capabilities and operations, then use exact exported/bundled schemas. Raw document tools send `input_json` only to a compatibility-validated runtime stdin with `--input - --format json-compact`; they never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Resolver acquisition is limited to exact `@revazi/career@0.1.0`, happens before private stdin, and is disabled by `PI_OFFLINE=1`.
+Raw agents remain discovery-first. Run capabilities and operations, then use exact exported/bundled schemas. Raw document tools send `input_json` only to a compatibility-validated runtime stdin with `--input - --format json-compact`; they never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Resolver acquisition is limited to exact `@revazi/career@0.1.1`, happens before private stdin, and is disabled by `PI_OFFLINE=1`.
 
 ## Failure handling
 
 A `career.pi_error.v1` value is adapter/process status, not a deterministic career result.
 
-- `runtime_unavailable` means no compatible local route was found and acquisition is unavailable/offline; install exact `@revazi/career@0.1.0` or configure a reviewed compatible executable.
+- `runtime_unavailable` means no compatible local route was found and acquisition is unavailable/offline; install exact `@revazi/career@0.1.1` or configure a reviewed compatible executable.
 - `runtime_acquisition_failed` means exact-package acquisition failed; do not request npm output, paths, environment values, or raw errors.
 - `managed_contract_invalid` means an explicit selected runtime is incompatible; an invalid `CAREER_CLI_PATH` never falls back.
 - On `career_cli_error`, inspect only the nested, validated, bounded `career.error.v1`.

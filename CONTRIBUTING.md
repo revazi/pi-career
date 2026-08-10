@@ -2,7 +2,7 @@
 
 ## Scope
 
-Keep changes limited to the Pi adapter, approved deterministic slash-command workflow, reviewed external runtime resolver, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. Provider/model workflows and assisted document generation require a separate approved phase.
+Keep changes limited to the Pi adapter, approved deterministic slash-command workflow, reviewed external runtime resolver, Agent Skill, tests, build/package policy, and documentation. Career Core owns algorithms, schemas, scoring, and career-domain semantics; propose those changes in its repository instead of duplicating them here. The approved workbench may prepare a visible user-submitted prompt, and `career_run` may Core-review and materialize explicitly selected non-PDF changes in memory. Package-initiated provider/model calls, automatic submission, automatic file saving, and broader assisted-document behavior require a separate approved phase.
 
 Read [`AGENTS.md`](AGENTS.md), [`docs/design.md`](docs/design.md), and [`SECURITY.md`](SECURITY.md) before changing code.
 
@@ -29,7 +29,7 @@ git diff --check
 
 The clean-checkout diff command must run immediately after the build. `npm run check:dist` compares source with the current working bundle; running it only after regenerating stale output does not prove the candidate revision already contained the exact artifact.
 
-`npm run build` rebuilds only tracked `dist/index.js` and `dist/pdf-worker.js`. It must not build, import, or package native runtime artifacts. The resolver must keep the fixed local-first route order, exact `@revazi/career@0.1.0` acquisition coordinate, pre-private-input managed compatibility check, trusted npm derivation, offline behavior, and payload-free failures. Updating the external package coordinate requires separate compatibility, provenance, audit, and package review.
+`npm run build` rebuilds only tracked `dist/index.js` and `dist/pdf-worker.js`. It must not build, import, or package native runtime artifacts. The resolver must keep the fixed local-first route order, exact `@revazi/career@0.1.1` acquisition coordinate, pre-private-input managed compatibility check, trusted npm derivation, offline behavior, and payload-free failures. Updating the external package coordinate requires separate compatibility, provenance, audit, and package review.
 
 `npm run audit:production` is the strict zero-vulnerability package-owned production audit and `npm run audit:full` is the strict zero-vulnerability development/host-Pi audit, both with an explicit low-severity threshold. Production/full audit and package checks derive npm from the real `process.execPath` installation, verify any inherited `npm_execpath`, remove omit/include/audit-level/`NODE_ENV` overrides, reject duplicate decoded JSON keys, and never resolve npm or tar from `PATH`. `npm run check:publish` is the direct Node authoritative readiness check, not publication authorization: it requires both clean audits and verifies the packed/extracted package, external peers, load, and isolated install. Do not add an audit-acceptance baseline for future vulnerabilities; remediate them or stop publication.
 

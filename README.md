@@ -5,167 +5,428 @@
 [![CI](https://github.com/revazi/pi-career/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-career/actions/workflows/ci.yml)
 [![license: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license-and-provenance)
 
-[Pi package](https://github.com/earendil-works/pi) for deterministic Career Core workflows. It provides a Pi extension, deterministic slash commands, the `career-core` Agent Skill, and a bounded resolver for compatible external Career Core installations. It packages no native binary and never uses a Career Core checkout, Cargo build, arbitrary download, or provider/model call.
+`pi-career` is a [Pi package](https://github.com/earendil-works/pi) for deterministic resume analysis and conservative vacancy matching, with an optional model-assisted workflow for reviewed resume improvements.
 
-Career Core remains authoritative for operations, algorithms, schemas, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics. See [`docs/design.md`](docs/design.md) and [`docs/product-flow.md`](docs/product-flow.md).
+The package's command handlers do not call a model/provider. `/career-workbench` instead prepares a visible private prompt in Pi's editor; only the user's later submission invokes the selected Pi model/provider. At runtime, pi-career never uses a Career Core source checkout or Cargo build. Its optional maintainer compatibility test may read an explicitly supplied, reviewed Core fixture checkout.
 
-## What it provides
+It gives you:
 
-Primary managed tool:
+- local slash commands for setting up a resume library, analyzing originals, and matching them to a vacancy;
+- one compact managed agent tool, `career_run`, for guided work after the deterministic baseline;
+- a visible workbench handoff that never sends private resume text until you review and submit it yourself;
+- a bounded resolver for a compatible external Career Core runtime;
+- no bundled native binary, telemetry, vacancy URL fetching, automatic document overwrite, or hidden provider call.
 
-- `career_run` — compact context, consent, analyze, match, reviewed suggestion/replacement/variant, materialization, and detail workflows through ephemeral handles
+Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-Advanced raw compatibility tools, registered but normally inactive:
+> **Version note:** this README describes `pi-career@0.2.0`. Published `pi-career@0.1.0` is the historical bundled-runtime release. If `0.2.0` is not yet visible on the npm registry, use a reviewed local checkout or pinned Git commit.
 
-- `career_core_discover`
-- `career_core_resume`
-- `career_core_job`
-
-Use `/career-tools raw` to enable raw schema-level tools and `/career-tools managed` to return to the compact surface.
-
-Workflow commands:
-
-- `/career-setup` — configure reviewed resume-library roots, privacy choices, and the preferred variation-directory suggestion
-- `/career-library` — inspect configured searchable PDF/Markdown/text resume libraries
-- `/career-application` — isolate one company/role attempt in branch-aware session state
-- `/career-vacancy` — set or clear bounded vacancy text
-- `/career-match` — normalize a vacancy and conservatively rank eligible resumes
-- `/career-analyze` — inspect complete deterministic readiness details in a bounded, paged viewer
-- `/career-workbench` — prepare a guided, reviewable private rebuild prompt for the normal Pi editor
-- `/career-tools` — show or switch the managed/raw active model-tool surface
-
-`career_run`, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke a compatible resolved runtime directly. The resolver checks `CAREER_CLI_PATH`, `career` on PATH, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.0`. It validates the complete managed operation/schema surface before private stdin opens, so normal model turns need no schema export or nested `input_json`. Setup/library scanning and `/career-application` remain local, and `/career-workbench` stops after filling the editor. The only package-initiated network-capable behavior is exact npm acquisition after local routes fail; `PI_OFFLINE=1` disables it.
-
-## Supported platforms
-
-The reviewed `@revazi/career@0.1.0` launcher currently provides native packages for:
-
-| Package target | Native platform |
-|---|---|
-| `darwin-arm64` | macOS on Apple silicon |
-| `linux-x64-gnu` | Linux x64 with supported glibc |
-
-The external launcher owns fail-closed target/libc and native integrity verification. Explicit `CAREER_CLI_PATH` and PATH routes remain caller-controlled and must pass the exact managed compatibility checks before receiving private input.
-
-Requirements:
+## Requirements
 
 - Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
-- a compatible local Career Core route or access to acquire exact `@revazi/career@0.1.0`
+- a reviewed ARM64/x64 target: macOS, GNU/Linux with glibc 2.35+, musl Linux, or MSVC Windows
+- either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.1.1`
 
 ## Install
 
-Install the exact npm release:
+After the registry confirms the release, install the exact version:
 
 ```bash
-pi install npm:pi-career@0.1.0
+pi install npm:pi-career@0.2.0
 pi list
 ```
 
-A versioned npm source is pinned. Review and explicitly install a new version when updating. Remove it with:
-
-```bash
-pi remove npm:pi-career
-```
-
-Alternatively, install the immutable `v0.1.0` Git commit:
-
-```bash
-pi install git:github.com/revazi/pi-career@967da62503bc8a97c070946f6506ea3471baeb34
-```
-
-A reviewed local checkout can also be registered in place:
+For release-candidate testing, a clean checkout includes reproducible `dist/index.js` and `dist/pdf-worker.js` bundles, so local installation does not require a build or npm install:
 
 ```bash
 cd /absolute/path/to/pi-career
 pi install "$(pwd -P)"
+pi list
 ```
 
-Local-path registrations follow later filesystem changes. Restart Pi or run `/reload` after a reviewed update.
+On Windows PowerShell, register the same clean checkout with:
 
-At first Career Core use, resolution is:
-
-1. bounded absolute `CAREER_CLI_PATH`;
-2. `career` on PATH;
-3. package-local exact `@revazi/career@0.1.0`;
-4. acquisition of exact `@revazi/career@0.1.0` from the canonical npm registry.
-
-Set `PI_OFFLINE=1` to prohibit acquisition. An invalid explicit override fails without fallback. npm acquisition completes before private document stdin opens and may leave ordinary npm cache/`_npx` data; it does not provide secure erasure.
-
-## Use
-
-Start with the setup flow, select a directory, and place a searchable PDF, Markdown, or text résumé in it:
-
-```text
-/career-setup
-/career-library
+```powershell
+pi install (Resolve-Path .).Path
+pi list
 ```
 
-`/career-library` immediately shows indexed files and actionable notices. Searchable, unencrypted PDFs are extracted locally in a bounded worker (10 MiB and 20 pages maximum); image-only/scanned PDFs require OCR or export to Markdown/text first.
+Local-path installation loads the checkout in place. After a reviewed update, restart Pi or run `/reload`.
 
-Setup also displays a suggestion-only destination for assisted resume variations. Unless explicitly overridden through **Set resume variations directory**, the preferred destination is `variants/` under the configured root for the selected original (the setup summary uses the first configured root). This preference creates no directory or file and never authorizes a write.
+To pin a reviewed Git commit instead:
 
-Create a company/role context, then set its vacancy and run deterministic matching or analysis:
-
-```text
-/career-application
-/career-vacancy
-/career-match
-/career-analyze
+```bash
+pi install git:github.com/revazi/pi-career@<reviewed-full-commit>
 ```
 
-To continue with the selected Pi agent, prepare a reviewable workbench prompt:
+Remove the exact source you installed:
 
-```text
-/career-workbench
+```bash
+pi remove npm:pi-career
+
+# Or, for a local-path registration:
+cd /absolute/path/to/pi-career
+pi remove "$(pwd -P)"
 ```
 
-`/career-application` gives each company/role attempt an immutable session-scoped ID, scopes vacancy/result entries to that ID, and names an otherwise unnamed Pi session. Use `/new` before creating another application so prior company prompts never remain in the new model conversation. It does not create workspace files yet. The planned opt-in filesystem layout keeps one flat folder per company/role attempt; see [`docs/application-workspaces.md`](docs/application-workspaces.md).
+Developers who modify `src/` must rebuild the tracked bundles with `npm run build`; see [Development](#development).
 
-The workbench never sends automatically. It offers guided score explanation, Career Core-reviewed improvement planning, a question-led rewrite interview, direct reviewed exact replacements, and—when a current vacancy exists—reviewed tailoring. The interview first reviews the deterministic priorities, then asks one small batch of factual questions and stops; only a later answer can become a bounded replacement proposal for Core review. The workbench places the complete private source context in Pi's editor so the user can inspect it before submitting. After submission, the selected Pi agent reruns the complete deterministic analysis rather than relying only on the displayed score, and every external proposal must pass the corresponding Core review. A non-PDF tailored variant can be materialized only in a later turn after the user explicitly selects canonical change IDs.
+## Recommended first run
 
-Originals remain immutable and assisted results remain non-authoritative. Markdown/text prompts preserve their visible structure; PDF prompts use extracted text and stop at reviewed targeted changes for manual application because pi-career cannot inspect or reproduce PDF typography, columns, spacing, or graphics. The current workflow does not save variants to files. When `/career-workbench` prepares a prompt, it includes the privacy-reduced preferred variation destination as suggestion-only local guidance so the selected Pi agent can recommend it first after a separate user request; exact path/file approval is still required before any external file-writing action.
+The optimal path starts with deterministic analysis. The model-assisted path begins only if you review and submit the prompt prepared by `/career-workbench`.
 
-For normal model-assisted work, call `career_run` with `command: "context"`. In persisted sessions it returns no private handles until the user explicitly approves or declines session persistence. Subsequent calls use returned `resume:...`, `result:...`, `review:...`, and `variant:...` handles with native payload objects; the current vacancy is implicit for match/tailoring. Complete Core results and exact review inputs remain in a bounded process-memory registry and disappear on session/branch replacement or restart. Use `detail` sections/items only when more evidence or canonical content is needed.
+```mermaid
+flowchart TD
+    A["Start Pi"] --> B{"Persist this Pi session?"}
+    B -->|No| C["Start with pi --no-session"]
+    B -->|Yes| D["Use a normal session<br/>approve local persistence if prompted"]
 
-For explicitly enabled raw calls, discovery-first behavior remains mandatory: capabilities → operations → schema list/export/bundle → exact `input_json`. Raw JSON remains authoritative; managed projections must preserve exact warnings, discard codes, limitations, uncertainty/authority labels, and the evidence/source spans used for presented findings.
+    C --> E["/career-setup<br/>add an original-resume root"]
+    D --> E
+    E --> F["/career-library<br/>review indexed originals and notices"]
+    F --> G["/career-analyze<br/>establish the deterministic baseline"]
 
-`CAREER_CLI_PATH` is an optional bounded override for a separately reviewed compatible executable. An installed compatible `career` on PATH is the next local route. Normal users may rely on exact-package acquisition unless they set `PI_OFFLINE=1`.
+    G --> H{"Matching a vacancy?"}
+    H -->|No| I{"Want model-assisted help?"}
+    H -->|Yes| J["/new<br/>one fresh session per company and role"]
+    J --> K["/career-application<br/>create company/role context"]
+    K --> L["/career-vacancy<br/>paste text; Career Core validates it"]
+    L --> M["/career-match<br/>rank eligible original resumes"]
+    M --> I
 
-## Privacy
+    I -->|No| N["Inspect deterministic details and stop"]
+    I -->|Yes| O["/career-workbench<br/>private prompt is prepared in the editor<br/>nothing is sent"]
+    O --> P{"Review and submit the prompt?"}
+    P -->|No| Q["Edit or cancel"]
+    P -->|Yes| R["Selected Pi model/provider<br/>uses career_run handles"]
+    R --> S["career_run reruns the complete<br/>deterministic baseline"]
+    S --> T{"Requested workflow"}
+    T -->|Explain score| U["Explain the complete deterministic result"]
+    T -->|Plan / rewrite / replacements| V["Career Core reviews external<br/>suggestions or replacements once"]
+    V --> W["Present retained items, discards, and warnings<br/>no automatic application or save"]
+    T -->|Tailor to vacancy| X["Analyze and match the original<br/>Career Core reviews variant changes once"]
+    X --> Y{"Original format"}
+    Y -->|PDF| AA["Return targeted manual changes only"]
+    Y -->|Markdown/text| AB["Later turn: user selects retained change IDs"]
+    AB --> AC["career_run materialize<br/>assisted text; still not saved"]
 
-Pi may persist native-tool arguments/results and workflow custom entries in session JSONL. Before using private resume or vacancy content, explicitly decide whether the current Pi session may persist it. Prefer a new transient run when persistence is not wanted:
+    N --> Z["Original remains unchanged<br/>assisted output is non-authoritative<br/>and is never reranked as an original"]
+    Q --> Z
+    U --> Z
+    W --> Z
+    AA --> Z
+    AC --> Z
+```
+
+### 1. Start with a transient Pi session
+
+For a first test—or whenever you do not want Pi to write this conversation to a session JSONL—start:
 
 ```bash
 pi --no-session
 ```
 
-This is not secure erasure and does not remove previous sessions, shell history, backups, provider copies, or separately saved output. Approval for local Pi context is also not approval to send content to an external provider.
+This prevents Pi session persistence for the new run. It is not secure erasure and does not remove shell history, previous sessions, backups, provider copies, or npm cache data.
 
-The workflow stores only canonical resume-root paths, bounded labels, and an optional bounded absolute variation-directory suggestion in global config—never resume text, vacancy text, or full Core output. It scans only explicitly configured `.pdf`/`.md`/`.txt` roots, extracts searchable PDF text locally without OCR or network access, excludes assisted variants and oversized inputs from authoritative operations, and never overwrites source files. `/career-workbench` visibly places private source text in the editor; submitting that ordinary Pi message may persist it in session JSONL and send it to the selected provider.
+If you use a normal persisted session, `pi-career` asks for explicit consent before it adds private vacancy/workflow state. A local-session decision is separate from permission to send content to a model provider.
 
-Slash-command Core results within process limits can be inspected in a transient pager. Managed execution captures complete Core JSON up to Core's declared 32 MiB ceiling, stores at most 16 entries/64 MiB in process memory, and returns model-visible projections/details capped at 50,000 bytes. Raw oversized tool results and oversized managed detail fail without partial output. No full-result file export is available.
+### 2. Configure an originals library
 
-## Security and release provenance
+Put one or more original resumes in a dedicated directory. Supported inputs are:
 
-pi-career packages no native Career Core artifacts. The exact reviewed runtime package coordinate is [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0). Its launcher validates native target/libc, lockstep package metadata, provenance, mode, size, format, and SHA-256 before native execution. Caller-controlled explicit/PATH routes must independently pass pi-career's exact managed operation-catalog and schema-bundle compatibility checks before private stdin opens.
+- UTF-8 Markdown (`.md`)
+- UTF-8 plain text (`.txt`)
+- searchable, unencrypted PDF (`.pdf`), up to 10 MiB and 20 pages
 
-Release `v0.1.0` coordinates:
+Image-only/scanned PDFs need OCR or export to Markdown/text first. DOCX, Pages, vacancy URLs, and OCR are not supported.
 
-- npm: [`pi-career@0.1.0`](https://www.npmjs.com/package/pi-career/v/0.1.0)
-- Git commit: [`967da62503bc8a97c070946f6506ea3471baeb34`](https://github.com/revazi/pi-career/tree/967da62503bc8a97c070946f6506ea3471baeb34)
-- npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
-- GitHub Release: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
+In Pi, run:
 
-Both the package-owned production audit and complete development/host-Pi audit were clean at the explicit low threshold. Historical bundled-runtime evidence for `v0.1.0` remains recorded in [`docs/releasing.md`](docs/releasing.md) and [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md); the current adapter tarball contains no native binary. See [`SECURITY.md`](SECURITY.md).
+```text
+/career-setup
+```
 
-There is no crate publication, custom GitHub Release asset, signing, or notarization.
+Choose **Add root** and enter the resume directory. Setup stores the canonical root in private local Pi configuration; it does not copy, move, or edit your resumes.
+
+Setup also displays a preferred `variants/` destination. This is suggestion-only: it creates no directory or file and does not authorize a save.
+
+### 3. Confirm what was indexed
+
+```text
+/career-library
+```
+
+Review the indexed originals and any notices. Fix unreadable, oversized, invalid UTF-8, encrypted, or image-only documents before continuing.
+
+### 4. Analyze an original before tailoring it
+
+```text
+/career-analyze
+```
+
+Choose one original resume. The command runs deterministic readiness analysis, shows a compact card, and lets you inspect the complete result or focused sections in a transient viewer.
+
+This is the best first baseline: understand the resume on its own before adding vacancy-specific concerns.
+
+### 5. Use one Pi session per company and role
+
+Start a fresh Pi conversation before each application:
+
+```text
+/new
+/career-application
+```
+
+Enter the company and role. The application context scopes its vacancy and result cards and names an otherwise unnamed Pi session. It does not create an application directory or write career documents.
+
+Then set the vacancy:
+
+```text
+/career-vacancy
+```
+
+Paste the vacancy text directly. `pi-career` never fetches a vacancy URL. Career Core validates the text before it becomes the current vacancy.
+
+### 6. Match your originals
+
+```text
+/career-match
+```
+
+Choose all eligible originals or a subset. The command deterministically normalizes the vacancy, analyzes each selected original, matches each original to the vacancy, and then ranks the results conservatively. You can open detailed evidence for a selected row.
+
+Scores and recommendations are bounded workflow guidance—not hiring predictions, ATS guarantees, or evidence that an employer will respond.
+
+### 7. Open the workbench only when you want model-assisted help
+
+```text
+/career-workbench
+```
+
+Choose an original and a guided mode. The command prepares a private prompt in Pi's normal editor; it does **not** invoke Career Core or a model and sends nothing automatically. Read the prompt and source payload before submitting it.
+
+After you submit, the selected Pi agent uses `career_run` to rerun complete deterministic baselines and Core-review any proposed suggestions, replacements, or vacancy-specific changes. The original remains immutable.
+
+For a non-PDF tailored variation, the agent must stop after review and ask you to select retained change IDs. Materialization can happen only in a later turn with exactly those IDs. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics.
+
+## Slash command reference
+
+The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` prepares an editor prompt whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
+
+### `/career-setup [status]`
+
+Configure and inspect package-level resume-library settings.
+
+Without arguments, the setup menu can:
+
+- add a readable resume root;
+- rescan configured roots;
+- show setup and scan status;
+- set or clear a suggestion-only resume-variation directory.
+
+It stores only canonical root paths, bounded labels, and the optional variation-directory suggestion. It does not install Career Core, create the suggested directory, copy resumes, or write result files.
+
+Use `/career-setup status` to display the current summary and notices without opening the menu.
+
+### `/career-library [status]`
+
+Browse and maintain the configured resume index.
+
+The menu can:
+
+- browse indexed PDF, Markdown, and text records;
+- add or remove a root from configuration;
+- rescan all configured roots;
+- show counts and actionable scan notices.
+
+Removing a root changes configuration only; it never deletes files. Assisted variants with valid sidecars remain visible but are excluded from authoritative analysis and matching. Oversized originals remain visible as unavailable where appropriate.
+
+Use `/career-library status` for a summary without the menu.
+
+### `/career-application [status|clear]`
+
+Create and manage one company/role context for the current Pi session.
+
+A new application records bounded company and role labels, starts at `preparing`, and can later be marked `applied`, `interviewing`, or `closed`. Its immutable application ID scopes the current vacancy and result cards. If the Pi session has no name, the command names it from the company and role.
+
+Use:
+
+- `/career-application status` to show the active context;
+- `/career-application clear` to clear the application and its current vacancy.
+
+After clearing—or before working on another company/role—run `/new`. The same Pi session cannot be reused for a second application context because earlier private prompts would still be in that conversation.
+
+This command manages session state only. It does not create workspace folders or application files.
+
+### `/career-vacancy [clear]`
+
+Set, inspect, replace, or clear the current vacancy.
+
+When no vacancy exists, the command opens an editor for pasted text. When one exists, it offers **Replace**, **View**, **Clear**, or **Cancel**. New or replacement text is normalized and validated by Career Core before being stored in workflow state.
+
+The vacancy is bound to the active application when one exists. It must be supplied as text; URLs are never fetched.
+
+Use `/career-vacancy clear` to clear it directly. This is the only career slash-command action allowed without interactive TUI/RPC mode.
+
+### `/career-analyze [filter]`
+
+Run deterministic readiness analysis for one eligible original resume.
+
+The optional filter is a case-insensitive substring matched against the resume label, relative path, and stable ID. For example:
+
+```text
+/career-analyze backend
+```
+
+After selecting a resume, the command:
+
+1. requests persistence consent when needed;
+2. runs the authoritative original-resume analysis;
+3. stores only a bounded result card in session state;
+4. offers complete/focused transient detail;
+5. can prepare a single-resume match command when a vacancy exists;
+6. can open the guided workbench for the selected resume.
+
+It never analyzes an assisted variant as an original. Oversized output fails without partial results or hidden file export.
+
+### `/career-match [filter]`
+
+Deterministically rank eligible original resumes against the current vacancy.
+
+Set a vacancy first with `/career-vacancy`. The optional filter uses the same label/relative-path/ID substring matching as `/career-analyze`.
+
+The command lets you choose every matching original or select a subset. It then runs, sequentially:
+
+1. vacancy normalization;
+2. readiness analysis for every selected original;
+3. original-resume/vacancy matching for every selected original;
+4. stable conservative ranking and tie display.
+
+The summary keeps unavailable oversized results visible instead of silently dropping them. Select a ranked row to inspect scores, strengths, gaps, confidence, warnings, evidence, and vacancy context.
+
+Assisted variants are never accepted as authoritative match inputs.
+
+### `/career-workbench [filter]`
+
+Prepare a visible, guided prompt for the selected Pi agent.
+
+The optional resume filter behaves like `/career-analyze`. Available modes are:
+
+- **Explain my score** — rerun and explain the complete deterministic analysis;
+- **Create a reviewed improvement plan** — propose at most three advisory suggestions and Core-review them once;
+- **Guided rewrite interview** — ask a small set of factual questions first, wait for your answers, then review bounded exact replacements in a later turn;
+- **Draft reviewed replacements** — propose and Core-review bounded before/after replacements without claiming they were applied;
+- **Create a tailored variation** — available when a current vacancy exists; analyze and match the original, then review vacancy-grounded changes;
+- **Ask my own question** — prepare a custom resume-only request under the same safety rules.
+
+The command itself calls neither Career Core nor a provider. It puts the complete selected resume—and the vacancy only for tailoring—into Pi's editor. Nothing is sent until you submit. Submitting may persist that message and send it to the provider selected in Pi.
+
+`pi-career` currently does not save the resulting variation to disk.
+
+### `/career-tools [managed|raw|status]`
+
+Control which Career tools are active in model context.
+
+- `/career-tools managed` keeps only the compact `career_run` workflow active. This is the default and recommended mode.
+- `/career-tools raw` also activates `career_core_discover`, `career_core_resume`, and `career_core_job` for explicit schema/debugging work.
+- `/career-tools status` reports the current tool mode.
+
+This command changes only the active model-tool surface. It does not change slash-command behavior, runtime resolution, privacy boundaries, or compatibility validation.
+
+## Managed agent workflow
+
+Normal users do not need to call raw JSON tools. The package's Agent Skill instructs Pi to use `career_run`:
+
+1. `context` obtains ephemeral handles for eligible originals and the current vacancy;
+2. `analyze` and `match` return compact projections backed by complete in-memory Core results;
+3. suggestion, replacement, and variant proposals must pass the corresponding Core review command;
+4. `detail` hydrates only the requested evidence, warning, check, change, document, or raw section;
+5. `materialize` requires a prior variant-review handle and explicit user-selected retained IDs.
+
+Handles and complete results remain bounded in process memory and disappear on session/branch replacement, reload, or shutdown. They are not result files and cannot be reconstructed safely from chat text.
+
+The raw tools are retained for advanced compatibility work only:
+
+- `career_core_discover`
+- `career_core_resume`
+- `career_core_job`
+
+When raw mode is explicitly enabled, discovery-first use remains mandatory: capabilities → operations → schema list/export/bundle → exact JSON input.
+
+## External Career Core runtime
+
+`pi-career` contains no native Career Core binary. A Core-backed command resolves a compatible runtime in this fixed order:
+
+1. absolute `CAREER_CLI_PATH`;
+2. `career` on `PATH`;
+3. package-local exact `@revazi/career@0.1.1`;
+4. bounded acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry.
+
+Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, and `/career-workbench` do not need Core. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do.
+
+Before private document stdin opens, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback. On Windows, the PATH route remains direct-argv-only and selects a native `career.exe`; npm command shims are not executed through a caller-selected shell.
+
+The exact launcher target matrix is:
+
+| Operating system | Architecture | Runtime target | Requirement |
+| --- | --- | --- | --- |
+| macOS | ARM64 | `darwin-arm64` | native Apple silicon |
+| macOS | x64 | `darwin-x64` | native Intel |
+| GNU/Linux | x64 | `linux-x64-gnu` | glibc 2.35+ |
+| GNU/Linux | ARM64 | `linux-arm64-gnu` | glibc 2.35+ |
+| musl Linux | x64 | `linux-x64-musl` | detected musl runtime |
+| musl Linux | ARM64 | `linux-arm64-musl` | detected musl runtime |
+| Windows | x64 | `win32-x64-msvc` | native MSVC Windows |
+| Windows | ARM64 | `win32-arm64-msvc` | native MSVC Windows |
+
+The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.1.1`.
+
+To prohibit acquisition:
+
+```bash
+PI_OFFLINE=1 pi --no-session
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:PI_OFFLINE = "1"
+pi --no-session
+```
+
+Offline Core-backed use then requires a compatible `CAREER_CLI_PATH`, `career` on `PATH`, or package-local launcher. Acquisition receives no resume or vacancy input, but it may leave ordinary npm cache or `_npx` data; this is not secure erasure.
+
+## Privacy and persistence
+
+Use `pi --no-session` when you do not want a new Pi session JSONL. In a persisted session, review the package's consent prompt before continuing with private content.
+
+Possible persistence surfaces are distinct:
+
+- **Package config:** canonical resume-root paths, bounded labels, and an optional variation-directory suggestion; never resume text, vacancy text, or full Core output.
+- **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
+- **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission.
+- **npm cache:** ordinary package-acquisition data, never private Career Core stdin.
+
+`pi-career` does not create payload/result temporary files, export full Core JSON, overwrite originals, or automatically save assisted resumes. Searchable PDF extraction is local, bounded, and network-disabled.
+
+See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs/product-flow.md`](docs/product-flow.md) for the complete boundary and threat model.
+
+## Current limitations
+
+- Supported original formats: searchable PDF, Markdown, and UTF-8 text.
+- No OCR, DOCX/Pages editing, vacancy URL fetching, or PDF layout reconstruction.
+- No automatic resume or application-workspace saving.
+- PDF workbench output is targeted manual guidance only.
+- Assisted variants remain non-authoritative and cannot be reranked as originals.
+- Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
+- Reviewed external native targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `win32-x64-msvc`, and `win32-arm64-msvc`.
+
+The future application-workspace contract is documented in [`docs/application-workspaces.md`](docs/application-workspaces.md); those filesystem-writing phases are not implemented.
 
 ## Development
 
-TypeScript under `src/` is authoritative. `dist/index.js` and the isolated `dist/pdf-worker.js` are reproducible tracked bundles. Build and test tooling remains directly executed `.mjs` under `scripts/` and `tests/` and is excluded from the npm package.
-
-Release verification uses Node.js 22.19.0 and npm 10.9.3:
+TypeScript under `src/` is authoritative. `dist/index.js` and `dist/pdf-worker.js` are reproducible tracked bundles for clean local and Git loading.
 
 ```bash
 npm ci
@@ -180,25 +441,36 @@ npm run audit:full
 npm run check:publish
 PI_OFFLINE=1 npm run test:pi-smoke
 PI_OFFLINE=1 npm run test:install
-npm ls --omit=dev --depth=0
+npm run test:compat
 git diff --check
 ```
 
-Optional compatibility against an explicitly reviewed Career Core fixture checkout:
+`npm run test:career-package` is the network-capable exact-package integration test. `npm run test:compat` skips unless an explicitly reviewed fixture checkout is provided:
 
 ```bash
 CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
   npm run test:compat
 ```
 
-`npm run build` rebuilds only the generated `dist/index.js` and `dist/pdf-worker.js`; it never builds or downloads native runtimes. `npm run check:publish` is a readiness check and does not publish anything. It requires both clean audits and verifies strict native-free package contents, external peers, extracted offline behavior, and isolated Pi installation. `npm run test:career-package` is the separate network-capable exact-package integration test.
+`npm run build` rebuilds JavaScript bundles only; it never builds or downloads native runtimes. `npm run check:publish` verifies readiness and package contents but does not publish anything.
 
-## Maintainer and support
+## Security and release provenance
 
-Maintained by [Revaz Zakalashvili](https://github.com/revazi). Use [Issues](https://github.com/revazi/pi-career/issues) for sanitized bugs and scoped feature requests, [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, and [`SECURITY.md`](SECURITY.md) for private vulnerability-reporting guidance. Never place private career content or vulnerability details in an ordinary issue.
+The exact reviewed external runtime coordinate is [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1), published from Career Core commit [`0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`](https://github.com/revazi/career-core/tree/0318b3b0993ee23093c8f023757fa7e4d8b3b8e0). Its launcher owns native target/libc selection and package metadata, provenance, mode or Windows file invariant, size, format, and SHA-256 verification.
+
+Historical published `pi-career` v0.1.0 coordinates are retained for verification:
+
+- npm: [`pi-career@0.1.0`](https://www.npmjs.com/package/pi-career/v/0.1.0)
+- Git commit: [`967da62503bc8a97c070946f6506ea3471baeb34`](https://github.com/revazi/pi-career/tree/967da62503bc8a97c070946f6506ea3471baeb34)
+- npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
+- GitHub Release: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
+
+That historical release bundled native artifacts; `pi-career@0.2.0` does not. Historical evidence remains in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), [`docs/releasing.md`](docs/releasing.md), and [`docs/licenses/`](docs/licenses/).
+
+Use [Issues](https://github.com/revazi/pi-career/issues) only for sanitized bugs and scoped feature requests. Follow [`SECURITY.md`](SECURITY.md) for private vulnerability reports. Never attach real resumes, vacancies, credentials, provider responses, or Pi session files to a public issue.
 
 ## License and provenance
 
 Licensed under either Apache-2.0 or MIT, at your option. See [`LICENSE-APACHE`](LICENSE-APACHE), [`LICENSE-MIT`](LICENSE-MIT), and [`NOTICE`](NOTICE).
 
-The external `@revazi/career` distribution carries its own native license/notices. Historical pi-career `v0.1.0` bundled-native evidence remains in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md) and [`docs/licenses/`](docs/licenses/).
+The external `@revazi/career` distribution carries its own native licenses and notices.

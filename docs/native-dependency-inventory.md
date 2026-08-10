@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is historical reproducible dependency evidence for the two native `career` binaries packaged by pi-career `v0.1.0` and its unreleased Phase 8 candidate. The current external-resolver package tracks and packages no native binary; native distribution evidence now belongs to `@revazi/career`. This document is **not legal advice**, a legal-compliance conclusion, an SPDX/CycloneDX SBOM, or release approval.
+This is historical reproducible dependency evidence for the two native `career` binaries packaged by pi-career `v0.1.0` and its pre-external-resolver development candidate. Pi-career `v0.2.0` tracks and packages no native binary; native distribution evidence belongs to `@revazi/career`. This document is **not legal advice**, a legal-compliance conclusion, an SPDX/CycloneDX SBOM, or release approval.
 
 The inventory is pinned to:
 

@@ -15,8 +15,8 @@ var ERROR_MESSAGES = {
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
   managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
-  runtime_unavailable: "No compatible Career Core runtime is available. Install @revazi/career@0.1.0 or configure a compatible local career executable.",
-  runtime_acquisition_failed: "Automatic acquisition of @revazi/career@0.1.0 failed. Install that exact package or configure a compatible local career executable.",
+  runtime_unavailable: "No compatible Career Core runtime is available. Install @revazi/career@0.1.1 or configure a compatible local career executable.",
+  runtime_acquisition_failed: "Automatic acquisition of @revazi/career@0.1.1 failed. Install that exact package or configure a compatible local career executable.",
   missing_executable: "The selected Career Core runtime was not found.",
   executable_unavailable: "The selected Career Core runtime is not available for execution.",
   cancelled: "The Career Core operation was cancelled.",
@@ -63,7 +63,7 @@ var MANAGED_INVOKE_OPTIONS = {
   toolResultMaxBytes: MANAGED_OUTPUT_MAX_BYTES,
   toolResultMaxLines: MANAGED_RESULT_MAX_LINES
 };
-var EXPECTED_CORE_VERSION = "0.1.0";
+var EXPECTED_CORE_VERSION = "0.1.1";
 var EXPECTED_OPERATIONS = {
   "core.capabilities": {
     capability: "core.capabilities",
@@ -292,7 +292,27 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 var CAREER_PACKAGE_NAME = "@revazi/career";
-var CAREER_PACKAGE_VERSION = "0.1.0";
+var CAREER_PACKAGE_VERSION = "0.1.1";
+var CAREER_LAUNCHER_SCHEMA = "career.npm_launcher.v2";
+var CAREER_TARGET_CATALOG = "targets.json";
+var CAREER_PLATFORM_PACKAGES = Object.freeze([
+  "@revazi/career-darwin-arm64",
+  "@revazi/career-darwin-x64",
+  "@revazi/career-linux-x64-gnu",
+  "@revazi/career-linux-arm64-gnu",
+  "@revazi/career-linux-x64-musl",
+  "@revazi/career-linux-arm64-musl",
+  "@revazi/career-win32-x64-msvc",
+  "@revazi/career-win32-arm64-msvc"
+]);
+var CAREER_LAUNCHER_FILES = Object.freeze([
+  "bin/career.js",
+  CAREER_TARGET_CATALOG,
+  "README.md",
+  "LICENSE-MIT",
+  "LICENSE-APACHE",
+  "THIRD_PARTY_NOTICES.md"
+]);
 var CAREER_PACKAGE_SPEC = `${CAREER_PACKAGE_NAME}@${CAREER_PACKAGE_VERSION}`;
 var EXECUTABLE_MAX_BYTES = 4096;
 var PATH_MAX_BYTES = 65536;
@@ -339,15 +359,12 @@ function pathEntries(environmentPath, cwd) {
   if (environmentPath === void 0 || environmentPath.includes("\0") || Buffer.byteLength(environmentPath, "utf8") > PATH_MAX_BYTES) return [];
   return environmentPath.split(path.delimiter).map((entry) => path.resolve(entry || cwd));
 }
-function executableNames(environment) {
-  if (process.platform !== "win32") return ["career"];
-  const pathExt = environmentValue(environment, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
-  const extensions = pathExt.split(";").filter((value) => /^\.[A-Za-z0-9]+$/.test(value));
-  return ["career", ...extensions.map((extension) => `career${extension.toLowerCase()}`)];
+function executableNames() {
+  return process.platform === "win32" ? ["career.exe", "career.com", "career"] : ["career"];
 }
 async function pathRoute(environment, cwd) {
   for (const directory of pathEntries(environmentValue(environment, "PATH"), cwd)) {
-    for (const name of executableNames(environment)) {
+    for (const name of executableNames()) {
       const candidate = path.join(directory, name);
       try {
         const metadata = await lstat(candidate);
@@ -364,14 +381,25 @@ function isRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function boundedRegularFile(metadata, maximumBytes, executable) {
-  return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size >= 2 && metadata.size <= maximumBytes && (!executable || (metadata.mode & 73) !== 0);
+  return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size >= 2 && metadata.size <= maximumBytes && (!executable || process.platform === "win32" || (metadata.mode & 73) !== 0);
+}
+function exactKeys2(value, expected) {
+  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+function exactStringArray(value, expected) {
+  return Array.isArray(value) && value.length === expected.length && value.every((entry, index) => entry === expected[index]);
 }
 function launcherManifestIsValid(manifest) {
-  if (!isRecord2(manifest) || !isRecord2(manifest.bin) || !isRecord2(manifest.career_launcher)) {
-    return false;
-  }
-  const platformPackages = manifest.career_launcher.platform_packages;
-  return manifest.name === CAREER_PACKAGE_NAME && manifest.version === CAREER_PACKAGE_VERSION && manifest.bin.career === "bin/career.js" && manifest.career_launcher.schema_version === "career.npm_launcher.v1" && manifest.career_launcher.executable === "career" && Array.isArray(platformPackages) && platformPackages.join("\0") === "@revazi/career-darwin-arm64\0@revazi/career-linux-x64-gnu";
+  if (!isRecord2(manifest) || !isRecord2(manifest.bin) || !isRecord2(manifest.optionalDependencies) || !isRecord2(manifest.career_launcher)) return false;
+  const optionalDependencies = manifest.optionalDependencies;
+  return manifest.name === CAREER_PACKAGE_NAME && manifest.version === CAREER_PACKAGE_VERSION && exactKeys2(manifest.bin, ["career"]) && manifest.bin.career === "bin/career.js" && exactStringArray(manifest.files, CAREER_LAUNCHER_FILES) && exactKeys2(optionalDependencies, CAREER_PLATFORM_PACKAGES) && CAREER_PLATFORM_PACKAGES.every(
+    (packageName) => optionalDependencies[packageName] === CAREER_PACKAGE_VERSION
+  ) && exactKeys2(manifest.career_launcher, [
+    "schema_version",
+    "executable",
+    "target_catalog",
+    "platform_packages"
+  ]) && manifest.career_launcher.schema_version === CAREER_LAUNCHER_SCHEMA && manifest.career_launcher.executable === "career" && manifest.career_launcher.target_catalog === CAREER_TARGET_CATALOG && exactStringArray(manifest.career_launcher.platform_packages, CAREER_PLATFORM_PACKAGES);
 }
 async function readLauncherRoute(manifestPath, source, execPath) {
   try {
@@ -382,7 +410,7 @@ async function readLauncherRoute(manifestPath, source, execPath) {
     ]);
     if (!boundedRegularFile(manifestMetadata, PACKAGE_MANIFEST_MAX_BYTES, false)) return void 0;
     const nodeMetadata = await lstat(realNodePath);
-    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) return void 0;
+    if (!nodeMetadata.isFile() || process.platform !== "win32" && (nodeMetadata.mode & 73) === 0) return void 0;
     const bytes = await readFile(manifestPath);
     if (bytes.length !== manifestMetadata.size) return void 0;
     const manifest = JSON.parse(bytes.toString("utf8"));
@@ -414,22 +442,59 @@ async function packageLocalRoute(dependencies) {
 function npmExecPathValues(environment) {
   return Object.entries(environment).filter(([key]) => key.toLowerCase() === "npm_execpath").map(([, value]) => value);
 }
+function samePath(left, right) {
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+function environmentValues(environment, key) {
+  return Object.entries(environment).filter(([name]) => name.toLowerCase() === key.toLowerCase()).map(([, value]) => value);
+}
+async function trustedWindowsShell(environment) {
+  const roots = environmentValues(environment, "SystemRoot");
+  const suppliedShells = environmentValues(environment, "ComSpec");
+  if (roots.length !== 1 || suppliedShells.length > 1) throw new Error("invalid Windows tools");
+  const root = roots[0];
+  if (typeof root !== "string" || !path.isAbsolute(root) || root.includes("\0")) {
+    throw new Error("invalid Windows root");
+  }
+  const rootMetadata = await lstat(root);
+  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+    throw new Error("invalid Windows root");
+  }
+  const realSystemRoot = await realpath(root);
+  const derivedShell = path.join(realSystemRoot, "System32", "cmd.exe");
+  const realShell = await realpath(derivedShell);
+  if (!samePath(realShell, derivedShell)) throw new Error("invalid Windows shell path");
+  const shellMetadata = await lstat(realShell);
+  if (shellMetadata.isSymbolicLink() || !shellMetadata.isFile()) {
+    throw new Error("invalid Windows shell");
+  }
+  if (suppliedShells.length === 1) {
+    const suppliedShell = suppliedShells[0];
+    if (typeof suppliedShell !== "string" || !path.isAbsolute(suppliedShell)) {
+      throw new Error("invalid ComSpec");
+    }
+    if (!samePath(await realpath(suppliedShell), realShell)) throw new Error("conflicting ComSpec");
+  }
+  return { scriptShell: realShell, systemRoot: realSystemRoot };
+}
 async function trustedNpm(execPath, environment) {
   try {
     if (!path.isAbsolute(execPath)) throw new Error("invalid node path");
     const realNodePath = await realpath(execPath);
     const nodeMetadata = await lstat(realNodePath);
-    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) {
-      throw new Error("invalid node executable");
-    }
-    const prefix = path.dirname(path.dirname(realNodePath));
-    const derivedNpmCliPath = path.join(prefix, "lib", "node_modules", "npm", "bin", "npm-cli.js");
+    if (!nodeMetadata.isFile() || process.platform !== "win32" && (nodeMetadata.mode & 73) === 0) throw new Error("invalid node executable");
+    const derivedNpmCliPath = process.platform === "win32" ? path.join(path.dirname(realNodePath), "node_modules", "npm", "bin", "npm-cli.js") : path.join(
+      path.dirname(path.dirname(realNodePath)),
+      "lib",
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js"
+    );
     const realNpmCliPath = await realpath(derivedNpmCliPath);
-    if (realNpmCliPath !== derivedNpmCliPath) throw new Error("invalid npm path");
+    if (!samePath(realNpmCliPath, derivedNpmCliPath)) throw new Error("invalid npm path");
     const npmMetadata = await lstat(realNpmCliPath);
-    if (!npmMetadata.isFile() || (npmMetadata.mode & 73) === 0) {
-      throw new Error("invalid npm executable");
-    }
+    if (!npmMetadata.isFile() || process.platform !== "win32" && (npmMetadata.mode & 73) === 0) throw new Error("invalid npm executable");
     const supplied = npmExecPathValues(environment);
     if (supplied.length > 1) throw new Error("ambiguous npm_execpath");
     if (supplied.length === 1) {
@@ -437,11 +502,20 @@ async function trustedNpm(execPath, environment) {
       if (typeof suppliedPath !== "string" || !path.isAbsolute(suppliedPath)) {
         throw new Error("invalid npm_execpath");
       }
-      if (await realpath(suppliedPath) !== realNpmCliPath) {
+      if (!samePath(await realpath(suppliedPath), realNpmCliPath)) {
         throw new Error("conflicting npm_execpath");
       }
     }
-    return { nodePath: realNodePath, npmCliPath: realNpmCliPath };
+    if (process.platform === "win32") {
+      const windows = await trustedWindowsShell(environment);
+      return {
+        nodePath: realNodePath,
+        npmCliPath: realNpmCliPath,
+        scriptShell: windows.scriptShell,
+        windowsSystemRoot: windows.systemRoot
+      };
+    }
+    return { nodePath: realNodePath, npmCliPath: realNpmCliPath, scriptShell: "/bin/sh" };
   } catch {
     throw adapterError("runtime_acquisition_failed");
   }
@@ -457,27 +531,57 @@ var FORBIDDEN_NPM_ENVIRONMENT = /* @__PURE__ */ new Set([
   "npm_config_registry",
   "npm_config_script_shell"
 ]);
-function sanitizedNpmEnvironment(environment, nodePath) {
+function sanitizedNpmEnvironment(environment, trusted) {
+  const windowsControlled = /* @__PURE__ */ new Set(["comspec", "pathext", "systemroot", "windir"]);
   const sanitized = Object.fromEntries(Object.entries(environment).filter(
-    ([key, value]) => typeof value === "string" && key.toLowerCase() !== "path" && !FORBIDDEN_NPM_ENVIRONMENT.has(key.toLowerCase().replaceAll("-", "_"))
+    ([key, value]) => typeof value === "string" && key.toLowerCase() !== "path" && !(process.platform === "win32" && windowsControlled.has(key.toLowerCase())) && !FORBIDDEN_NPM_ENVIRONMENT.has(key.toLowerCase().replaceAll("-", "_"))
   ));
+  if (process.platform === "win32" && trusted.windowsSystemRoot !== void 0) {
+    return {
+      ...sanitized,
+      PATH: [
+        path.dirname(trusted.nodePath),
+        path.dirname(trusted.scriptShell),
+        trusted.windowsSystemRoot
+      ].join(path.delimiter),
+      ComSpec: trusted.scriptShell,
+      SystemRoot: trusted.windowsSystemRoot,
+      WINDIR: trusted.windowsSystemRoot,
+      PATHEXT: ".COM;.EXE;.BAT;.CMD"
+    };
+  }
   return {
     ...sanitized,
-    PATH: [path.dirname(nodePath), "/usr/bin", "/bin"].join(path.delimiter)
+    PATH: [path.dirname(trusted.nodePath), "/usr/bin", "/bin"].join(path.delimiter)
   };
 }
-var LOCATE_ACQUIRED_LAUNCHER = String.raw`
-const fs = require("node:fs");
-const path = require("node:path");
-const first = (process.env.PATH || "").split(path.delimiter)[0];
-if (!first || !path.isAbsolute(first)) process.exit(2);
-const name = process.platform === "win32" ? "career.cmd" : "career";
-process.stdout.write(fs.realpathSync(path.join(first, name)));
-`;
-function terminateProcessTree(child, signal) {
+var LOCATE_ACQUIRED_PATH_EXPRESSION = "process.env.PATH";
+function decodeAcquiredLauncherOutput(stdout) {
   try {
-    if (process.platform !== "win32" && child.pid !== void 0) process.kill(-child.pid, signal);
-    else child.kill(signal);
+    const output = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(stdout));
+    const launchers = output.split(/\r?\n/).flatMap((line) => {
+      const firstPathEntry = line.split(path.delimiter)[0];
+      if (firstPathEntry === void 0 || !path.isAbsolute(firstPathEntry) || path.basename(firstPathEntry) !== ".bin") return [];
+      const modules = path.dirname(firstPathEntry);
+      if (path.basename(modules) !== "node_modules") return [];
+      return [path.join(modules, "@revazi", "career", "bin", "career.js")];
+    });
+    const launcher = launchers[0];
+    if (launchers.length !== 1 || launcher === void 0 || launcher.includes("\0") || Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(launcher)) throw new Error("invalid acquired launcher");
+    return launcher;
+  } catch {
+    throw adapterError("runtime_acquisition_failed");
+  }
+}
+function terminateAcquisitionProcessTree(child, signal) {
+  try {
+    if (child.pid === void 0) throw new Error("missing process id");
+    if (process.platform === "win32") {
+      process.kill(child.pid, "SIGBREAK");
+      if (signal === "SIGKILL") child.kill("SIGKILL");
+    } else {
+      process.kill(-child.pid, signal);
+    }
   } catch {
     try {
       child.kill(signal);
@@ -485,7 +589,9 @@ function terminateProcessTree(child, signal) {
     }
   }
 }
-async function runAcquisition(nodePath, npmCliPath, environment, cwd, signal) {
+async function runAcquisition(trusted, environment, cwd, signal) {
+  const { nodePath, npmCliPath, scriptShell } = trusted;
+  const locatorNode = process.platform === "win32" ? path.basename(nodePath) : nodePath;
   if (signal?.aborted) throw adapterError("cancelled");
   const arguments_ = [
     npmCliPath,
@@ -494,21 +600,21 @@ async function runAcquisition(nodePath, npmCliPath, environment, cwd, signal) {
     "--ignore-scripts",
     "--include=optional",
     "--node-options=",
-    "--script-shell=/bin/sh",
+    `--script-shell=${scriptShell}`,
     `--registry=${CANONICAL_NPM_REGISTRY}`,
     `--package=${CAREER_PACKAGE_SPEC}`,
     "--",
-    nodePath,
-    "-e",
-    LOCATE_ACQUIRED_LAUNCHER
+    locatorNode,
+    "-p",
+    LOCATE_ACQUIRED_PATH_EXPRESSION
   ];
   const completed = await new Promise((resolve) => {
     let child;
     try {
       child = spawn(nodePath, arguments_, {
         cwd,
-        detached: process.platform !== "win32",
-        env: sanitizedNpmEnvironment(environment, nodePath),
+        detached: true,
+        env: sanitizedNpmEnvironment(environment, trusted),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true
@@ -527,9 +633,9 @@ async function runAcquisition(nodePath, npmCliPath, environment, cwd, signal) {
     const terminate = (error) => {
       if (terminationError !== void 0 || closed) return;
       terminationError = error;
-      terminateProcessTree(child, "SIGTERM");
+      terminateAcquisitionProcessTree(child, "SIGTERM");
       killTimer = setTimeout(() => {
-        if (!closed) terminateProcessTree(child, "SIGKILL");
+        if (!closed) terminateAcquisitionProcessTree(child, "SIGKILL");
       }, TERMINATION_GRACE_MS);
       killTimer.unref();
     };
@@ -569,19 +675,12 @@ async function runAcquisition(nodePath, npmCliPath, environment, cwd, signal) {
   });
   if (completed.terminationError !== void 0) throw completed.terminationError;
   if (completed.spawnError || completed.code !== 0 || completed.signal !== null) throw adapterError("runtime_acquisition_failed");
-  try {
-    const launcher = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(completed.stdout));
-    if (launcher.length === 0 || launcher.includes("\0") || Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(launcher)) throw new Error("invalid acquired launcher");
-    return launcher;
-  } catch {
-    throw adapterError("runtime_acquisition_failed");
-  }
+  return decodeAcquiredLauncherOutput(completed.stdout);
 }
 async function defaultAcquireLauncher(signal, environment, dependencies) {
   const trusted = await trustedNpm(dependencies.execPath ?? process.execPath, environment);
   return runAcquisition(
-    trusted.nodePath,
-    trusted.npmCliPath,
+    trusted,
     environment,
     path.dirname(trusted.nodePath),
     signal
@@ -1142,7 +1241,7 @@ function rootId(canonicalPath) {
 function isPlainRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exactKeys2(value, required, optional = []) {
+function exactKeys3(value, required, optional = []) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
@@ -1155,12 +1254,12 @@ function normalizeGeneratedVariantsRoot(value) {
   return path2.dirname(normalized) === normalized ? void 0 : normalized;
 }
 function parseRoot(value) {
-  if (!isPlainRecord(value) || !exactKeys2(value, ["id", "path", "label"])) return void 0;
+  if (!isPlainRecord(value) || !exactKeys3(value, ["id", "path", "label"])) return void 0;
   if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
   return { id: value.id, path: value.path, label: value.label };
 }
 function parseConfig(value) {
-  if (!isPlainRecord(value) || !exactKeys2(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
+  if (!isPlainRecord(value) || !exactKeys3(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
   const roots = [];
   const ids = /* @__PURE__ */ new Set();
   const paths = /* @__PURE__ */ new Set();
@@ -1838,7 +1937,7 @@ var CARD_MAX_BYTES = 16384;
 function isRecord4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exactKeys3(value, required, optional = []) {
+function exactKeys4(value, required, optional = []) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
@@ -1852,7 +1951,7 @@ function validBase(value) {
   return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
 }
 function validFlags(value) {
-  if (!isRecord4(value) || !exactKeys3(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
+  if (!isRecord4(value) || !exactKeys4(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
     return false;
   }
   return [value.adjusted, value.provisional, value.close_cluster, value.stale].every(
@@ -1860,7 +1959,7 @@ function validFlags(value) {
   );
 }
 function validProjection(value) {
-  if (!isRecord4(value) || !exactKeys3(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
+  if (!isRecord4(value) || !exactKeys4(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
     return false;
   }
   if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord4(value.summary) || !validFlags(value.ui_flags)) return false;
@@ -1874,7 +1973,7 @@ function isSha256(value) {
 }
 var APPLICATION_STATUSES = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
 function parseApplication(value) {
-  if (!exactKeys3(value, [
+  if (!exactKeys4(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1889,10 +1988,10 @@ function parseApplication(value) {
 }
 function parseApplicationClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys3(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys4(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseVacancy(value) {
-  if (!exactKeys3(value, [
+  if (!exactKeys4(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1912,21 +2011,21 @@ function parseVacancy(value) {
 }
 function parseVacancyClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys3(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys4(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseConsent(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "granted"];
-  return exactKeys3(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
+  return exactKeys4(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
 }
 function parseConsentClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "clears_state_id"];
-  return exactKeys3(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys4(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
 }
 function validInputDigests(value) {
-  return isRecord4(value) && exactKeys3(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha256(value.resume_text_sha256) && isSha256(value.vacancy_text_sha256);
+  return isRecord4(value) && exactKeys4(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha256(value.resume_text_sha256) && isSha256(value.vacancy_text_sha256);
 }
 function parseResultCard(value) {
-  if (!exactKeys3(value, [
+  if (!exactKeys4(value, [
     "schema_version",
     "kind",
     "state_id",

@@ -47,7 +47,7 @@ interface ExpectedOperation {
   inputBytes: number | null;
 }
 
-const EXPECTED_CORE_VERSION = "0.1.0";
+const EXPECTED_CORE_VERSION = "0.1.1";
 const EXPECTED_OPERATIONS: Readonly<Record<string, ExpectedOperation>> = {
   "core.capabilities": {
     capability: "core.capabilities", path: ["capabilities"], input: null,

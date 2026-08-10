@@ -87,6 +87,7 @@ try {
 
   const operationCatalog = await execute("career_core_discover", { operation: "operations" });
   assert.equal(operationCatalog.schema_version, "career.operation_catalog.v1");
+  assert.equal(operationCatalog.core_version, "0.1.1");
   assert.equal(operationCatalog.operations.length, 15);
 
   const catalog = await execute("career_core_discover", { operation: "schema-list" });
