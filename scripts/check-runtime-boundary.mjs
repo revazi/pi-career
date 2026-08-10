@@ -30,6 +30,8 @@ const processBoundarySource = `${processSource}\n${runtimeResolverSource}\n${err
 const completeSource = `${indexSource}\n${processBoundarySource}\n${workflowSource}\n${managedSource}`;
 const bundle = await source("dist/index.js");
 const pdfWorkerBundle = await source("dist/pdf-worker.js");
+const ciWorkflow = await source(".github/workflows/ci.yml");
+const externalCareerWorkflow = await source(".github/workflows/external-career.yml");
 const packageManifest = JSON.parse(await source("package.json"));
 
 assert.match(processSource, /spawn\(runtime\.command, \[\.\.\.runtime\.argumentPrefix, \.\.\.prepared\.args\], \{/);
@@ -56,6 +58,21 @@ assert.doesNotMatch(processSource, /node:fs|mkdtemp|tmpdir|writeFile|exec\(|exec
 assert.doesNotMatch(runtimeResolverSource, /writeFile|appendFile|createWriteStream|mkdir|mkdtemp|tmpdir|\bfetch\s*\(/);
 assert.doesNotMatch(processBoundarySource, /appendEntry|registerProvider|registerCommand|console\./i);
 assert.doesNotMatch(processBoundarySource, /spawn\(\s*["'](?:cargo|npm|npx)["']|exec(?:File)?\(\s*["'](?:cargo|npm|npx)["']/i);
+
+assert.match(ciWorkflow, /name: Adapter checks/);
+assert.doesNotMatch(ciWorkflow, /test:career-package|External Career package/);
+assert.match(externalCareerWorkflow, /on:\n  workflow_dispatch:/);
+assert.doesNotMatch(externalCareerWorkflow, /pull_request:|branches: \[main\]/);
+for (const target of [
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64-gnu",
+  "linux-arm64-gnu",
+  "linux-x64-musl",
+  "linux-arm64-musl",
+  "win32-x64-msvc",
+  "win32-arm64-msvc",
+]) assert.match(externalCareerWorkflow, new RegExp(`runtime_target: ${target}`));
 
 assert.match(indexSource, /registerCareerCommands\(pi\)/);
 assert.match(indexSource, /registerCareerRun\(pi\)/);

@@ -1,0 +1,169 @@
+name: External Career Compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-career-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: External Career package (${{ matrix.runtime_target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            node_arch: arm64
+            runtime_target: darwin-arm64
+            full_release_gate: true
+          - runner: macos-15-intel
+            node_arch: x64
+            runtime_target: darwin-x64
+            full_release_gate: false
+          - runner: ubuntu-22.04
+            node_arch: x64
+            runtime_target: linux-x64-gnu
+            full_release_gate: true
+          - runner: ubuntu-24.04-arm
+            node_arch: arm64
+            runtime_target: linux-arm64-gnu
+            full_release_gate: false
+          - runner: windows-2025
+            node_arch: x64
+            runtime_target: win32-x64-msvc
+            full_release_gate: false
+          - runner: windows-11-arm
+            node_arch: arm64
+            runtime_target: win32-arm64-msvc
+            full_release_gate: false
+    env:
+      EXPECTED_RUNTIME_TARGET: ${{ matrix.runtime_target }}
+      PI_TELEMETRY: "0"
+      PI_SKIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          architecture: ${{ matrix.node_arch }}
+          cache: npm
+      - name: Verify exact native Node host
+        shell: node {0}
+        run: |
+          const expected = process.env.EXPECTED_RUNTIME_TARGET;
+          const glibc = process.platform === "linux"
+            ? process.report.getReport()?.header?.glibcVersionRuntime
+            : undefined;
+          const libc = process.platform === "linux"
+            ? typeof glibc === "string" && glibc.length > 0 ? "gnu" : "musl"
+            : process.platform === "win32" ? "msvc" : undefined;
+          const actual = process.platform === "darwin"
+            ? `darwin-${process.arch}`
+            : `${process.platform}-${process.arch}-${libc}`;
+          if (process.version !== "v22.19.0" || actual !== expected) {
+            throw new Error("native Node host does not match the claimed runtime target");
+          }
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- dist/index.js dist/pdf-worker.js
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run bench:tokens
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run check
+      - if: ${{ !matrix.full_release_gate }}
+        run: npm run typecheck
+      - if: ${{ !matrix.full_release_gate }}
+        run: npm run check:runtime
+      - run: npm run test:runtime-resolution
+      - run: npm run test:career-package
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run audit:production
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run audit:full
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run check:publish
+      - run: npm run test:pi-smoke
+        env:
+          PI_OFFLINE: "1"
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run test:install
+        env:
+          PI_OFFLINE: "1"
+      - if: ${{ matrix.full_release_gate }}
+        run: npm run test:compat
+      - run: git diff --check
+
+  musl:
+    name: External Career package (${{ matrix.runtime_target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            runner_arch: X64
+            machine: x86_64
+            node_arch: x64
+            runtime_target: linux-x64-musl
+          - runner: ubuntu-24.04-arm
+            runner_arch: ARM64
+            machine: aarch64
+            node_arch: arm64
+            runtime_target: linux-arm64-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify native Docker host architecture
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+          EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = "Linux"
+          test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          test "$(docker info --format '{{.Architecture}}')" = "$EXPECTED_MACHINE"
+      - name: Load pi-career and execute exact package in native musl
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+          EXPECTED_NODE_ARCH: ${{ matrix.node_arch }}
+          EXPECTED_RUNTIME_TARGET: ${{ matrix.runtime_target }}
+          MUSL_CONTAINER: node:22.19.0-alpine3.22@sha256:d2166de198f26e17e5a442f537754dd616ab069c47cc57b889310a717e0abbf9
+        run: |
+          set -euo pipefail
+          docker run --rm --interactive \
+            --env EXPECTED_MACHINE \
+            --env EXPECTED_NODE_ARCH \
+            --env EXPECTED_RUNTIME_TARGET \
+            --env PI_TELEMETRY=0 \
+            --env PI_SKIP_VERSION_CHECK=1 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace" \
+            --workdir /workspace \
+            "$MUSL_CONTAINER" \
+            /bin/sh -s <<'MUSL'
+          set -eu
+          apk add --no-cache git
+          git config --global --add safe.directory /workspace
+          test "$(node --version)" = "v22.19.0"
+          test "$(node -p 'process.platform')" = "linux"
+          test "$(node -p 'process.arch')" = "$EXPECTED_NODE_ARCH"
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          test "$(node -p 'process.report.getReport().header.glibcVersionRuntime === undefined')" = "true"
+          export npm_config_cache=/tmp/pi-career-npm-cache
+          npm ci
+          npm run build
+          git diff --exit-code -- dist/index.js dist/pdf-worker.js
+          npm run typecheck
+          npm run check:runtime
+          npm run test:runtime-resolution
+          npm run test:career-package
+          PI_OFFLINE=1 npm run test:pi-smoke
+          git diff --check
+          MUSL
