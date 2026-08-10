@@ -42,6 +42,7 @@ const ACQUISITION_STDERR_MAX_BYTES = 16_384;
 const ACQUISITION_TIMEOUT_MS = 120_000;
 const TERMINATION_GRACE_MS = 250;
 const CANONICAL_NPM_REGISTRY = "https://registry.npmjs.org/";
+const ACQUIRED_LAUNCHER_MARKER = "PI_CAREER_LAUNCHER_V1:";
 const SOURCE_ORDER = ["path", "package-local", "acquired"] as const;
 const requireFromPackage = createRequire(import.meta.url);
 
@@ -438,7 +439,8 @@ if (!first || !path.isAbsolute(first) || path.basename(first) !== ".bin") proces
 const modules = path.dirname(first);
 if (path.basename(modules) !== "node_modules") process.exit(2);
 const launcher = path.join(modules, "@revazi", "career", "bin", "career.js");
-process.stdout.write(fs.realpathSync(launcher));
+const encoded = Buffer.from(fs.realpathSync(launcher), "utf8").toString("base64");
+process.stdout.write("\nPI_CAREER_LAUNCHER_V1:" + encoded + "\n");
 `;
 
 interface AcquisitionResult {
@@ -448,6 +450,39 @@ interface AcquisitionResult {
   terminationError?: CareerInvocationError;
   stdout: Buffer[];
   stderrBytes: number;
+}
+
+export function decodeAcquiredLauncherOutput(stdout: readonly Buffer[]): string {
+  try {
+    const output = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(stdout));
+    const markers = output
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith(ACQUIRED_LAUNCHER_MARKER));
+    const marker = markers[0];
+    if (markers.length !== 1 || marker === undefined) {
+      throw new Error("invalid acquisition marker count");
+    }
+    const encoded = marker.slice(ACQUIRED_LAUNCHER_MARKER.length);
+    if (
+      encoded.length === 0 ||
+      encoded.length > EXECUTABLE_MAX_BYTES * 2 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
+    ) throw new Error("invalid acquisition marker encoding");
+    const launcherBytes = Buffer.from(encoded, "base64");
+    if (launcherBytes.toString("base64") !== encoded) {
+      throw new Error("non-canonical acquisition marker encoding");
+    }
+    const launcher = new TextDecoder("utf-8", { fatal: true }).decode(launcherBytes);
+    if (
+      launcher.length === 0 ||
+      launcher.includes("\0") ||
+      Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES ||
+      !path.isAbsolute(launcher)
+    ) throw new Error("invalid acquired launcher");
+    return launcher;
+  } catch {
+    throw adapterError("runtime_acquisition_failed");
+  }
 }
 
 export function terminateAcquisitionProcessTree(
@@ -572,18 +607,7 @@ async function runAcquisition(
     completed.code !== 0 ||
     completed.signal !== null
   ) throw adapterError("runtime_acquisition_failed");
-  try {
-    const launcher = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(completed.stdout));
-    if (
-      launcher.length === 0 ||
-      launcher.includes("\0") ||
-      Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES ||
-      !path.isAbsolute(launcher)
-    ) throw new Error("invalid acquired launcher");
-    return launcher;
-  } catch {
-    throw adapterError("runtime_acquisition_failed");
-  }
+  return decodeAcquiredLauncherOutput(completed.stdout);
 }
 
 async function defaultAcquireLauncher(

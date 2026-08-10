@@ -11,6 +11,7 @@ import { CareerInvocationError } from "../../src/errors.ts";
 import {
   CAREER_PACKAGE_SPEC,
   clearRuntimeResolutionCache,
+  decodeAcquiredLauncherOutput,
   resolveCareerExecutable,
   resolveCareerRuntime,
   terminateAcquisitionProcessTree,
@@ -77,6 +78,28 @@ async function launcherPackage(root) {
 
 test("pins the reviewed external Career package coordinate", () => {
   assert.equal(CAREER_PACKAGE_SPEC, "@revazi/career@0.1.1");
+});
+
+test("decodes exactly one bounded launcher marker without exposing npm banner output", () => {
+  const launcher = path.resolve(os.tmpdir(), "synthetic-acquired", "bin", "career.js");
+  const encoded = Buffer.from(launcher, "utf8").toString("base64");
+  assert.equal(
+    decodeAcquiredLauncherOutput([
+      Buffer.from(`bounded npm banner\r\n\r\nPI_CAREER_LAUNCHER_V1:${encoded}\r\n`, "utf8"),
+    ]),
+    launcher,
+  );
+  for (const output of [
+    `PI_CAREER_LAUNCHER_V1:${encoded}\nPI_CAREER_LAUNCHER_V1:${encoded}\n`,
+    `PI_CAREER_LAUNCHER_V1:${Buffer.from("relative/career.js").toString("base64")}\n`,
+    "PI_CAREER_LAUNCHER_V1:not canonical base64\n",
+    "npm banner only\n",
+  ]) {
+    assert.throws(
+      () => decodeAcquiredLauncherOutput([Buffer.from(output, "utf8")]),
+      expectedError("runtime_acquisition_failed"),
+    );
+  }
 });
 
 test("rejects altered launcher v2 metadata before compatibility probing", async (t) => {

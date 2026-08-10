@@ -44,6 +44,7 @@ assert.match(runtimeResolverSource, /npm-cli\.js/);
 assert.match(runtimeResolverSource, /npm_execpath/);
 assert.match(runtimeResolverSource, /--ignore-scripts/);
 assert.match(runtimeResolverSource, /--registry=/);
+assert.match(runtimeResolverSource, /PI_CAREER_LAUNCHER_V1/);
 assert.match(runtimeResolverSource, /process\.kill\(-child\.pid/);
 assert.match(runtimeResolverSource, /process\.kill\(child\.pid, "SIGBREAK"\)/);
 assert.match(runtimeResolverSource, /detached:\s*true/);
