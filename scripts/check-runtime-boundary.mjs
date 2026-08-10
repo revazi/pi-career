@@ -32,6 +32,7 @@ const bundle = await source("dist/index.js");
 const pdfWorkerBundle = await source("dist/pdf-worker.js");
 const ciWorkflow = await source(".github/workflows/ci.yml");
 const externalCareerWorkflow = await source(".github/workflows/external-career.yml");
+const releaseWorkflow = await source(".github/workflows/release.yml");
 const packageManifest = JSON.parse(await source("package.json"));
 
 assert.match(processSource, /spawn\(runtime\.command, \[\.\.\.runtime\.argumentPrefix, \.\.\.prepared\.args\], \{/);
@@ -72,6 +73,21 @@ for (const target of [
   "linux-arm64-musl",
 ]) assert.match(externalCareerWorkflow, new RegExp(`runtime_target: ${target}`));
 assert.doesNotMatch(externalCareerWorkflow, /windows-|win32-/);
+
+assert.match(releaseWorkflow, /tags:\r?\n\s+- "v\*\.\*\.\*"/);
+assert.match(releaseWorkflow, /runs-on: ubuntu-22\.04/);
+assert.match(releaseWorkflow, /environment: npm/);
+assert.match(releaseWorkflow, /id-token: write/);
+assert.match(releaseWorkflow, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
+assert.match(releaseWorkflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
+assert.match(releaseWorkflow, /node-version: 22\.19\.0/);
+assert.match(releaseWorkflow, /npm@11\.6\.2/);
+assert.match(releaseWorkflow, /npm ci --ignore-scripts/);
+assert.match(releaseWorkflow, /npm publish --access public --tag latest --provenance --ignore-scripts --registry=https:\/\/registry\.npmjs\.org\//);
+assert.match(releaseWorkflow, /verify-release-registry\.mjs absent/);
+assert.match(releaseWorkflow, /verify-release-registry\.mjs published/);
+assert.match(releaseWorkflow, /create-github-release\.mjs/);
+assert.doesNotMatch(releaseWorkflow, /secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)|--otp|npm publish[^\n]*\|\||gh release create/);
 
 assert.match(indexSource, /registerCareerCommands\(pi\)/);
 assert.match(indexSource, /registerCareerRun\(pi\)/);
