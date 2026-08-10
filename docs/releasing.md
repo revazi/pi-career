@@ -106,7 +106,13 @@ Requirements:
 
 ### 5. Require hosted checks on the same SHA
 
-The exact final SHA must pass all eight native GitHub checks:
+Main branch protection must require the strict, up-to-date `Adapter checks` context. That ordinary pull-request job proves the build, deterministic adapter tests, native-free package, offline loading/install, and diff checks without acquiring or executing the external Career package.
+
+The costly eight-target matrix is not an automatic pull-request check. After freezing the final SHA on public `main`, manually dispatch `.github/workflows/external-career.yml` on that exact ref and require all eight native GitHub checks:
+
+```bash
+gh workflow run external-career.yml --ref main
+```
 
 - `External Career package (darwin-arm64)`;
 - `External Career package (darwin-x64)`;
@@ -117,7 +123,7 @@ The exact final SHA must pass all eight native GitHub checks:
 - `External Career package (win32-x64-msvc)`;
 - `External Career package (win32-arm64-msvc)`.
 
-The macOS arm64 and Linux x64 GNU jobs execute the complete release ladder, including immediate dist reproducibility, clean audits, native-free package proof, offline smokes, and diff checks. Every target job executes a native Node build, exact launcher acquisition, managed contracts, representative synthetic resume/job operations, runtime resolver checks, and offline package load. Main branch protection must require the current reviewed contexts with strict up-to-date checks; stale historical names are not acceptable.
+Record the dispatched run's `headSha` and reject it unless it equals the frozen release SHA. The macOS arm64 and Linux x64 GNU jobs execute the complete release ladder, including immediate dist reproducibility, clean audits, native-free package proof, offline smokes, and diff checks. Every target job executes a native Node build, exact launcher acquisition, managed contracts, representative synthetic resume/job operations, runtime resolver checks, and offline package load. Dispatch this matrix for external package coordinate, launcher/platform catalog, runtime resolver, managed Core contract, and release reviews—not for unrelated ordinary pull requests.
 
 ### 6. Finalize release-facing text
 
