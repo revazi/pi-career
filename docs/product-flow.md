@@ -60,4 +60,4 @@ Automatic variant saving remains deferred. Setup now records or derives only a p
 - source-document or full-Core-result persistence outside the approved config/custom-entry workflow
 - source document mutation
 - career-document publication/export, release-asset downloads, signing, or notarization
-- expanded reviewed `@revazi/career` native-package claims beyond `darwin-arm64` and `linux-x64-gnu`
+- package-owned native binaries or platform claims beyond the exact reviewed `@revazi/career@0.1.1` catalog

@@ -12,7 +12,9 @@ The coordinated `v0.2.0` release may create exactly:
 
 The npm package must be the native-free allowlisted artifact verified by `npm run check:package`. It contains the Pi extension, generated PDF worker, Agent Skill, and documentation. It must contain no `runtime/`, native executable, `node_modules`, Pi peer package contents, production dependency tree, lifecycle download/build hook, or publication script.
 
-Career Core distribution remains external. The candidate pins exact [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0); its reviewed launcher owns native target/libc, package metadata, provenance, mode, size, format, and SHA-256 verification. Pi-career must not copy those algorithms or artifacts.
+Career Core distribution remains external. The candidate pins exact [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1); its reviewed launcher owns native target/libc, package metadata, provenance, Unix mode or Windows file invariant, size, format, architecture, and SHA-256 verification. Pi-career must not copy those algorithms or artifacts.
+
+The reviewed external release is bound to Career Core commit/tag `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`/`v0.1.1` and successful protected publication run [`31346152236`](https://github.com/revazi/career-core/actions/runs/31346152236). The launcher registry integrity is `sha512-K2WojK0wbuMt4WWT87jrLUiRWLwlDeYR0BcSTqlaTGc0SNw4z7VWkSe7utFwH2MFhHaIE1iHWfpsj+nNlHklvQ==`; registry metadata reports SLSA v1 provenance for the launcher and all eight lockstep native packages.
 
 There is no automated publication workflow. Preparation, CI success, a version bump, or this document does **not** authorize npm publication, tag creation/push, or a GitHub Release. Release execution remains a separate explicit maintainer action. Do not publish to crates.io, attach an npm tarball/native binary as a custom GitHub Release asset, add signing/notarization claims, or add lifecycle/publication scripts.
 
@@ -40,7 +42,7 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 - Start from synchronized public `main` and identify one full candidate SHA.
 - Require a clean Git tree and no divergence from `origin/main`.
 - Confirm `package.json`, the root package-lock entries, the Skill metadata, package assertions, changelog, README, and release documentation all identify pi-career `0.2.0` where appropriate.
-- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.0`; do not confuse the adapter release version with the external runtime version.
+- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.1`; do not confuse the adapter release version with the external runtime version.
 - Confirm `package.json` is explicitly public only at `https://registry.npmjs.org/`, has exactly four wildcard Pi peers, declares no production/optional/bundled dependency tree, and has no lifecycle/publication script.
 - Ensure the candidate contains no real resume, vacancy, credentials, Pi session, provider output, generated local path, npm token, or unreviewed executable.
 - Review the complete diff from `v0.1.0`, including authoritative `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, `career_run`, all three exact raw tools, slash commands, external resolver, Skill, and package documentation.
@@ -48,11 +50,12 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 
 ### 2. Review the external runtime boundary
 
-- Confirm the only acquisition coordinate remains exact `@revazi/career@0.1.0` from the canonical npm registry.
+- Confirm the only acquisition coordinate remains exact `@revazi/career@0.1.1` from the canonical npm registry.
 - Confirm runtime order remains: absolute `CAREER_CLI_PATH`, PATH `career`, package-local exact launcher, then bounded exact-package acquisition unless `PI_OFFLINE=1`.
-- Confirm every caller-controlled route must pass the exact managed Core 0.1.0 operation catalog and required self-contained schema bundles before private stdin opens.
-- Confirm package-local/acquired routes delegate native target/libc/provenance/mode/size/format/SHA-256 verification to the reviewed launcher.
-- Run the exact-package integration test on both supported hosted targets. Updating the external package coordinate, native target list, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
+- Confirm every caller-controlled route must pass the exact managed Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens.
+- Confirm package-local/acquired routes delegate native target/libc/provenance/mode or Windows file invariant/size/format/architecture/SHA-256 verification to the reviewed launcher.
+- Confirm all nine exact npm packages remain version-lockstep, have canonical registry integrity and SLSA v1 provenance, and match the ordered v2 launcher catalog from reviewed Core commit `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`.
+- Run the exact-package integration test on all eight supported hosted targets. Updating the external package coordinate, native target list, launcher schema, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
 
 ### 3. Require clean audits and strict package proof
 
@@ -103,12 +106,18 @@ Requirements:
 
 ### 5. Require hosted checks on the same SHA
 
-The exact final SHA must pass both strict required GitHub checks:
+The exact final SHA must pass all eight native GitHub checks:
 
-- `External Career package (darwin-arm64)` on macOS arm64;
-- `External Career package (linux-x64-gnu)` on Linux x64 glibc.
+- `External Career package (darwin-arm64)`;
+- `External Career package (darwin-x64)`;
+- `External Career package (linux-x64-gnu)`;
+- `External Career package (linux-arm64-gnu)`;
+- `External Career package (linux-x64-musl)`;
+- `External Career package (linux-arm64-musl)`;
+- `External Career package (win32-x64-msvc)`;
+- `External Career package (win32-arm64-msvc)`.
 
-Each job must execute the complete workflow ladder, including immediate dist reproducibility, exact external package acquisition/operations, clean audits, native-free package proof, offline smokes, and diff checks. Main branch protection must require these current names with strict up-to-date checks; stale historical check names are not acceptable.
+The macOS arm64 and Linux x64 GNU jobs execute the complete release ladder, including immediate dist reproducibility, clean audits, native-free package proof, offline smokes, and diff checks. Every target job executes a native Node build, exact launcher acquisition, managed contracts, representative synthetic resume/job operations, runtime resolver checks, and offline package load. Main branch protection must require the current reviewed contexts with strict up-to-date checks; stale historical names are not acceptable.
 
 ### 6. Finalize release-facing text
 
@@ -116,7 +125,7 @@ Before release authorization:
 
 - convert `CHANGELOG.md` candidate notes to the dated `0.2.0` entry;
 - ensure README installation uses exact `npm:pi-career@0.2.0` and clearly distinguishes historical v0.1.0;
-- state that pi-career packages no native runtime and identify exact external `@revazi/career@0.1.0` plus supported targets;
+- state that pi-career packages no native runtime and identify exact external `@revazi/career@0.1.1` plus all eight supported targets;
 - state that both production and complete development/host-Pi audits are clean at the explicit low threshold;
 - keep all full commit SHA and npm integrity placeholders out of tracked files until those values exist; record them in the GitHub Release after publication.
 
@@ -150,8 +159,8 @@ Only after every gate passes and the maintainer explicitly authorizes release ex
 7. Create the GitHub Release from `v0.2.0` with:
    - full commit SHA;
    - npm integrity and shasum;
-   - exact external `@revazi/career@0.1.0` coordinate;
-   - supported `darwin-arm64` and `linux-x64-gnu` targets;
+   - exact external `@revazi/career@0.1.1` coordinate;
+   - all eight reviewed macOS, GNU Linux, musl Linux, and MSVC Windows targets;
    - native-free pi-career package statement;
    - clean production/full audit statement;
    - no crate publication, signing/notarization claim, or custom release asset.

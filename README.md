@@ -25,8 +25,8 @@ Career Core remains authoritative for scores, evidence, warnings, uncertainty, m
 
 - Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
-- macOS on Apple silicon, or Linux x64 with supported glibc
-- either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.1.0`
+- a reviewed ARM64/x64 target: macOS, GNU/Linux with glibc 2.35+, musl Linux, or MSVC Windows
+- either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.1.1`
 
 ## Install
 
@@ -42,6 +42,13 @@ For release-candidate testing, a clean checkout includes reproducible `dist/inde
 ```bash
 cd /absolute/path/to/pi-career
 pi install "$(pwd -P)"
+pi list
+```
+
+On Windows PowerShell, register the same clean checkout with:
+
+```powershell
+pi install (Resolve-Path .).Path
 pi list
 ```
 
@@ -353,17 +360,39 @@ When raw mode is explicitly enabled, discovery-first use remains mandatory: capa
 
 1. absolute `CAREER_CLI_PATH`;
 2. `career` on `PATH`;
-3. package-local exact `@revazi/career@0.1.0`;
-4. bounded acquisition of exact `@revazi/career@0.1.0` from the canonical npm registry.
+3. package-local exact `@revazi/career@0.1.1`;
+4. bounded acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry.
 
 Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, and `/career-workbench` do not need Core. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do.
 
-Before private document stdin opens, the selected executable must pass the exact managed Career Core 0.1.0 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback.
+Before private document stdin opens, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback. On Windows, the PATH route remains direct-argv-only and selects a native `career.exe`; npm command shims are not executed through a caller-selected shell.
+
+The exact launcher target matrix is:
+
+| Operating system | Architecture | Runtime target | Requirement |
+| --- | --- | --- | --- |
+| macOS | ARM64 | `darwin-arm64` | native Apple silicon |
+| macOS | x64 | `darwin-x64` | native Intel |
+| GNU/Linux | x64 | `linux-x64-gnu` | glibc 2.35+ |
+| GNU/Linux | ARM64 | `linux-arm64-gnu` | glibc 2.35+ |
+| musl Linux | x64 | `linux-x64-musl` | detected musl runtime |
+| musl Linux | ARM64 | `linux-arm64-musl` | detected musl runtime |
+| Windows | x64 | `win32-x64-msvc` | native MSVC Windows |
+| Windows | ARM64 | `win32-arm64-msvc` | native MSVC Windows |
+
+The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.1.1`.
 
 To prohibit acquisition:
 
 ```bash
 PI_OFFLINE=1 pi --no-session
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:PI_OFFLINE = "1"
+pi --no-session
 ```
 
 Offline Core-backed use then requires a compatible `CAREER_CLI_PATH`, `career` on `PATH`, or package-local launcher. Acquisition receives no resume or vacancy input, but it may leave ordinary npm cache or `_npx` data; this is not secure erasure.
@@ -391,7 +420,7 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 - PDF workbench output is targeted manual guidance only.
 - Assisted variants remain non-authoritative and cannot be reranked as originals.
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
-- Reviewed external native targets are currently `darwin-arm64` and `linux-x64-gnu` only.
+- Reviewed external native targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `win32-x64-msvc`, and `win32-arm64-msvc`.
 
 The future application-workspace contract is documented in [`docs/application-workspaces.md`](docs/application-workspaces.md); those filesystem-writing phases are not implemented.
 
@@ -427,7 +456,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
 
 ## Security and release provenance
 
-The exact reviewed external runtime coordinate is [`@revazi/career@0.1.0`](https://www.npmjs.com/package/@revazi/career/v/0.1.0). Its launcher owns native target/libc selection and package metadata, provenance, mode, size, format, and SHA-256 verification.
+The exact reviewed external runtime coordinate is [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1), published from Career Core commit [`0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`](https://github.com/revazi/career-core/tree/0318b3b0993ee23093c8f023757fa7e4d8b3b8e0). Its launcher owns native target/libc selection and package metadata, provenance, mode or Windows file invariant, size, format, and SHA-256 verification.
 
 Historical published `pi-career` v0.1.0 coordinates are retained for verification:
 

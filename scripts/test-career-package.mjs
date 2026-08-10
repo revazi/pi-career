@@ -27,11 +27,19 @@ process.env.PI_TELEMETRY = "0";
 process.env.PI_SKIP_VERSION_CHECK = "1";
 
 if (process.env.EXPECTED_RUNTIME_TARGET !== undefined) {
-  const currentTarget = process.platform === "darwin" && process.arch === "arm64"
-    ? "darwin-arm64"
-    : process.platform === "linux" && process.arch === "x64"
-      ? "linux-x64-gnu"
-      : undefined;
+  const glibcRuntime = process.platform === "linux"
+    ? process.report.getReport()?.header?.glibcVersionRuntime
+    : undefined;
+  const libc = process.platform === "linux"
+    ? typeof glibcRuntime === "string" && glibcRuntime.length > 0 ? "gnu" : "musl"
+    : process.platform === "win32" ? "msvc" : undefined;
+  const currentTarget = process.platform === "darwin" && ["arm64", "x64"].includes(process.arch)
+    ? `darwin-${process.arch}`
+    : process.platform === "linux" && ["arm64", "x64"].includes(process.arch)
+      ? `linux-${process.arch}-${libc}`
+      : process.platform === "win32" && ["arm64", "x64"].includes(process.arch)
+        ? `win32-${process.arch}-${libc}`
+        : undefined;
   assert.equal(currentTarget, process.env.EXPECTED_RUNTIME_TARGET, "runner does not match claimed target");
 }
 
@@ -83,7 +91,7 @@ try {
 
   const operations = await execute("career_core_discover", { operation: "operations" });
   assert.equal(operations.schema_version, "career.operation_catalog.v1");
-  assert.equal(operations.core_version, "0.1.0");
+  assert.equal(operations.core_version, "0.1.1");
   assert.equal(operations.operations.length, 15);
 
   const schema = await execute("career_core_discover", {
@@ -117,12 +125,12 @@ try {
   const managed = JSON.parse(managedContext.content[0].text);
   assert.equal(managed.schema_version, "pi.career.run_result.v1");
   assert.equal(managed.command, "context");
-  assert.equal(managed.core_version, "0.1.0");
+  assert.equal(managed.core_version, "0.1.1");
   assert.equal(managed.persistence, "transient");
 
   assert.equal(process.env.CAREER_CLI_PATH, undefined);
   process.stdout.write(
-    "@revazi/career@0.1.0 passed managed contracts and representative resume/job operations through acquisition\n",
+    `@revazi/career@0.1.1 passed managed contracts and representative resume/job operations on ${process.env.EXPECTED_RUNTIME_TARGET ?? "the local target"} through acquisition\n`,
   );
 } finally {
   if (previousCareerPath === undefined) delete process.env.CAREER_CLI_PATH;

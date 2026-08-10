@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.0`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Package-owned save/export, richer interactive change selection/navigation, and broader PDF extraction compatibility remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Package-owned save/export, richer interactive change selection/navigation, and broader PDF extraction compatibility remain later reviewed work.
 
 Completed sequence:
 
@@ -244,7 +244,7 @@ Initial targets:
 Pi-career retains:
 
 - no packaged native runtime artifacts or runtime dependencies
-- fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.1.0`
+- fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.1.1`
 - no Cargo, sibling checkout, source build, arbitrary executable download, unpinned package, or lifecycle fallback
 - `PI_OFFLINE=1` disables acquisition; the only implicit network-capable behavior is bounded exact-package acquisition after local routes fail and before private stdin opens
 - exact managed compatibility for caller-controlled routes and native integrity delegated to the reviewed package launcher

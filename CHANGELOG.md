@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 - 2026-08-09
+## 0.2.0 - 2026-08-10
 
 ### Added
 
@@ -15,8 +15,9 @@
 
 ### Changed
 
-- Replaced package-owned native artifacts with a local-first external resolver: bounded absolute `CAREER_CLI_PATH`, PATH `career`, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.0` unless `PI_OFFLINE=1`.
-- Exact managed operation-catalog/schema-bundle compatibility now completes before private stdin opens. The reviewed Career package launcher owns native target/libc/provenance/mode/size/format/SHA-256 verification; pi-career caches routes only in memory and never retries an already-started operation on another route.
+- Replaced package-owned native artifacts with a local-first external resolver: bounded absolute `CAREER_CLI_PATH`, PATH `career`, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.1` unless `PI_OFFLINE=1`.
+- Expanded the reviewed external runtime matrix to ARM64/x64 macOS, GNU and musl Linux, and MSVC Windows through the exact eight-target `@revazi/career@0.1.1` launcher. Windows acquisition derives npm and its command shell from validated real installation/system paths, executes no PATH-selected shim, and cancels the detached npm process group.
+- Exact managed Core 0.1.1 operation-catalog/schema-bundle compatibility now completes before private stdin opens. The reviewed Career package launcher owns native target/libc/provenance/mode or Windows file invariant/size/format/SHA-256 verification; pi-career caches routes only in memory and never retries an already-started operation on another route.
 - Removed `runtime/` from source/package artifacts and replaced bundled-runtime/package checks with runtime-resolution, exact Career package, offline failure, and native-free tarball coverage.
 - Workbench prompts now use `career_run` handles and native proposal payloads rather than model-visible schema discovery and manually reconstructed Core envelopes.
 - Setup and library flows now rescan immediately, display indexed PDFs and actionable scan notices, and explain the searchable PDF/Markdown/text success path instead of silently showing an empty library.

@@ -148,7 +148,10 @@ try {
     "4a57080b8ecdb3a53ec678828121849ce5df877a99b1ad8d50e165d8a2aded1b",
     "unpdf license SHA-256",
   );
-  assert.ok(bundle.includes("@revazi/career"), "extension bundle must pin the external Career package");
+  assert.ok(
+    bundle.includes("@revazi/career@0.1.1"),
+    "extension bundle must pin exact @revazi/career@0.1.1",
+  );
   assert.equal(bundle.includes(`${root}${path.sep}node_modules`), false, "extension bundle must not contain a local package tree path");
   assert.equal(pdfWorker.includes("node_modules"), false, "PDF worker bundle must not contain a package tree path");
   assert.ok(pdfWorker.length > 0 && pdfWorker.length < 2_000_000, "PDF worker bundle must remain bounded");

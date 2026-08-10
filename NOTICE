@@ -11,7 +11,7 @@ LICENSE-APACHE.
 pi-career packages no native Career Core binary. Runtime distribution,
 platform provenance, native integrity verification, and native third-party
 notices belong to the separately installed or acquired exact
-@revazi/career@0.1.0 distribution. Historical evidence for the native binaries
+@revazi/career@0.1.1 distribution. Historical evidence for the native binaries
 bundled by pi-career v0.1.0 remains in docs/native-dependency-inventory.md and
 docs/releasing.md but is not part of the current runtime boundary.
 

@@ -6,7 +6,7 @@
 Pi integration documentation. It does not own or package native Career Core binaries. Career Core remains authoritative for every algorithm and JSON contract.
 
 Treat every Career Core checkout as read-only reference material. Do not add sibling-checkout, Cargo, source-build, arbitrary executable-download, or unpinned-package fallback. `CAREER_CLI_PATH`, PATH, and package-local executables
-are caller-controlled routes and must pass exact managed-contract compatibility checks before receiving private stdin. The only permitted network-capable runtime behavior is bounded acquisition of the exact pinned `@revazi/career@0.1.0`
+are caller-controlled routes and must pass exact managed-contract compatibility checks before receiving private stdin. The only permitted network-capable runtime behavior is bounded acquisition of the exact pinned `@revazi/career@0.1.1`
 package after local routes fail; acquisition must complete before private stdin is opened, and `PI_OFFLINE=1` must disable it. Do not add copied Core schemas/algorithms, packaged runtime npm dependencies, lifecycle-script
 downloads/builds, model/provider behavior, model-assisted commands, full-screen UI, payload/result persistence beyond the approved config/custom-entry workflow, telemetry, MCP, or publication workflows.
 
@@ -26,7 +26,7 @@ downloads/builds, model/provider behavior, model-assisted commands, full-screen 
 - Use synthetic fixtures. Never add real resumes, job descriptions, credentials, provider responses, or session files.
 - No source/result/path/environment/raw-error logging at the adapter boundary.
 - Do not commit, push, publish, release, change repository visibility, or mutate maintainer Pi settings without explicit approval.
-- Resolve runtime routes in this order: explicit `CAREER_CLI_PATH`, `career` on PATH, package-local `@revazi/career`, then acquisition of exact `@revazi/career@0.1.0`.
+- Resolve runtime routes in this order: explicit `CAREER_CLI_PATH`, `career` on PATH, package-local `@revazi/career`, then acquisition of exact `@revazi/career@0.1.1`.
 - The npx route is acquisition-only. It must locate/install the exact pinned `@revazi/career` package before any private document stdin is opened, then execute the resolved package launcher directly.
 - `PI_OFFLINE=1` disables npm/npx acquisition and fails with stable installation guidance.
 - `CAREER_CLI_PATH` and PATH executables are caller-controlled rather than npm-provenance-verified; they must pass exact managed operation-catalog and schema-bundle compatibility checks before private operations.

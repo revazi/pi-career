@@ -41,7 +41,7 @@ const BUNDLE_FILES = {
 if (process.env.FAKE_CAREER_MANAGED_COMPATIBLE === "1" && args[0] === "operations") {
   process.stdout.write(`${JSON.stringify({
     schema_version: "career.operation_catalog.v1",
-    core_version: "0.1.0",
+    core_version: "0.1.1",
     operations: OPERATION_SPECS.map(([
       operation_id, capability_id, cli_path, input_transport, input_schema_id,
       output_schema_id, maximum_input_bytes,
