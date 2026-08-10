@@ -323,7 +323,6 @@ var ACQUISITION_STDERR_MAX_BYTES = 16384;
 var ACQUISITION_TIMEOUT_MS = 12e4;
 var TERMINATION_GRACE_MS = 250;
 var CANONICAL_NPM_REGISTRY = "https://registry.npmjs.org/";
-var ACQUIRED_LAUNCHER_MARKER = "PI_CAREER_LAUNCHER_V1:";
 var SOURCE_ORDER = ["path", "package-local", "acquired"];
 var requireFromPackage = createRequire(import.meta.url);
 var cachedResolution;
@@ -556,33 +555,19 @@ function sanitizedNpmEnvironment(environment, trusted) {
     PATH: [path.dirname(trusted.nodePath), "/usr/bin", "/bin"].join(path.delimiter)
   };
 }
-var LOCATE_ACQUIRED_LAUNCHER = String.raw`
-const fs = require("node:fs");
-const path = require("node:path");
-const first = (process.env.PATH || "").split(path.delimiter)[0];
-if (!first || !path.isAbsolute(first) || path.basename(first) !== ".bin") process.exit(2);
-const modules = path.dirname(first);
-if (path.basename(modules) !== "node_modules") process.exit(2);
-const launcher = path.join(modules, "@revazi", "career", "bin", "career.js");
-const encoded = Buffer.from(fs.realpathSync(launcher), "utf8").toString("base64");
-process.stdout.write("\nPI_CAREER_LAUNCHER_V1:" + encoded + "\n");
-`;
+var LOCATE_ACQUIRED_PATH_EXPRESSION = "process.env.PATH";
 function decodeAcquiredLauncherOutput(stdout) {
   try {
     const output = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(stdout));
-    const markers = output.split(/\r?\n/).filter((line) => line.startsWith(ACQUIRED_LAUNCHER_MARKER));
-    const marker = markers[0];
-    if (markers.length !== 1 || marker === void 0) {
-      throw new Error("invalid acquisition marker count");
-    }
-    const encoded = marker.slice(ACQUIRED_LAUNCHER_MARKER.length);
-    if (encoded.length === 0 || encoded.length > EXECUTABLE_MAX_BYTES * 2 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error("invalid acquisition marker encoding");
-    const launcherBytes = Buffer.from(encoded, "base64");
-    if (launcherBytes.toString("base64") !== encoded) {
-      throw new Error("non-canonical acquisition marker encoding");
-    }
-    const launcher = new TextDecoder("utf-8", { fatal: true }).decode(launcherBytes);
-    if (launcher.length === 0 || launcher.includes("\0") || Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(launcher)) throw new Error("invalid acquired launcher");
+    const launchers = output.split(/\r?\n/).flatMap((line) => {
+      const firstPathEntry = line.split(path.delimiter)[0];
+      if (firstPathEntry === void 0 || !path.isAbsolute(firstPathEntry) || path.basename(firstPathEntry) !== ".bin") return [];
+      const modules = path.dirname(firstPathEntry);
+      if (path.basename(modules) !== "node_modules") return [];
+      return [path.join(modules, "@revazi", "career", "bin", "career.js")];
+    });
+    const launcher = launchers[0];
+    if (launchers.length !== 1 || launcher === void 0 || launcher.includes("\0") || Buffer.byteLength(launcher, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(launcher)) throw new Error("invalid acquired launcher");
     return launcher;
   } catch {
     throw adapterError("runtime_acquisition_failed");
@@ -620,8 +605,8 @@ async function runAcquisition(trusted, environment, cwd, signal) {
     `--package=${CAREER_PACKAGE_SPEC}`,
     "--",
     locatorNode,
-    "-e",
-    LOCATE_ACQUIRED_LAUNCHER
+    "-p",
+    LOCATE_ACQUIRED_PATH_EXPRESSION
   ];
   const completed = await new Promise((resolve) => {
     let child;
