@@ -82,16 +82,16 @@ async function assertVersionAbsent(version) {
 
 async function eventuallyAvailable(url, options = {}) {
   let lastStatus;
-  for (let attempt = 1; attempt <= 12; attempt += 1) {
+  for (let attempt = 1; attempt <= 36; attempt += 1) {
     try {
       const response = await request(url, options);
       lastStatus = response.status;
       if (response.status === 200) return response;
       if (response.status !== 404 && response.status < 500) break;
     } catch (error) {
-      if (attempt === 12) throw error;
+      if (attempt === 36) throw error;
     }
-    if (attempt < 12) await delay(5_000);
+    if (attempt < 36) await delay(5_000);
   }
   assert.fail(`published registry resource did not become authoritative (status ${lastStatus ?? "unavailable"})`);
 }
@@ -121,8 +121,8 @@ function expectedSubject(version, sha512Hex) {
   };
 }
 
-function assertBundle(attestation, version, sha512Hex) {
-  assert.equal(attestation.bundle?.mediaType, "application/vnd.dev.sigstore.bundle+json;version=0.2");
+function assertBundle(attestation, version, sha512Hex, mediaType) {
+  assert.equal(attestation.bundle?.mediaType, mediaType);
   assert.equal(attestation.bundle?.dsseEnvelope?.payloadType, "application/vnd.in-toto+json");
   assert.equal(attestation.bundle?.dsseEnvelope?.signatures?.length, 1);
   assert.ok(attestation.bundle?.verificationMaterial?.tlogEntries?.length > 0, "attestation transparency entry");
@@ -147,7 +147,12 @@ async function assertAttestations(metadata, version, gitSha, sha512Hex) {
   assert.ok(publish, "npm publish attestation is missing");
   assert.ok(provenance, "SLSA provenance attestation is missing");
 
-  const publishStatement = assertBundle(publish, version, sha512Hex);
+  const publishStatement = assertBundle(
+    publish,
+    version,
+    sha512Hex,
+    "application/vnd.dev.sigstore.bundle+json;version=0.2",
+  );
   assert.equal(publishStatement._type, "https://in-toto.io/Statement/v0.1");
   assert.deepEqual(publishStatement.predicate, {
     name: PACKAGE_NAME,
@@ -155,7 +160,12 @@ async function assertAttestations(metadata, version, gitSha, sha512Hex) {
     registry: REGISTRY,
   });
 
-  const provenanceStatement = assertBundle(provenance, version, sha512Hex);
+  const provenanceStatement = assertBundle(
+    provenance,
+    version,
+    sha512Hex,
+    "application/vnd.dev.sigstore.bundle.v0.3+json",
+  );
   assert.equal(provenanceStatement._type, "https://in-toto.io/Statement/v1");
   const definition = provenanceStatement.predicate?.buildDefinition;
   assert.equal(definition?.buildType, "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1");
