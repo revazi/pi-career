@@ -84,6 +84,7 @@ assert.match(releaseWorkflow, /node-version: 22\.19\.0/);
 assert.match(releaseWorkflow, /npm@11\.6\.2/);
 assert.match(releaseWorkflow, /npm ci --ignore-scripts/);
 assert.match(releaseWorkflow, /npm publish --access public --tag latest --provenance --ignore-scripts --registry=https:\/\/registry\.npmjs\.org\//);
+assert.match(releaseWorkflow, /verify-hosted-release-gates\.mjs/);
 assert.match(releaseWorkflow, /verify-release-registry\.mjs absent/);
 assert.match(releaseWorkflow, /verify-release-registry\.mjs published/);
 assert.match(releaseWorkflow, /create-github-release\.mjs/);
