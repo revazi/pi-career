@@ -91,42 +91,7 @@ jobs:
       - name: Verify same-commit hosted gates
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        shell: node {0}
-        run: |
-          import assert from "node:assert/strict";
-          import { parseStrictJson } from "./scripts/lib/strict-json.mjs";
-          const headers = {
-            accept: "application/vnd.github+json",
-            authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-            "user-agent": "pi-career-release/0.2.0",
-            "x-github-api-version": "2022-11-28",
-          };
-          async function github(path) {
-            const response = await fetch(`https://api.github.com${path}`, {
-              headers,
-              redirect: "error",
-              signal: AbortSignal.timeout(30_000),
-            });
-            assert.equal(response.status, 200, `GitHub gate query failed for ${path}`);
-            const text = await response.text();
-            return parseStrictJson(text, { label: "GitHub gate response", maximumBytes: 2 * 1024 * 1024 });
-          }
-          const sha = process.env.RELEASE_SHA;
-          const checks = await github(`/repos/revazi/pi-career/commits/${sha}/check-runs?per_page=100`);
-          assert.ok(
-            checks.check_runs.some(({ name, status, conclusion }) =>
-              name === "Adapter checks" && status === "completed" && conclusion === "success"),
-            "same-commit Adapter checks must pass",
-          );
-          const runs = await github(
-            `/repos/revazi/pi-career/actions/workflows/external-career.yml/runs?event=workflow_dispatch&status=success&head_sha=${sha}&per_page=20`,
-          );
-          assert.ok(
-            runs.workflow_runs.some(({ head_sha, event, status, conclusion }) =>
-              head_sha === sha && event === "workflow_dispatch" && status === "completed" && conclusion === "success"),
-            "same-commit External Career Compatibility must pass",
-          );
-          process.stdout.write("Verified same-commit Adapter checks and six-target External Career Compatibility\n");
+        run: node scripts/verify-hosted-release-gates.mjs
 
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
