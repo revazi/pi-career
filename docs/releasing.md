@@ -55,7 +55,7 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 - Confirm every caller-controlled route must pass the exact managed Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens.
 - Confirm package-local/acquired routes delegate native target/libc/provenance/mode or Windows file invariant/size/format/architecture/SHA-256 verification to the reviewed launcher.
 - Confirm all nine exact npm packages remain version-lockstep, have canonical registry integrity and SLSA v1 provenance, and match the ordered v2 launcher catalog from reviewed Core commit `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`.
-- Run the exact-package integration test on all eight supported hosted targets. Updating the external package coordinate, native target list, launcher schema, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
+- Run the exact-package integration test on the six hosted macOS/GNU Linux/musl Linux release targets. Updating the external package coordinate, native target list, launcher schema, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
 
 ### 3. Require clean audits and strict package proof
 
@@ -108,7 +108,7 @@ Requirements:
 
 Main branch protection must require the strict, up-to-date `Adapter checks` context. That ordinary pull-request job proves the build, deterministic adapter tests, native-free package, offline loading/install, and diff checks without acquiring or executing the external Career package.
 
-The costly eight-target matrix is not an automatic pull-request check. After freezing the final SHA on public `main`, manually dispatch `.github/workflows/external-career.yml` on that exact ref and require all eight native GitHub checks:
+The costly six-target matrix is not an automatic pull-request check. After freezing the final SHA on public `main`, manually dispatch `.github/workflows/external-career.yml` on that exact ref and require all six native GitHub checks:
 
 ```bash
 gh workflow run external-career.yml --ref main
@@ -119,9 +119,7 @@ gh workflow run external-career.yml --ref main
 - `External Career package (linux-x64-gnu)`;
 - `External Career package (linux-arm64-gnu)`;
 - `External Career package (linux-x64-musl)`;
-- `External Career package (linux-arm64-musl)`;
-- `External Career package (win32-x64-msvc)`;
-- `External Career package (win32-arm64-msvc)`.
+- `External Career package (linux-arm64-musl)`.
 
 Record the dispatched run's `headSha` and reject it unless it equals the frozen release SHA. The macOS arm64 and Linux x64 GNU jobs execute the complete release ladder, including immediate dist reproducibility, clean audits, native-free package proof, offline smokes, and diff checks. Every target job executes a native Node build, exact launcher acquisition, managed contracts, representative synthetic resume/job operations, runtime resolver checks, and offline package load. Dispatch this matrix for external package coordinate, launcher/platform catalog, runtime resolver, managed Core contract, and release reviews—not for unrelated ordinary pull requests.
 

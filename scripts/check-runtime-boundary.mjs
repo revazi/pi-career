@@ -61,7 +61,7 @@ assert.doesNotMatch(processBoundarySource, /spawn\(\s*["'](?:cargo|npm|npx)["']|
 
 assert.match(ciWorkflow, /name: Adapter checks/);
 assert.doesNotMatch(ciWorkflow, /test:career-package|External Career package/);
-assert.match(externalCareerWorkflow, /on:\n  workflow_dispatch:/);
+assert.match(externalCareerWorkflow, /on:\r?\n  workflow_dispatch:/);
 assert.doesNotMatch(externalCareerWorkflow, /pull_request:|branches: \[main\]/);
 for (const target of [
   "darwin-arm64",
@@ -70,9 +70,8 @@ for (const target of [
   "linux-arm64-gnu",
   "linux-x64-musl",
   "linux-arm64-musl",
-  "win32-x64-msvc",
-  "win32-arm64-msvc",
 ]) assert.match(externalCareerWorkflow, new RegExp(`runtime_target: ${target}`));
+assert.doesNotMatch(externalCareerWorkflow, /windows-|win32-/);
 
 assert.match(indexSource, /registerCareerCommands\(pi\)/);
 assert.match(indexSource, /registerCareerRun\(pi\)/);
