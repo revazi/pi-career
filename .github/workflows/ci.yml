@@ -44,6 +44,7 @@ jobs:
       - run: npm run build
       - run: git diff --exit-code -- dist/index.js dist/pdf-worker.js
       - run: npm run bench:tokens
+      - run: npm run bench:tokens:compare
       - run: npm run check
       - run: npm run check:package
       - run: npm run test:pi-smoke

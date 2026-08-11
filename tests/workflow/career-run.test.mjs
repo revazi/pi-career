@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 
+import { tokenBenchmarkParityCorpus } from "../../scripts/token-benchmark.mjs";
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { CareerRunError } from "../../src/managed/errors.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
@@ -117,6 +118,132 @@ function managedInvoke(calls, operationResults = {}) {
 async function runTool(tool, params, ctx, updates = []) {
   return tool.execute("synthetic-tool-call", params, new AbortController().signal, (update) => updates.push(update), ctx);
 }
+
+function assertManagedSurfaceParity(result, expected, replacements = []) {
+  let actual = result.content[0].text;
+  for (const [from, to] of replacements) actual = actual.replaceAll(from, to);
+  assert.equal(actual, expected);
+}
+
+test("token benchmark managed result/detail fixtures match career_run serialization", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-token-parity-"));
+  try {
+    const corpus = tokenBenchmarkParityCorpus();
+    const { agentDir } = await configuredAgent(temp, "Synthetic Resume.md", corpus.resumeText);
+    const fake = makeFakePi();
+    const vacancy = {
+      ...createVacancyEntry(corpus.vacancy.vacancy_text, "paste", { uuid: uuidSequence(), now }),
+      vacancy_label: corpus.vacancy.vacancy_label,
+    };
+    fake.entries.push({
+      type: "custom", customType: "career.workflow", data: vacancy,
+      id: "vacancy", parentId: null, timestamp: vacancy.created_at,
+    });
+    let registryId = 0;
+    registerCareerRun(fake.api, {
+      agentDir,
+      uuid: () => `${String(++registryId).padStart(8, "0")}-0000-4000-8000-000000000000`,
+      now,
+      invoke: managedInvoke([], {
+        "resume.analyze": corpus.core.analyze,
+        "job.match": corpus.core.match,
+        "resume.analysis-suggestions-review": corpus.core.suggestionReview,
+        "resume.analysis-replacements-review": corpus.core.replacementReview,
+        "resume.variant-review": corpus.core.variantReview,
+        "resume.variant-materialize": corpus.core.materialize,
+      }),
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    const tool = fake.tools.get("career_run");
+
+    const contextResult = await runTool(tool, { command: "context" }, rpc.ctx);
+    const context = parsed(contextResult);
+    const benchmarkResume = JSON.parse(corpus.managed.context).resumes[0].handle;
+    assertManagedSurfaceParity(contextResult, corpus.managed.context, [
+      [context.resumes[0].handle, benchmarkResume],
+    ]);
+    const resumeHandle = context.resumes[0].handle;
+
+    const analyzeResult = await runTool(tool, {
+      ...corpus.calls.analyze, handle: resumeHandle,
+    }, rpc.ctx);
+    const analyze = parsed(analyzeResult);
+    const benchmarkAnalysis = JSON.parse(corpus.managed.analyze).result;
+    assertManagedSurfaceParity(analyzeResult, corpus.managed.analyze, [
+      [analyze.result, benchmarkAnalysis],
+    ]);
+    const evidenceResult = await runTool(tool, {
+      command: "detail", handle: analyze.result, payload: { section: "evidence" },
+    }, rpc.ctx);
+    assertManagedSurfaceParity(evidenceResult, corpus.managed.evidenceDetail, [
+      [analyze.result, benchmarkAnalysis],
+    ]);
+
+    const matchResultValue = await runTool(tool, {
+      ...corpus.calls.match, handle: resumeHandle,
+    }, rpc.ctx);
+    const match = parsed(matchResultValue);
+    assertManagedSurfaceParity(matchResultValue, corpus.managed.match, [
+      [match.result, JSON.parse(corpus.managed.match).result],
+    ]);
+
+    const suggestionResult = await runTool(tool, {
+      ...corpus.calls.suggestionReview, handle: resumeHandle,
+    }, rpc.ctx);
+    const suggestion = parsed(suggestionResult);
+    assertManagedSurfaceParity(suggestionResult, corpus.managed.suggestionReview, [
+      [suggestion.review, JSON.parse(corpus.managed.suggestionReview).review],
+    ]);
+
+    const replacementResult = await runTool(tool, {
+      ...corpus.calls.replacementReview, handle: resumeHandle,
+    }, rpc.ctx);
+    const replacement = parsed(replacementResult);
+    assertManagedSurfaceParity(replacementResult, corpus.managed.replacementReview, [
+      [replacement.review, JSON.parse(corpus.managed.replacementReview).review],
+    ]);
+
+    const reviewResult = await runTool(tool, {
+      ...corpus.calls.variantReview, handle: resumeHandle,
+    }, rpc.ctx);
+    const review = parsed(reviewResult);
+    const benchmarkReview = JSON.parse(corpus.managed.variantReview).review;
+    assertManagedSurfaceParity(reviewResult, corpus.managed.variantReview, [
+      [review.review, benchmarkReview],
+    ]);
+    const changeOneResult = await runTool(tool, {
+      command: "detail", handle: review.review,
+      payload: { section: "changes", item: "change-0001" },
+    }, rpc.ctx);
+    assertManagedSurfaceParity(changeOneResult, corpus.managed.changeOneDetail, [
+      [review.review, benchmarkReview],
+    ]);
+    const changeTwoResult = await runTool(tool, {
+      command: "detail", handle: review.review,
+      payload: { section: "changes", item: "change-0002" },
+    }, rpc.ctx);
+    assertManagedSurfaceParity(changeTwoResult, corpus.managed.changeTwoDetail, [
+      [review.review, benchmarkReview],
+    ]);
+
+    const materializeResult = await runTool(tool, {
+      ...corpus.calls.materialize, handle: review.review,
+    }, rpc.ctx);
+    const materialize = parsed(materializeResult);
+    const benchmarkVariant = JSON.parse(corpus.managed.materialize).variant;
+    assertManagedSurfaceParity(materializeResult, corpus.managed.materialize, [
+      [materialize.variant, benchmarkVariant],
+    ]);
+    const documentResult = await runTool(tool, {
+      command: "detail", handle: materialize.variant, payload: { section: "document" },
+    }, rpc.ctx);
+    assertManagedSurfaceParity(documentResult, corpus.managed.documentDetail, [
+      [materialize.variant, benchmarkVariant],
+    ]);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
 
 test("career_run hides schema discovery, uses ephemeral handles, and hydrates bounded detail", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-analyze-"));

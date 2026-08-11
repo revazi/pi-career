@@ -1,0 +1,442 @@
+{
+  "schema_version": "pi.career.token_benchmark_snapshot.v1",
+  "phase": "before",
+  "phase_id": "career-run-token-optimization-v1",
+  "source_commit": "c7d76344ccdfd8a370c8c69467d2022d9aea5d2e",
+  "source_trees": {
+    "src": "ac249864e443b81c18e5e4d69ccab06dc5ff7a20",
+    "skills": "c8707aee42ad08f2ea606dd73d667c9e34e6df44"
+  },
+  "benchmark": {
+    "schema_version": "pi.career.token_benchmark.v2",
+    "corpus_version": "pi.career.synthetic_model_surfaces.v2",
+    "surface_sha256": "312c9203dd786424cbcbca643870d3ece83a276e1fd6a3cddaf854d585078cb9",
+    "encoding": "o200k_base",
+    "tokenizer": {
+      "implementation": "js-tiktoken",
+      "version": "1.0.21"
+    },
+    "measurements": {
+      "skill-discovery/career-core-metadata": 87,
+      "skill-content/career-core-full": 3363,
+      "tool-contract/career-run-active": 386,
+      "tool-contract/raw-three-inactive": 1063,
+      "tool-contract/all-registered": 1451,
+      "tool-call/context": 24,
+      "tool-call/analyze": 37,
+      "tool-call/match": 36,
+      "tool-call/suggestion-review": 130,
+      "tool-call/replacement-review": 137,
+      "tool-call/variant-review": 235,
+      "tool-call/materialize": 72,
+      "tool-call/detail-evidence": 56,
+      "tool-call/detail-change-0001": 65,
+      "tool-call/detail-change-0002": 65,
+      "tool-call/detail-document": 55,
+      "tool-result/synthetic-context": 98,
+      "tool-result/synthetic-analyze": 161,
+      "tool-result/synthetic-match": 175,
+      "tool-result/synthetic-suggestion-review": 207,
+      "tool-result/synthetic-replacement-review": 211,
+      "tool-result/synthetic-variant-review": 256,
+      "tool-result/synthetic-materialize": 242,
+      "tool-detail/synthetic-evidence": 129,
+      "tool-detail/synthetic-change-0001": 119,
+      "tool-detail/synthetic-change-0002": 120,
+      "tool-detail/synthetic-document": 90,
+      "editor-handoff/synthetic-materialize-selection": 98,
+      "editor-prompt/synthetic-workbench": 808,
+      "editor-prompt/synthetic-workbench-explain": 669,
+      "editor-prompt/synthetic-workbench-plan": 684,
+      "editor-prompt/synthetic-workbench-rewrite": 753,
+      "editor-prompt/synthetic-workbench-replacements": 684,
+      "editor-prompt/synthetic-workbench-tailor": 808,
+      "editor-prompt/synthetic-workbench-question": 666
+    },
+    "workflows": {
+      "managed-analysis-with-evidence": {
+        "model_visible_tokens": 4341,
+        "components": [
+          {
+            "measurement": "skill-discovery/career-core-metadata",
+            "occurrences": 1,
+            "tokens": 87
+          },
+          {
+            "measurement": "skill-content/career-core-full",
+            "occurrences": 1,
+            "tokens": 3363
+          },
+          {
+            "measurement": "tool-contract/career-run-active",
+            "occurrences": 1,
+            "tokens": 386
+          },
+          {
+            "measurement": "tool-call/context",
+            "occurrences": 1,
+            "tokens": 24
+          },
+          {
+            "measurement": "tool-result/synthetic-context",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/analyze",
+            "occurrences": 1,
+            "tokens": 37
+          },
+          {
+            "measurement": "tool-result/synthetic-analyze",
+            "occurrences": 1,
+            "tokens": 161
+          },
+          {
+            "measurement": "tool-call/detail-evidence",
+            "occurrences": 1,
+            "tokens": 56
+          },
+          {
+            "measurement": "tool-detail/synthetic-evidence",
+            "occurrences": 1,
+            "tokens": 129
+          }
+        ],
+        "model_visible_schema_discovery_calls": 0,
+        "nested_input_json": false,
+        "repeated_complete_private_source_bytes": 0,
+        "skill_discovery_metadata_occurrences": 1,
+        "matching_skill_full_content_occurrences": 1,
+        "skill_reference_content_occurrences": 0,
+        "tool_calls": 3,
+        "user_model_submissions": 1,
+        "complete_private_source_occurrences": 0
+      },
+      "managed-match": {
+        "model_visible_tokens": 4169,
+        "components": [
+          {
+            "measurement": "skill-discovery/career-core-metadata",
+            "occurrences": 1,
+            "tokens": 87
+          },
+          {
+            "measurement": "skill-content/career-core-full",
+            "occurrences": 1,
+            "tokens": 3363
+          },
+          {
+            "measurement": "tool-contract/career-run-active",
+            "occurrences": 1,
+            "tokens": 386
+          },
+          {
+            "measurement": "tool-call/context",
+            "occurrences": 1,
+            "tokens": 24
+          },
+          {
+            "measurement": "tool-result/synthetic-context",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/match",
+            "occurrences": 1,
+            "tokens": 36
+          },
+          {
+            "measurement": "tool-result/synthetic-match",
+            "occurrences": 1,
+            "tokens": 175
+          }
+        ],
+        "model_visible_schema_discovery_calls": 0,
+        "nested_input_json": false,
+        "repeated_complete_private_source_bytes": 0,
+        "skill_discovery_metadata_occurrences": 1,
+        "matching_skill_full_content_occurrences": 1,
+        "skill_reference_content_occurrences": 0,
+        "tool_calls": 2,
+        "user_model_submissions": 1,
+        "complete_private_source_occurrences": 0
+      },
+      "reviewed-suggestion-plan": {
+        "model_visible_tokens": 5362,
+        "components": [
+          {
+            "measurement": "skill-discovery/career-core-metadata",
+            "occurrences": 1,
+            "tokens": 87
+          },
+          {
+            "measurement": "skill-content/career-core-full",
+            "occurrences": 1,
+            "tokens": 3363
+          },
+          {
+            "measurement": "editor-prompt/synthetic-workbench-plan",
+            "occurrences": 1,
+            "tokens": 684
+          },
+          {
+            "measurement": "tool-contract/career-run-active",
+            "occurrences": 1,
+            "tokens": 386
+          },
+          {
+            "measurement": "tool-call/context",
+            "occurrences": 1,
+            "tokens": 24
+          },
+          {
+            "measurement": "tool-result/synthetic-context",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/analyze",
+            "occurrences": 1,
+            "tokens": 37
+          },
+          {
+            "measurement": "tool-result/synthetic-analyze",
+            "occurrences": 1,
+            "tokens": 161
+          },
+          {
+            "measurement": "tool-call/suggestion-review",
+            "occurrences": 1,
+            "tokens": 130
+          },
+          {
+            "measurement": "tool-result/synthetic-suggestion-review",
+            "occurrences": 1,
+            "tokens": 207
+          },
+          {
+            "measurement": "tool-call/detail-evidence",
+            "occurrences": 1,
+            "tokens": 56
+          },
+          {
+            "measurement": "tool-detail/synthetic-evidence",
+            "occurrences": 1,
+            "tokens": 129
+          }
+        ],
+        "model_visible_schema_discovery_calls": 0,
+        "nested_input_json": false,
+        "repeated_complete_private_source_bytes": 0,
+        "skill_discovery_metadata_occurrences": 1,
+        "matching_skill_full_content_occurrences": 1,
+        "skill_reference_content_occurrences": 0,
+        "tool_calls": 4,
+        "user_model_submissions": 1,
+        "complete_private_source_occurrences": 1
+      },
+      "reviewed-replacements": {
+        "model_visible_tokens": 5188,
+        "components": [
+          {
+            "measurement": "skill-discovery/career-core-metadata",
+            "occurrences": 1,
+            "tokens": 87
+          },
+          {
+            "measurement": "skill-content/career-core-full",
+            "occurrences": 1,
+            "tokens": 3363
+          },
+          {
+            "measurement": "editor-prompt/synthetic-workbench-replacements",
+            "occurrences": 1,
+            "tokens": 684
+          },
+          {
+            "measurement": "tool-contract/career-run-active",
+            "occurrences": 1,
+            "tokens": 386
+          },
+          {
+            "measurement": "tool-call/context",
+            "occurrences": 1,
+            "tokens": 24
+          },
+          {
+            "measurement": "tool-result/synthetic-context",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/analyze",
+            "occurrences": 1,
+            "tokens": 37
+          },
+          {
+            "measurement": "tool-result/synthetic-analyze",
+            "occurrences": 1,
+            "tokens": 161
+          },
+          {
+            "measurement": "tool-call/replacement-review",
+            "occurrences": 1,
+            "tokens": 137
+          },
+          {
+            "measurement": "tool-result/synthetic-replacement-review",
+            "occurrences": 1,
+            "tokens": 211
+          }
+        ],
+        "model_visible_schema_discovery_calls": 0,
+        "nested_input_json": false,
+        "repeated_complete_private_source_bytes": 0,
+        "skill_discovery_metadata_occurrences": 1,
+        "matching_skill_full_content_occurrences": 1,
+        "skill_reference_content_occurrences": 0,
+        "tool_calls": 3,
+        "user_model_submissions": 1,
+        "complete_private_source_occurrences": 1
+      },
+      "tailored-variant-materialization": {
+        "model_visible_tokens": 6592,
+        "components": [
+          {
+            "measurement": "skill-discovery/career-core-metadata",
+            "occurrences": 1,
+            "tokens": 87
+          },
+          {
+            "measurement": "skill-content/career-core-full",
+            "occurrences": 1,
+            "tokens": 3363
+          },
+          {
+            "measurement": "editor-prompt/synthetic-workbench-tailor",
+            "occurrences": 1,
+            "tokens": 808
+          },
+          {
+            "measurement": "tool-contract/career-run-active",
+            "occurrences": 1,
+            "tokens": 386
+          },
+          {
+            "measurement": "tool-call/context",
+            "occurrences": 1,
+            "tokens": 24
+          },
+          {
+            "measurement": "tool-result/synthetic-context",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/analyze",
+            "occurrences": 1,
+            "tokens": 37
+          },
+          {
+            "measurement": "tool-result/synthetic-analyze",
+            "occurrences": 1,
+            "tokens": 161
+          },
+          {
+            "measurement": "tool-call/match",
+            "occurrences": 1,
+            "tokens": 36
+          },
+          {
+            "measurement": "tool-result/synthetic-match",
+            "occurrences": 1,
+            "tokens": 175
+          },
+          {
+            "measurement": "tool-call/variant-review",
+            "occurrences": 1,
+            "tokens": 235
+          },
+          {
+            "measurement": "tool-result/synthetic-variant-review",
+            "occurrences": 1,
+            "tokens": 256
+          },
+          {
+            "measurement": "tool-call/detail-change-0001",
+            "occurrences": 1,
+            "tokens": 65
+          },
+          {
+            "measurement": "tool-detail/synthetic-change-0001",
+            "occurrences": 1,
+            "tokens": 119
+          },
+          {
+            "measurement": "tool-call/detail-change-0002",
+            "occurrences": 1,
+            "tokens": 65
+          },
+          {
+            "measurement": "tool-detail/synthetic-change-0002",
+            "occurrences": 1,
+            "tokens": 120
+          },
+          {
+            "measurement": "editor-handoff/synthetic-materialize-selection",
+            "occurrences": 1,
+            "tokens": 98
+          },
+          {
+            "measurement": "tool-call/materialize",
+            "occurrences": 1,
+            "tokens": 72
+          },
+          {
+            "measurement": "tool-result/synthetic-materialize",
+            "occurrences": 1,
+            "tokens": 242
+          },
+          {
+            "measurement": "tool-call/detail-document",
+            "occurrences": 1,
+            "tokens": 55
+          },
+          {
+            "measurement": "tool-detail/synthetic-document",
+            "occurrences": 1,
+            "tokens": 90
+          }
+        ],
+        "model_visible_schema_discovery_calls": 0,
+        "nested_input_json": false,
+        "repeated_complete_private_source_bytes": 0,
+        "skill_discovery_metadata_occurrences": 1,
+        "matching_skill_full_content_occurrences": 1,
+        "skill_reference_content_occurrences": 0,
+        "tool_calls": 8,
+        "user_model_submissions": 2,
+        "complete_private_source_occurrences": 1
+      }
+    },
+    "invariants": {
+      "model_visible_schema_discovery_calls": 0,
+      "nested_input_json": false,
+      "raw_compatibility_tool_contract_count": 3,
+      "normal_active_model_tool_count": 1,
+      "complete_private_source_occurrences_in_tailored_workflow": 1,
+      "repeated_complete_private_source_bytes_in_tailored_workflow": 0,
+      "materialization_handoff_complete_private_source_occurrences": 0,
+      "all_workbench_prompts_include_complete_private_source_once": true,
+      "assisted_authority_retained": true,
+      "required_warning_codes_retained": true,
+      "confidence_uncertainty_and_evidence_retained": true,
+      "exact_selected_change_ids_retained": true,
+      "complete_detail_hydration_measured": true,
+      "skill_discovery_metadata_always_visible": true,
+      "full_skill_content_loaded_for_matching_tasks": true,
+      "skill_reference_content_excluded_until_requested": true
+    }
+  }
+}

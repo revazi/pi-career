@@ -1,0 +1,46 @@
+{
+  "schema_version": "pi.career.token_optimization_phase.v1",
+  "phase_id": "career-run-token-optimization-v1",
+  "status": "before_frozen",
+  "baseline_source": {
+    "commit": "c7d76344ccdfd8a370c8c69467d2022d9aea5d2e",
+    "trees": {
+      "src": "ac249864e443b81c18e5e4d69ccab06dc5ff7a20",
+      "skills": "c8707aee42ad08f2ea606dd73d667c9e34e6df44"
+    }
+  },
+  "baseline_history_commit": null,
+  "before_snapshot": "../baselines/token-optimization-v1-before.json",
+  "before_snapshot_sha256": "198d395fd1b81d3abd824e4d1f91ee986c196f87f10a7aaca8edccc37b2601e2",
+  "after_snapshot": null,
+  "tokenizer": {
+    "implementation": "js-tiktoken",
+    "version": "1.0.21",
+    "encoding": "o200k_base"
+  },
+  "targets": {
+    "minimum_aggregate_workflow_reduction_percent": 10,
+    "maximum_workflow_token_regression": 0,
+    "maximum_active_tool_contract_tokens": 400,
+    "maximum_common_tool_result_tokens": 1500,
+    "maximum_common_detail_tokens": 1500
+  },
+  "required_invariants": {
+    "model_visible_schema_discovery_calls": 0,
+    "nested_input_json": false,
+    "raw_compatibility_tool_contract_count": 3,
+    "normal_active_model_tool_count": 1,
+    "complete_private_source_occurrences_in_tailored_workflow": 1,
+    "repeated_complete_private_source_bytes_in_tailored_workflow": 0,
+    "materialization_handoff_complete_private_source_occurrences": 0,
+    "all_workbench_prompts_include_complete_private_source_once": true,
+    "assisted_authority_retained": true,
+    "required_warning_codes_retained": true,
+    "confidence_uncertainty_and_evidence_retained": true,
+    "exact_selected_change_ids_retained": true,
+    "complete_detail_hydration_measured": true,
+    "skill_discovery_metadata_always_visible": true,
+    "full_skill_content_loaded_for_matching_tasks": true,
+    "skill_reference_content_excluded_until_requested": true
+  }
+}

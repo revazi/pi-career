@@ -68,6 +68,8 @@ jobs:
       - if: ${{ matrix.full_release_gate }}
         run: npm run bench:tokens
       - if: ${{ matrix.full_release_gate }}
+        run: npm run bench:tokens:compare
+      - if: ${{ matrix.full_release_gate }}
         run: npm run check
       - if: ${{ !matrix.full_release_gate }}
         run: npm run typecheck

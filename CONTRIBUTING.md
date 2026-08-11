@@ -15,6 +15,7 @@ npm ci
 npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run bench:tokens
+npm run bench:tokens:compare
 npm run check
 npm run test:runtime-resolution
 npm run test:career-package
@@ -27,7 +28,7 @@ npm run test:compat
 git diff --check
 ```
 
-The clean-checkout diff command must run immediately after the build. `npm run check:dist` compares source with the current working bundle; running it only after regenerating stale output does not prove the candidate revision already contained the exact artifact.
+The clean-checkout diff command must run immediately after the build. `npm run check:dist` compares source with the current working bundle; running it only after regenerating stale output does not prove the candidate revision already contained the exact artifact. The token comparison gate verifies the active before/optimizing/after phase, immutable Git-history baseline bytes when optimization begins, exact source/Skill tree anchors, semantic/privacy invariants, and declared budgets/reduction targets.
 
 `npm run build` rebuilds only tracked `dist/index.js` and `dist/pdf-worker.js`. It must not build, import, or package native runtime artifacts. The resolver must keep the fixed local-first route order, exact `@revazi/career@0.1.1` acquisition coordinate, pre-private-input managed compatibility check, trusted npm derivation, offline behavior, and payload-free failures. Updating the external package coordinate requires separate compatibility, provenance, audit, and package review.
 

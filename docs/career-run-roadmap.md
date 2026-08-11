@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for POSIX Markdown/text artifacts; full application workspaces, Windows save ACL support, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for POSIX Markdown/text artifacts. A dedicated token-optimization benchmark phase now freezes the post-save model-visible baseline before any optimization; optimization and its separately frozen after snapshot remain the next reviewed phase. Full application workspaces, Windows save ACL support, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
 
 Completed sequence:
 
@@ -14,6 +14,7 @@ Completed sequence:
 6. External local-first resolver with exact package acquisition, pre-private-input compatibility validation, and removal of bundled native artifacts.
 7. Turn-terminating variant review plus bounded TUI warning/discard review, exact change inspection, explicit selection, and later editor handoff without automatic materialization.
 8. User-only TUI/RPC exact preview and confirmed no-clobber saving of current POSIX Markdown/text materializations with fail-closed assisted sidecars and rescanning.
+9. Versioned pre-optimization token benchmark with immutable Git source/Skill-tree and snapshot provenance, actual contracts and managed serialization parity, Skill discovery/full-load context, call/result/detail/editor surfaces, independent workflow rollups, semantic-retention invariants, and explicit before/optimizing/after gates.
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
@@ -226,24 +227,26 @@ Further reviewed expansion may cover other common PDF generators and open-licens
 
 ### UX and context benchmarks
 
-The frozen synthetic benchmark covers the active/raw tool contracts, representative analyze, match, suggestion-review, replacement-review, variant-review, and materialization results, evidence/change/document detail hydration, and the existing workbench prompt. Later benchmark expansion should cover:
+The versioned synthetic benchmark now covers Pi's stable always-visible `career-core` Skill name/description metadata, the complete on-demand `SKILL.md` for matching career tasks, the actual active/raw tool contracts, representative direct tool-call arguments, compact context/analyze/match/review/materialization results, evidence/change/document detail hydration, all six workbench prompts, the later reviewed-ID handoff, and independent end-to-end workflow rollups. Linked Skill references and machine-specific discovery location paths remain outside the measured context boundary. It records exact measured-surface SHA-256, tool calls, user model submissions, Skill-context occurrences, complete-source occurrences, repeated complete-source bytes, schema-discovery calls, and nested-JSON status alongside token totals; synthetic managed result/detail fixtures must match actual `career_run` serialization.
 
-- model turns and tool calls
-- mandatory warning/evidence/uncertainty retention
-- repeated private-source bytes
-- malformed-envelope prevention
-- TUI and RPC behavior
-- cold/warm runtime performance and memory
+The token-optimization study is intentionally split:
 
-Initial targets:
+1. `before_frozen` pins the post-save-workflow `c7d7634…` production `src/` and `skills/` Git trees, complete surface-digested benchmark snapshot, and snapshot SHA-256 before optimization;
+2. after the baseline merges, `optimizing` names that immutable baseline-history commit, verifies the frozen bytes from Git history, and lets the separately reviewed optimization merge only after all savings, no-regression, budget, shape, and invariant gates pass without requiring a self-referential after snapshot; and
+3. `after_frozen` adds a separately generated snapshot bound to the full merged optimization commit and its source/Skill tree IDs, then enforces exact reproduction plus the same deltas.
 
+Predeclared after-phase targets:
+
+- at least 10% lower aggregate independent-workflow tokens with no workflow regression
 - primary active tool contract at or below 400 `o200k_base` tokens
 - no model-visible schema-export step in the managed flow
 - no nested `input_json`
-- original source included at most once per model workflow unless explicitly requested again
-- common result at or below roughly 1,500 tokens
-- complete authoritative detail recoverable on demand
+- original complete source included at most once per model workflow unless explicitly requested again
+- common result and detail at or below 1,500 tokens
+- required warning, uncertainty, authority, exact-selection, and detail-hydration semantics retained
 - review → explicit selection → materialization without rebuilding the Core envelope
+
+Provider wrappers, hidden prompts/reasoning, caching, and billing remain outside these tokenizer-proxy counts. Later benchmark expansion should add provider-specific tokenizer studies when reproducible local tokenizers are available, plus cold/warm runtime performance and memory without adding telemetry or private fixtures.
 
 ## Runtime boundaries retained after externalization
 
