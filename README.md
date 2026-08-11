@@ -212,7 +212,7 @@ Choose an original and a guided mode. The command prepares a private prompt in P
 
 After you submit, the selected Pi agent uses `career_run` to rerun complete deterministic baselines and Core-review any proposed suggestions, replacements, or vacancy-specific changes. The original remains immutable.
 
-For a non-PDF tailored variation, `career_run variant-review` ends the agent turn. Run `/career-review <review-handle>` to inspect every warning/discard and each exact before/after/evidence record; all retained changes start excluded. Explicitly include the IDs you want, then review and submit the prepared editor message as a later turn. The selector never materializes or submits automatically. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics; PDF review handles cannot enter selection or materialization.
+For a non-PDF tailored variation, `career_run variant-review` ends the agent turn. Run `/career-review <review-handle>` to inspect every warning/discard and each exact before/after/evidence record; all retained changes start excluded. Explicitly include the IDs you want, review those selected changes together, and separately confirm the handle/ID-only editor handoff before submitting it as a later turn. The selector never materializes or submits automatically. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics; PDF review handles cannot enter selection or materialization.
 
 ## Slash command reference
 
@@ -338,9 +338,10 @@ The bounded selector:
 - shows every canonical change as excluded by default;
 - opens a paged exact view of its before text, proposed after text, line bounds, resume evidence, and vacancy evidence;
 - includes a change only after you toggle it from that exact view;
-- requires at least one included canonical ID before continuing.
+- requires at least one included canonical ID before continuing;
+- pages all selected exact changes together and requires a separate final prepare choice, with a back option for revisions.
 
-Continuing prepares a short editor message containing only the review handle and selected IDs. It does not invoke Career Core, materialize a result, contact a provider, append selection state to the Pi session, save a result, or write a file. Review and submit that editor message manually to start the later materialization turn. Escape cancels without preparing anything.
+Only that final prepare choice creates a short editor message containing the review handle and selected IDs. It does not invoke Career Core, materialize a result, contact a provider, append selection state to the Pi session, save a result, or write a file. Review and submit that editor message manually to start the later materialization turn. Escape cancels without preparing anything.
 
 PDF review changes remain manual-application guidance and are rejected by both `/career-review` and `career_run materialize`.
 

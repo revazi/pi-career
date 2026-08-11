@@ -195,11 +195,12 @@ For non-PDF variant reviews, `career_run variant-review` terminates the agent tu
 - all warnings, factuality limitations, and discard records, which require explicit acknowledgment;
 - every canonical retained change, excluded by default;
 - exact before/proposed-after text, line bounds, resume evidence, and vacancy evidence in a paged view;
-- an explicit included-ID set in original Core order.
+- an explicit included-ID set in original Core order;
+- a final paged cross-change view of the exact selected records, followed by a separate prepare-or-back decision.
 
-Continuing prepares a later ordinary editor message containing only the unchanged review handle and selected canonical IDs. It does not call Core, submit to a provider, append selection state, materialize, save, or write. The user must review and submit that message separately. Exact cached review input remains process-memory-only and deterministic materialization still reuses it unchanged. PDF review handles fail closed at selection and materialization because extracted text cannot preserve PDF styling.
+Only the final prepare decision creates a later ordinary editor message containing the unchanged review handle and selected canonical IDs. It does not call Core, submit to a provider, append selection state, materialize, save, or write. The user must review and submit that message separately. Exact cached review input remains process-memory-only and deterministic materialization still reuses it unchanged. PDF review handles fail closed at selection and materialization because extracted text cannot preserve PDF styling.
 
-Further reviewed work may improve cross-change comparison or compact presentation, but must retain the same warning, evidence, authority, cancellation, process-memory, and explicit-selection boundaries.
+Further reviewed work may improve compact presentation or navigation, but must retain the same warning, evidence, authority, cancellation, process-memory, cross-change confirmation, and explicit-selection boundaries.
 
 ### Approved save workflow
 
