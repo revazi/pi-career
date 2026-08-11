@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { addLibraryRoot, emptyConfig } from "../../src/workflow/config.ts";
+import { extractPdfText, PDF_MAX_RAW_BYTES } from "../../src/workflow/pdf.ts";
 import { libraryIndexPreview, libraryWarningPreview } from "../../src/workflow/renderers.ts";
 import {
   CORE_MAX_CHARACTERS,
@@ -16,6 +18,19 @@ import {
   SCAN_MAX_RAW_BYTES,
 } from "../../src/workflow/scan.ts";
 import { syntheticTextPdf } from "./helpers.mjs";
+
+const CHROMIUM_PDF_FIXTURES = [
+  {
+    name: "chromium-tagged.pdf",
+    sha256: "d2b37b5dcdcceeb7133ee7f4bee7a72654cea93fb3c1fe3c526dcc7e11e62ddb",
+    tagged: true,
+  },
+  {
+    name: "chromium-untagged.pdf",
+    sha256: "4dcdfbc200428d7b324e9d87dcaf1a3183e89d31298f1778b1645483565d5021",
+    tagged: false,
+  },
+];
 
 test("scan extracts bounded searchable PDFs and reports unusable PDFs", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-pdf-"));
@@ -42,6 +57,48 @@ test("scan extracts bounded searchable PDFs and reports unusable PDFs", async ()
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
+});
+
+test("scan extracts reviewed Chromium tagged/untagged embedded-font multi-column fixtures", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-browser-pdf-"));
+  try {
+    const root = path.join(temp, "library");
+    await mkdir(root);
+    for (const fixture of CHROMIUM_PDF_FIXTURES) {
+      const bytes = await readFile(new URL(`./fixtures/pdf/${fixture.name}`, import.meta.url));
+      assert.equal(createHash("sha256").update(bytes).digest("hex"), fixture.sha256);
+      const structure = bytes.toString("latin1");
+      assert.match(structure, /\/Producer \(Skia\/PDF m150\)/);
+      assert.match(structure, /\/FontFile2 /);
+      assert.match(structure, /\/BaseFont \/AAAAAA\+Lato-Regular/);
+      assert.equal(structure.includes("/StructTreeRoot"), fixture.tagged);
+      assert.equal(structure.includes("/Marked true"), fixture.tagged);
+      await writeFile(path.join(root, fixture.name), bytes);
+    }
+
+    const scan = await scanLibrary(await addLibraryRoot(emptyConfig(), root, "Browser PDF"));
+    assert.deepEqual(scan.records.map((record) => record.relative_path), CHROMIUM_PDF_FIXTURES.map(({ name }) => name));
+    assert.deepEqual(scan.warnings, []);
+    for (const record of scan.records) {
+      assert.equal(record.format, "pdf");
+      assert.match(record.text, /Synthetic Browser Resume/);
+      assert.match(record.text, /Built deterministic TypeScript test systems/);
+      assert.match(record.text, /Designed synthetic compatibility fixtures/);
+      assert.match(record.text, /Accessibility/);
+      assert.match(record.text, /Example Institute/);
+    }
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("PDF extraction rejects image-only, malformed, and oversized inputs without OCR", async () => {
+  const imageOnly = await readFile(new URL("./fixtures/pdf/image-only.pdf", import.meta.url));
+  assert.equal(createHash("sha256").update(imageOnly).digest("hex"),
+    "10b506dc3659b9588496395d5c466c9b780fd11920165321fbb198d55cefc13a");
+  assert.deepEqual(await extractPdfText(imageOnly), { ok: false });
+  assert.deepEqual(await extractPdfText(Buffer.from("%PDF-1.4\nnot a complete PDF\n")), { ok: false });
+  assert.deepEqual(await extractPdfText(Buffer.alloc(PDF_MAX_RAW_BYTES + 1)), { ok: false });
 });
 
 test("scan is ordered, UTF-8 strict, symlink-free, sidecar-aware, and Core-bounded", async () => {
