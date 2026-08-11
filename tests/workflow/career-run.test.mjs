@@ -295,6 +295,10 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         change_id: "change-0001", section: "experience", start_line: 6, end_line: 6,
         original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
         resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }, {
+        change_id: "change-0002", section: "skills", start_line: 8, end_line: 8,
+        original_text: "TypeScript, Testing", proposed_text: "TypeScript, Testing, APIs",
+        resume_evidence: ["TypeScript, Testing", "Built reliable APIs."], vacancy_evidence: ["TypeScript"],
       }],
       discarded_changes: [],
       warnings: [
@@ -309,7 +313,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
       core_version: "0.1.1",
       authority: "assisted_non_authoritative",
       baseline_resume: variantReview.baseline_resume,
-      assisted_resume_text: "Built reliable TypeScript APIs.",
+      assisted_resume_text: "Built reliable TypeScript APIs.\nTypeScript, Testing, APIs",
       selected_changes: variantReview.changes,
       warnings: variantReview.warnings,
     };
@@ -323,7 +327,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         "resume.variant-materialize": (invocation) => {
           const input = JSON.parse(invocation.inputJson);
           assert.deepEqual(input.review_input, reviewedInput);
-          assert.deepEqual(input.selected_change_ids, ["change-0001"]);
+          assert.deepEqual(input.selected_change_ids, ["change-0001", "change-0002"]);
           return { operation: "resume.variant.materialize", json: JSON.stringify(materialized) };
         },
       }),
@@ -340,6 +344,10 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         section: "experience", start_line: 6, end_line: 6,
         original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
         resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }, {
+        section: "skills", start_line: 8, end_line: 8,
+        original_text: "TypeScript, Testing", proposed_text: "TypeScript, Testing, APIs",
+        resume_evidence: ["TypeScript, Testing", "Built reliable APIs."], vacancy_evidence: ["TypeScript"],
       }] },
     }, rpc.ctx);
     const review = parsed(reviewResult);
@@ -368,7 +376,12 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         "Continue with selected changes",
         "change-0001 • experience • line 6 • excluded",
         "Include",
+        "change-0002 • skills • line 8 • excluded",
+        "Include",
         "Continue with selected changes",
+        "Back to reviewed changes",
+        "Continue with selected changes",
+        "Prepare 2 selected change IDs",
       ],
     });
     const selectionPending = fake.commands.get("career-review").handler(review.review, tui.ctx);
@@ -392,14 +405,42 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     assert.match(exactReview.join("\n"), /Built reliable TypeScript APIs/);
     assert.match(exactReview.join("\n"), /TypeScript/);
     exactViewer.handleInput("\x1b");
+
+    while (components.length < 3) await new Promise((resolve) => setImmediate(resolve));
+    const secondExactViewer = components[2];
+    const secondExactReview = secondExactViewer.render(64);
+    assert.match(secondExactReview.join("\n"), /TypeScript, Testing/);
+    assert.match(secondExactReview.join("\n"), /TypeScript, Testing, APIs/);
+    secondExactViewer.handleInput("\x1b");
+
+    while (components.length < 4) await new Promise((resolve) => setImmediate(resolve));
+    const finalViewer = components[3];
+    const finalReview = finalViewer.render(64);
+    assert.ok(finalReview.every((line) => visibleWidth(line) <= 64));
+    assert.ok(finalViewer.render(32).every((line) => visibleWidth(line) <= 32));
+    assert.match(finalReview.join("\n"), /selected_change_count/);
+    assert.match(finalReview.join("\n"), /change-0001/);
+    assert.match(finalReview.join("\n"), /Built reliable TypeScript APIs/);
+    finalViewer.handleInput("\x1b[F");
+    const finalReviewEnd = finalViewer.render(64).join("\n");
+    assert.match(finalReviewEnd, /change-0002/);
+    assert.match(finalReviewEnd, /TypeScript, Testing, APIs/);
+    finalViewer.handleInput("\x1b");
+
+    while (components.length < 5) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(editorText, [], "back from final review must not prepare editor text");
+    const confirmedViewer = components[4];
+    assert.ok(confirmedViewer.render(32).every((line) => visibleWidth(line) <= 32));
+    confirmedViewer.handleInput("\x1b");
     await selectionPending;
     assert.equal(editorText.length, 1);
     assert.ok(tui.notifications.some(({ message }) => message.includes("Review all Career Core warnings")));
     assert.ok(tui.notifications.some(({ message }) => message.includes("Include at least one")));
-    assert.match(editorText[0], /"selected_change_ids":\["change-0001"\]/);
+    assert.match(editorText[0], /"selected_change_ids":\["change-0001","change-0002"\]/);
     assert.match(editorText[0], new RegExp(review.review));
     assert.doesNotMatch(editorText[0], /Built reliable APIs/);
     assert.doesNotMatch(editorText[0], /Built reliable TypeScript APIs/);
+    assert.doesNotMatch(editorText[0], /TypeScript, Testing, APIs/);
     assert.equal(calls.some(({ invocation }) => invocation.operation === "variant-materialize"), false);
     assert.equal(fake.entries.length, entriesBeforeSelection, "selection must not persist a session entry");
 
@@ -430,7 +471,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
 
     const variant = parsed(await runTool(tool, {
       command: "materialize", handle: review.review,
-      payload: { selected_change_ids: ["change-0001"] },
+      payload: { selected_change_ids: ["change-0001", "change-0002"] },
     }, rpc.ctx));
     assert.equal(variant.authority, "assisted_non_authoritative");
     assert.match(variant.variant, /^variant:/);
@@ -438,7 +479,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     const document = parsed(await runTool(tool, {
       command: "detail", handle: variant.variant, payload: { section: "document" },
     }, rpc.ctx));
-    assert.equal(document.value, "Built reliable TypeScript APIs.");
+    assert.equal(document.value, "Built reliable TypeScript APIs.\nTypeScript, Testing, APIs");
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

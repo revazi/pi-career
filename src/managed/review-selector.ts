@@ -9,6 +9,7 @@ import type {
 } from "./engine.ts";
 
 const CONTINUE = "Continue with selected changes";
+const BACK_TO_REVIEW = "Back to reviewed changes";
 const CANCEL = "Cancel";
 
 interface ReviewState {
@@ -34,8 +35,8 @@ function lineRange(change: VariantSelectionChange): string {
     : `lines ${change.start_line}-${change.end_line}`;
 }
 
-function exactChangeText(change: VariantSelectionChange): string {
-  return JSON.stringify({
+function exactChangeValue(change: VariantSelectionChange): Record<string, unknown> {
+  return {
     change_id: change.change_id,
     section: change.section,
     start_line: change.start_line,
@@ -44,6 +45,21 @@ function exactChangeText(change: VariantSelectionChange): string {
     proposed_text: change.proposed_text,
     resume_evidence: change.resume_evidence,
     vacancy_evidence: change.vacancy_evidence,
+  };
+}
+
+function exactChangeText(change: VariantSelectionChange): string {
+  return JSON.stringify(exactChangeValue(change), null, 2);
+}
+
+function selectedChangesText(
+  review: VariantSelectionReview,
+  selected: VariantSelectionChange[],
+): string {
+  return JSON.stringify({
+    authority: review.authority,
+    selected_change_count: selected.length,
+    selected_changes: selected.map(exactChangeValue),
   }, null, 2);
 }
 
@@ -135,7 +151,7 @@ function completeSelection(
   ctx: ExtensionCommandContext,
   review: VariantSelectionReview,
   state: ReviewState,
-): string[] | undefined {
+): VariantSelectionChange[] | undefined {
   if (!state.noticesReviewed) {
     ctx.ui.notify("Review all Career Core warnings and discarded-change reasons before continuing.", "warning");
     return undefined;
@@ -144,18 +160,45 @@ function completeSelection(
     ctx.ui.notify("Include at least one exact canonical change before continuing.", "warning");
     return undefined;
   }
-  return review.changes
-    .filter((change) => state.included.has(change.change_id))
-    .map((change) => change.change_id);
+  return review.changes.filter((change) => state.included.has(change.change_id));
 }
 
-function continueSelection(
+function prepareOption(count: number): string {
+  return `Prepare ${count} selected change ID${count === 1 ? "" : "s"}`;
+}
+
+function confirmationOutcome(
+  decision: string | undefined,
+  prepare: string,
+  selected: VariantSelectionChange[],
+): SelectionOutcome {
+  const outcomes = new Map<string | undefined, SelectionOutcome>([
+    [undefined, { done: true }],
+    [CANCEL, { done: true }],
+    [BACK_TO_REVIEW, REPEAT_SELECTION],
+    [prepare, { done: true, selection: selected.map((change) => change.change_id) }],
+  ]);
+  return outcomes.get(decision) ?? { done: true };
+}
+
+async function continueSelection(
   ctx: ExtensionCommandContext,
   review: VariantSelectionReview,
   state: ReviewState,
-): SelectionOutcome {
-  const complete = completeSelection(ctx, review, state);
-  return complete === undefined ? REPEAT_SELECTION : { done: true, selection: complete };
+): Promise<SelectionOutcome> {
+  const selected = completeSelection(ctx, review, state);
+  if (selected === undefined) return REPEAT_SELECTION;
+  await showDetailText(
+    ctx,
+    `${selected.length} selected change${selected.length === 1 ? "" : "s"} • final review`,
+    selectedChangesText(review, selected),
+  );
+  const prepare = prepareOption(selected.length);
+  const decision = await ctx.ui.select(
+    "Final explicit selection • nothing runs automatically",
+    [prepare, BACK_TO_REVIEW, CANCEL],
+  );
+  return confirmationOutcome(decision, prepare, selected);
 }
 
 async function reviewNotices(
@@ -186,7 +229,7 @@ async function applyAction(
   const handlers: Record<ReviewAction["kind"], () => Promise<SelectionOutcome>> = {
     cancel: async () => ({ done: true }),
     notices: async () => await reviewNotices(ctx, review, state),
-    continue: async () => continueSelection(ctx, review, state),
+    continue: async () => await continueSelection(ctx, review, state),
     change: async () => await reviewChange(
       ctx,
       state,

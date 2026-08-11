@@ -3540,13 +3540,14 @@ async function showDetailText(ctx, label, text) {
 
 // src/managed/review-selector.ts
 var CONTINUE = "Continue with selected changes";
+var BACK_TO_REVIEW = "Back to reviewed changes";
 var CANCEL = "Cancel";
 var REPEAT_SELECTION = { done: false };
 function lineRange(change) {
   return change.start_line === change.end_line ? `line ${change.start_line}` : `lines ${change.start_line}-${change.end_line}`;
 }
-function exactChangeText(change) {
-  return JSON.stringify({
+function exactChangeValue(change) {
+  return {
     change_id: change.change_id,
     section: change.section,
     start_line: change.start_line,
@@ -3555,6 +3556,16 @@ function exactChangeText(change) {
     proposed_text: change.proposed_text,
     resume_evidence: change.resume_evidence,
     vacancy_evidence: change.vacancy_evidence
+  };
+}
+function exactChangeText(change) {
+  return JSON.stringify(exactChangeValue(change), null, 2);
+}
+function selectedChangesText(review, selected) {
+  return JSON.stringify({
+    authority: review.authority,
+    selected_change_count: selected.length,
+    selected_changes: selected.map(exactChangeValue)
   }, null, 2);
 }
 function noticeText(review) {
@@ -3625,11 +3636,34 @@ function completeSelection(ctx, review, state) {
     ctx.ui.notify("Include at least one exact canonical change before continuing.", "warning");
     return void 0;
   }
-  return review.changes.filter((change) => state.included.has(change.change_id)).map((change) => change.change_id);
+  return review.changes.filter((change) => state.included.has(change.change_id));
 }
-function continueSelection(ctx, review, state) {
-  const complete = completeSelection(ctx, review, state);
-  return complete === void 0 ? REPEAT_SELECTION : { done: true, selection: complete };
+function prepareOption(count) {
+  return `Prepare ${count} selected change ID${count === 1 ? "" : "s"}`;
+}
+function confirmationOutcome(decision, prepare, selected) {
+  const outcomes = /* @__PURE__ */ new Map([
+    [void 0, { done: true }],
+    [CANCEL, { done: true }],
+    [BACK_TO_REVIEW, REPEAT_SELECTION],
+    [prepare, { done: true, selection: selected.map((change) => change.change_id) }]
+  ]);
+  return outcomes.get(decision) ?? { done: true };
+}
+async function continueSelection(ctx, review, state) {
+  const selected = completeSelection(ctx, review, state);
+  if (selected === void 0) return REPEAT_SELECTION;
+  await showDetailText(
+    ctx,
+    `${selected.length} selected change${selected.length === 1 ? "" : "s"} • final review`,
+    selectedChangesText(review, selected)
+  );
+  const prepare = prepareOption(selected.length);
+  const decision = await ctx.ui.select(
+    "Final explicit selection • nothing runs automatically",
+    [prepare, BACK_TO_REVIEW, CANCEL]
+  );
+  return confirmationOutcome(decision, prepare, selected);
 }
 async function reviewNotices(ctx, review, state) {
   await showDetailText(ctx, "Warnings and discarded changes", noticeText(review));
@@ -3644,7 +3678,7 @@ async function applyAction(ctx, review, state, action) {
   const handlers = {
     cancel: async () => ({ done: true }),
     notices: async () => await reviewNotices(ctx, review, state),
-    continue: async () => continueSelection(ctx, review, state),
+    continue: async () => await continueSelection(ctx, review, state),
     change: async () => await reviewChange(
       ctx,
       state,
