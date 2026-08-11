@@ -52,15 +52,33 @@ function exactChangeText(change: VariantSelectionChange): string {
   return JSON.stringify(exactChangeValue(change), null, 2);
 }
 
+function selectedChangeText(
+  change: VariantSelectionChange,
+  index: number,
+  total: number,
+): string {
+  return [
+    `Change ${index + 1} of ${total}`,
+    `ID: ${JSON.stringify(change.change_id)}`,
+    `Section: ${JSON.stringify(change.section)}`,
+    `Line bounds: ${change.start_line}-${change.end_line}`,
+    `Before: ${JSON.stringify(change.original_text)}`,
+    `After: ${JSON.stringify(change.proposed_text)}`,
+    `Resume evidence (${change.resume_evidence.length}): ${JSON.stringify(change.resume_evidence)}`,
+    `Vacancy evidence (${change.vacancy_evidence.length}): ${JSON.stringify(change.vacancy_evidence)}`,
+  ].join("\n");
+}
+
 function selectedChangesText(
   review: VariantSelectionReview,
   selected: VariantSelectionChange[],
 ): string {
-  return JSON.stringify({
-    authority: review.authority,
-    selected_change_count: selected.length,
-    selected_changes: selected.map(exactChangeValue),
-  }, null, 2);
+  return [
+    `Authority: ${review.authority}`,
+    `Selected changes: ${selected.length}`,
+    "",
+    selected.map((change, index) => selectedChangeText(change, index, selected.length)).join("\n\n"),
+  ].join("\n");
 }
 
 function noticeText(review: VariantSelectionReview): string {

@@ -9,6 +9,7 @@
 - Expanded synthetic PDF compatibility coverage with pinned Chromium 150 tagged/untagged fixtures, an embedded OFL-licensed Lato subset, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs without OCR.
 - Added turn-terminating non-PDF variant review and a bounded TUI `/career-review` flow that requires warning/discard acknowledgment, exact per-change inspection, explicit inclusion, and a later handle/ID-only editor handoff; PDF handles fail closed before selection or materialization.
 - Added a final paged cross-change review and separate prepare choice before `/career-review` can place selected canonical IDs in the editor, with a back path that preserves the in-memory selection for revision.
+- Replaced the final selected-change JSON object with compact labeled records that keep exact IDs, sections, line bounds, before/after text, and both evidence sets visible.
 
 ## 0.2.0 - 2026-08-10
 
