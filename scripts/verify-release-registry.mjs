@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { pollRegistryResource, validateReleaseAttestations } from "./lib/release-verification.mjs";
 import { parseStrictJson } from "./lib/strict-json.mjs";
 
 const PACKAGE_NAME = "pi-career";
@@ -81,19 +82,7 @@ async function assertVersionAbsent(version) {
 }
 
 async function eventuallyAvailable(url, options = {}) {
-  let lastStatus;
-  for (let attempt = 1; attempt <= 36; attempt += 1) {
-    try {
-      const response = await request(url, options);
-      lastStatus = response.status;
-      if (response.status === 200) return response;
-      if (response.status !== 404 && response.status < 500) break;
-    } catch (error) {
-      if (attempt === 36) throw error;
-    }
-    if (attempt < 36) await delay(5_000);
-  }
-  assert.fail(`published registry resource did not become authoritative (status ${lastStatus ?? "unavailable"})`);
+  return pollRegistryResource({ url, options, request, sleep: delay });
 }
 
 async function publishedMetadata(version) {
@@ -114,78 +103,22 @@ async function publishedPackument(version, gitSha) {
   assert.fail("package registry metadata did not expose the exact latest release");
 }
 
-function expectedSubject(version, sha512Hex) {
-  return {
-    name: `pkg:npm/${PACKAGE_NAME}@${version}`,
-    digest: { sha512: sha512Hex },
-  };
-}
-
-function assertBundle(attestation, version, sha512Hex, mediaType) {
-  assert.equal(attestation.bundle?.mediaType, mediaType);
-  assert.equal(attestation.bundle?.dsseEnvelope?.payloadType, "application/vnd.in-toto+json");
-  assert.equal(attestation.bundle?.dsseEnvelope?.signatures?.length, 1);
-  assert.ok(attestation.bundle?.verificationMaterial?.tlogEntries?.length > 0, "attestation transparency entry");
-  const payload = Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8");
-  const statement = parseStrictJson(payload, { label: "attestation statement", maximumBytes: 512 * 1024 });
-  assert.deepEqual(statement.subject, [expectedSubject(version, sha512Hex)]);
-  assert.equal(statement.predicateType, attestation.predicateType);
-  return statement;
-}
-
 async function assertAttestations(metadata, version, gitSha, sha512Hex) {
   const expectedUrl = `${REGISTRY}/-/npm/v1/attestations/${PACKAGE_NAME}@${version}`;
   assert.equal(metadata.dist?.attestations?.url, expectedUrl);
   assert.equal(metadata.dist.attestations.provenance?.predicateType, "https://slsa.dev/provenance/v1");
   const response = await eventuallyAvailable(expectedUrl, { maximumBytes: 4 * 1024 * 1024 });
   const document = strictJson(response.bytes, "registry attestations", 4 * 1024 * 1024);
-  assert.ok(Array.isArray(document.attestations), "registry attestations array");
-
-  const publishType = "https://github.com/npm/attestation/tree/main/specs/publish/v0.1";
-  const publish = document.attestations.find(({ predicateType }) => predicateType === publishType);
-  const provenance = document.attestations.find(({ predicateType }) => predicateType === "https://slsa.dev/provenance/v1");
-  assert.ok(publish, "npm publish attestation is missing");
-  assert.ok(provenance, "SLSA provenance attestation is missing");
-
-  const publishStatement = assertBundle(
-    publish,
+  validateReleaseAttestations({
+    document,
+    packageName: PACKAGE_NAME,
     version,
+    gitSha,
     sha512Hex,
-    "application/vnd.dev.sigstore.bundle+json;version=0.2",
-  );
-  assert.equal(publishStatement._type, "https://in-toto.io/Statement/v0.1");
-  assert.deepEqual(publishStatement.predicate, {
-    name: PACKAGE_NAME,
-    version,
     registry: REGISTRY,
-  });
-
-  const provenanceStatement = assertBundle(
-    provenance,
-    version,
-    sha512Hex,
-    "application/vnd.dev.sigstore.bundle.v0.3+json",
-  );
-  assert.equal(provenanceStatement._type, "https://in-toto.io/Statement/v1");
-  const definition = provenanceStatement.predicate?.buildDefinition;
-  assert.equal(definition?.buildType, "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1");
-  assert.deepEqual(definition?.externalParameters?.workflow, {
-    ref: `refs/tags/v${version}`,
     repository: REPOSITORY,
-    path: WORKFLOW_PATH,
+    workflowPath: WORKFLOW_PATH,
   });
-  assert.ok(
-    definition?.resolvedDependencies?.some(
-      ({ uri, digest }) =>
-        uri === `git+${REPOSITORY}@refs/tags/v${version}` && digest?.gitCommit === gitSha,
-    ),
-    "provenance must resolve the tagged release commit",
-  );
-  assert.equal(provenanceStatement.predicate?.runDetails?.builder?.id, "https://github.com/actions/runner/github-hosted");
-  assert.match(
-    provenanceStatement.predicate?.runDetails?.metadata?.invocationId,
-    /^https:\/\/github\.com\/revazi\/pi-career\/actions\/runs\/[0-9]+\/attempts\/[0-9]+$/,
-  );
 }
 
 async function assertTarball(metadata) {
