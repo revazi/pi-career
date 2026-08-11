@@ -51,7 +51,7 @@ function workflowProtocol(mode: WorkbenchMode, resume: ResumeRecord): string {
       }
       return `${review}
 4. Ask the user to select retained IDs, then stop; never select or materialize now.
-5. Only after later selection, call career_run "materialize" with the returned review handle and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
+5. Only after later selection, call career_run "materialize" with the returned review handle and selected IDs. Keep it assisted/non-authoritative and never analyze or match it as original. Do not initiate persistence; only tell the user they may run the returned \`/career-save <variant-handle>\` command for a separate exact local preview and confirmation.`;
     }
     case "question":
       return `1. Answer from the original; use complete analysis or matching when relevant.

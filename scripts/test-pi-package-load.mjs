@@ -71,6 +71,7 @@ try {
     "career-library",
     "career-match",
     "career-review",
+    "career-save",
     "career-setup",
     "career-tools",
     "career-vacancy",

@@ -2,13 +2,13 @@
 
 ## Status and authorization boundary
 
-This document defines a proposed package-owned local save workflow for one successfully materialized, non-PDF assisted resume variant. It is a design and threat-review record only. The current package still creates no variant directory or file, and this document does not authorize implementation, publication, release, full-result export, or application-workspace persistence. Runtime work requires a separate explicit approval after this design is reviewed and merged.
+This document defines the implemented package-owned local save workflow for one successfully materialized, non-PDF assisted resume variant. The design was reviewed before implementation; implementation does not authorize publication, release, full-result export, or application-workspace persistence.
 
 The design is intentionally narrower than the future application workspace in [`application-workspaces.md`](application-workspaces.md). It saves only one materialized Markdown or text resume plus integrity metadata under the selected original's configured library root. It does not create `application.json`, persist a vacancy, save review input or Core JSON, generate a cover letter, or establish an application workspace root.
 
 ## Goals
 
-A future implementation must:
+The implementation must:
 
 1. accept only a current in-memory `variant:` handle returned by successful deterministic Career Core materialization;
 2. show the exact destination, exact artifact bytes, exact sidecar bytes, hashes, and any directory marker before any filesystem mutation;
@@ -22,7 +22,7 @@ A future implementation must:
 
 ## Non-goals
 
-The first save implementation must not add:
+The save implementation does not add:
 
 - a model-callable save tool or a `career_run save` command;
 - arbitrary-path export, full Career Core result export, or raw provider-response persistence;
@@ -64,7 +64,7 @@ A save plan may be prepared only when all of these conditions hold:
 - the complete cached value has exact schema `career.resume_variant.v1` and authority `assisted_non_authoritative`;
 - the entry retains an implementation-owned binding to the original resume ID, original root ID, canonical original path fingerprint, original format, and original text SHA-256 inherited unchanged through review and materialization;
 - the original format is Markdown or text, never PDF;
-- `assisted_resume_text` is a string with no unpaired UTF-16 surrogate, and its exact UTF-8 encoding is non-empty and at most 262,144 bytes;
+- `assisted_resume_text` is a string with no carriage return or unpaired UTF-16 surrogate, and its exact LF-canonical UTF-8 encoding is non-empty and at most 262,144 bytes;
 - at least one canonical reviewed change was explicitly selected; and
 - a fresh pre-preview scan finds the same original as an eligible original with the same canonical identity, format, and text digest and finds neither the selected root nor total library scan capped.
 
@@ -242,7 +242,7 @@ Pi-career never automatically edits, overwrites, relocates, cleans, or deletes a
 
 ## Stable failures and privacy
 
-A future implementation may add bounded workflow error codes such as:
+The implementation uses bounded workflow error codes including:
 
 - `variant_save_unavailable`
 - `variant_save_destination_invalid`
@@ -279,7 +279,7 @@ The package must not claim secure erasure, filesystem immutability, malicious sa
 | User edits a saved assisted file | V2 artifact hash mismatch quarantines it; pi-career never silently updates its sidecar. |
 | Cleanup is mistaken for erasure | No automatic deletion or secure-erasure claim; retention surfaces are documented. |
 
-## Acceptance-test plan for a separately approved implementation
+## Implementation acceptance tests
 
 Tests use synthetic Markdown/text only and must cover:
 
@@ -301,4 +301,4 @@ Tests use synthetic Markdown/text only and must cover:
 16. deterministic package checks proving no synthetic saved artifacts or new runtime dependencies enter the npm tarball; and
 17. Linux and macOS local filesystem acceptance, with Windows explicitly failing closed until separately authorized.
 
-Before implementation review, the normal repository verification ladder and changed-file security/architecture review remain mandatory.
+The normal repository verification ladder and changed-file security/architecture review remain mandatory before merge.

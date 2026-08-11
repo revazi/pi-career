@@ -158,6 +158,7 @@ export function makeContext(fake, options = {}) {
   const selects = [...(options.selects ?? [])];
   const inputs = [...(options.inputs ?? [])];
   const editors = [...(options.editors ?? [])];
+  const confirms = [...(options.confirms ?? [])];
   const notifications = [];
   const widgets = [];
   let customCalls = 0;
@@ -183,8 +184,18 @@ export function makeContext(fake, options = {}) {
     ui: {
       theme,
       async select() { return selects.shift(); },
-      async input() { return inputs.shift(); },
-      async editor() { return editors.shift(); },
+      async input(title, placeholder) {
+        const value = inputs.shift();
+        return typeof value === "function" ? value(title, placeholder) : value;
+      },
+      async editor(title, prefill) {
+        const value = editors.shift();
+        return typeof value === "function" ? value(title, prefill) : value;
+      },
+      async confirm(title, message) {
+        const value = confirms.shift();
+        return typeof value === "function" ? value(title, message) : (value ?? false);
+      },
       notify(message, type = "info") { notifications.push({ message, type }); },
       setWidget(key, value) { widgets.push({ key, value }); },
       setEditorText(value) { options.editorText?.push(value); },

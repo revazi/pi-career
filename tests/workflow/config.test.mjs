@@ -39,7 +39,7 @@ test("config uses injected agentDir, exact schema, private modes, and atomic rep
       path.join(configured.library_roots[0].path, "variants"),
     );
 
-    const variants = setGeneratedVariantsRoot(configured, path.join(root, "generated", "..", "generated"));
+    const variants = setGeneratedVariantsRoot(configured, `${path.join(root, "generated", "..", "generated")}${path.sep}`);
     assert.equal(variants.generated_variants_root, path.join(root, "generated"));
     assert.equal(suggestedGeneratedVariantsRoot(variants, configured.library_roots[0].id), path.join(root, "generated"));
     await writeConfig(agentDir, variants, uuidSequence());

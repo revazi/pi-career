@@ -8,6 +8,12 @@ import { TextDecoder } from "node:util";
 
 import { extractPdfText, PDF_MAX_RAW_BYTES } from "./pdf.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
+import {
+  ASSISTED_SIDECAR_MAX_BYTES,
+  MANAGED_VARIANTS_MARKER_NAME,
+  parseAssistedVariantMetadata,
+  parseManagedVariantsMarker,
+} from "./variant-metadata.ts";
 import type {
   CareerConfig,
   LibraryRoot,
@@ -24,10 +30,7 @@ const SCAN_MAX_DEPTH = 8;
 export const SCAN_MAX_FILES_PER_ROOT = 500;
 const SCAN_MAX_FILES_TOTAL = 2_000;
 export const SCAN_MAX_RAW_BYTES = 256 * 1_024;
-const SIDECAR_MAX_BYTES = 16_384;
 const MAX_DIRECTORY_ENTRIES_PER_ROOT = 10_000;
-const SHA256 = /^[a-f0-9]{64}$/;
-const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -70,46 +73,97 @@ function resumeLabel(file: string, format: ResumeFormat, text: string): string {
 }
 
 interface SidecarResult {
-  kind: "original" | "assisted_variant";
+  kind: "original" | "assisted_variant" | "quarantined";
   variantGroupId?: string;
-  invalid: boolean;
+}
+
+interface ManagedVariantsDirectory {
+  path: string;
+  markerValid: boolean;
 }
 
 function sidecarPath(file: string): string {
   return path.join(path.dirname(file), `${path.basename(file, path.extname(file))}.pi-career.json`);
 }
 
-function validSidecar(value: unknown): value is Record<string, unknown> & { base_document_id: string } {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  const keys = "base_document_id,created_at,kind,schema_version";
-  if (Object.keys(record).sort().join(",") !== keys) return false;
-  if (record.schema_version !== "pi.career.assisted_variant_meta.v1" || record.kind !== "assisted_variant") {
-    return false;
-  }
-  if (typeof record.base_document_id !== "string" || !SHA256.test(record.base_document_id)) return false;
-  return typeof record.created_at === "string" &&
-    ISO_UTC.test(record.created_at) &&
-    Number.isFinite(Date.parse(record.created_at));
+function privateMode(metadata: { mode: number; uid: number }, expected: number): boolean {
+  if (process.platform === "win32") return true;
+  const userId = process.geteuid?.() ?? process.getuid?.();
+  return userId !== undefined && metadata.uid === userId && (metadata.mode & 0o777) === expected;
 }
 
-async function readSidecar(file: string): Promise<SidecarResult> {
+async function readSidecar(
+  file: string,
+  artifactBytes: Uint8Array,
+  required: boolean,
+): Promise<SidecarResult> {
   const sidecar = sidecarPath(file);
   try {
     const metadata = await lstat(sidecar);
     const invalidMetadata = !metadata.isFile() || metadata.isSymbolicLink() ||
-      metadata.size <= 0 || metadata.size > SIDECAR_MAX_BYTES;
-    if (invalidMetadata) return { kind: "original", invalid: true };
+      metadata.size <= 0 || metadata.size > ASSISTED_SIDECAR_MAX_BYTES;
+    if (invalidMetadata) return { kind: "quarantined" };
     const bytes = await readFile(sidecar);
-    if (bytes.length !== metadata.size) return { kind: "original", invalid: true };
+    if (bytes.length !== metadata.size) return { kind: "quarantined" };
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const parsed: unknown = JSON.parse(text);
-    if (!validSidecar(parsed)) return { kind: "original", invalid: true };
-    return { kind: "assisted_variant", variantGroupId: parsed.base_document_id, invalid: false };
+    const parsed = parseAssistedVariantMetadata(text, artifactBytes);
+    if (parsed === undefined ||
+      (parsed.schemaVersion === "pi.career.assisted_variant_meta.v2" && !privateMode(metadata, 0o600))) {
+      return { kind: "quarantined" };
+    }
+    return { kind: "assisted_variant", variantGroupId: parsed.baseDocumentId };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { kind: "original", invalid: false };
-    return { kind: "original", invalid: true };
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return { kind: required ? "quarantined" : "original" };
+    }
+    return { kind: "quarantined" };
   }
+}
+
+function managedVariantsPath(config: CareerConfig, root: LibraryRoot): string {
+  const configured = config.generated_variants_root === undefined
+    ? undefined
+    : path.resolve(config.generated_variants_root);
+  return configured !== undefined && path.dirname(configured) === root.path
+    ? configured
+    : path.join(root.path, "variants");
+}
+
+async function managedVariantsDirectory(
+  config: CareerConfig,
+  root: LibraryRoot,
+): Promise<ManagedVariantsDirectory> {
+  const directoryPath = managedVariantsPath(config, root);
+  try {
+    const directory = await lstat(directoryPath);
+    const canonical = await realpath(directoryPath);
+    if (
+      !directory.isDirectory() || directory.isSymbolicLink() || canonical !== directoryPath ||
+      !privateMode(directory, 0o700)
+    ) return { path: directoryPath, markerValid: false };
+    const markerPath = path.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
+    const marker = await lstat(markerPath);
+    if (
+      !marker.isFile() || marker.isSymbolicLink() || marker.size <= 0 ||
+      marker.size > ASSISTED_SIDECAR_MAX_BYTES || !privateMode(marker, 0o600)
+    ) return { path: directoryPath, markerValid: false };
+    const bytes = await readFile(markerPath);
+    if (bytes.length !== marker.size) return { path: directoryPath, markerValid: false };
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return {
+      path: directoryPath,
+      markerValid: parseManagedVariantsMarker(text, root.id) !== undefined,
+    };
+  } catch {
+    return { path: directoryPath, markerValid: false };
+  }
+}
+
+function containingManagedVariants(
+  file: string,
+  managedDirectories: readonly ManagedVariantsDirectory[],
+): ManagedVariantsDirectory[] {
+  return managedDirectories.filter((managed) => file.startsWith(`${managed.path}${path.sep}`));
 }
 
 interface Candidate {
@@ -229,6 +283,7 @@ async function collectCandidates(
 async function scanCandidate(
   root: LibraryRoot,
   candidate: Candidate,
+  managedDirectories: readonly ManagedVariantsDirectory[],
   warnings: ScanWarning[],
 ): Promise<ResumeRecord | undefined> {
   let metadata;
@@ -284,9 +339,15 @@ async function scanCandidate(
 
   const text = normalizeDocumentText(decoded);
   const id = sha256(canonical);
-  const sidecar = await readSidecar(canonical);
-  if (sidecar.invalid) {
+  const containingManaged = containingManagedVariants(canonical, managedDirectories);
+  if (containingManaged.some((managed) => !managed.markerValid)) {
     warnings.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+    return undefined;
+  }
+  const sidecar = await readSidecar(canonical, bytes, containingManaged.length > 0);
+  if (sidecar.kind === "quarantined") {
+    warnings.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+    return undefined;
   }
 
   return {
@@ -310,6 +371,9 @@ export async function scanLibrary(config: CareerConfig): Promise<LibraryScan> {
   const warnings: ScanWarning[] = [];
   const records: ResumeRecord[] = [];
   const roots: RootScanSummary[] = [];
+  const managedDirectories = await Promise.all(
+    config.library_roots.map((root) => managedVariantsDirectory(config, root)),
+  );
   let totalCapped = false;
   let scannedCandidateCount = 0;
 
@@ -333,7 +397,7 @@ export async function scanLibrary(config: CareerConfig): Promise<LibraryScan> {
     scannedCandidateCount += collected.candidates.length;
     const rootRecords: ResumeRecord[] = [];
     for (const candidate of collected.candidates) {
-      const record = await scanCandidate(root, candidate, warnings);
+      const record = await scanCandidate(root, candidate, managedDirectories, warnings);
       if (record !== undefined) rootRecords.push(record);
     }
     records.push(...rootRecords);

@@ -6,7 +6,7 @@ A single active vacancy on a Pi session branch is not enough to organize a real 
 
 This document defines the target workspace contract. The current package does not create these private files yet; that requires a separately reviewed, explicit persistence workflow.
 
-The current `/career-setup` preferred resume-variation directory is narrower and suggestion-only. It gives the selected Pi agent a primary destination to recommend after a separate user request, defaults to `variants/` under the selected original's configured root, and creates nothing. The design-only [`variant-save-workflow.md`](variant-save-workflow.md) specifies how a future user-only command could save one current in-memory Markdown/text materialization there. It is not implemented, does not establish an application workspace root, and does not relax the persistence requirements below.
+The current `/career-setup` preferred resume-variation directory is narrower and suggestion-only. It gives the selected Pi agent a primary destination to recommend after a separate user request, defaults to `variants/` under the selected original's configured root, and creates nothing. The user-only [`variant-save-workflow.md`](variant-save-workflow.md) can save one current in-memory Markdown/text materialization there only after exact file-specific approval. It does not establish an application workspace root and does not relax the persistence requirements below.
 
 ## Directory model
 
@@ -63,7 +63,7 @@ Original resumes are immutable:
 - Never overwrite, rename, move, or reformat an original automatically.
 - A PDF workbench has extracted text only. It cannot inspect or preserve typography, columns, spacing, graphics, or other visual layout.
 - Current PDF workbench output is limited to reviewed change guidance and bounded before/after snippets for manual application; pi-career does not save a PDF change plan.
-- Current Markdown/text materialization can return assisted text in process memory after user selection. A future save phase may write that text to a new file only under the approval and sidecar rules below.
+- Current Markdown/text materialization returns assisted text in process memory after user selection. `/career-save` may write that exact text to a new local variant only under its separate preview, approval, no-clobber, and sidecar rules.
 - DOCX/Pages/other styled-source mutation remains unsupported until format-specific fidelity and safety are designed and tested.
 - Every generated resume file is assisted/non-authoritative, has a valid sidecar, and is excluded from authoritative readiness analysis and job matching.
 
@@ -92,7 +92,7 @@ The current application workflow binds only:
 - the current vacancy;
 - bounded deterministic analysis/match cards.
 
-Selected-original handles, complete Core results, exact review inputs, live reviewed-change selections, and materialized text remain process-memory-only. A submitted workbench or prepared materialization-selection message may persist as an ordinary Pi conversation entry, but pi-career does not store either as application workspace state. Assisted artifact references are not implemented yet.
+Selected-original handles, complete Core results, exact review inputs, and live reviewed-change selections remain process-memory-only. Materialized text also remains in memory unless the user separately approves `/career-save`; the saved artifact and sidecar are local files, not application workspace state or Pi session entries. Assisted application-workspace references are not implemented yet.
 
 A persisted Pi session can still contain private prompts and tool arguments. Application-file approval is separate from Pi session persistence and separate from provider disclosure. The workflow must ask before the first private workspace write and show the exact workspace path and files to be created.
 
@@ -132,7 +132,7 @@ This sequence extends the current in-session flow; steps involving an applicatio
 
 ### Phase C: explicit workspace persistence
 
-The narrower materialized-variant save design does not complete Phase B or authorize Phase C. Application workspace persistence still requires separate review of:
+The narrower implemented materialized-variant save workflow does not complete Phase B or authorize Phase C. Application workspace persistence still requires separate review of:
 
 - config schema migration for an application workspace root
 - canonical containment and symlink/race protections

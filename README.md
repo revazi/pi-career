@@ -113,14 +113,17 @@ flowchart TD
     AB --> AD["/career-review<br/>inspect notices and exact changes<br/>all IDs start excluded"]
     AD --> AE{"Review and submit selected IDs?"}
     AE -->|No| Z
-    AE -->|Yes| AC["Later turn: career_run materialize<br/>assisted text; still not saved"]
+    AE -->|Yes| AC["Later turn: career_run materialize<br/>assisted text remains in memory"]
+    AC --> AF{"Save this local variant?"}
+    AF -->|No| Z
+    AF -->|Yes| AG["/career-save<br/>review exact files and destination<br/>then confirm separately"]
 
     N --> Z["Original remains unchanged<br/>assisted output is non-authoritative<br/>and is never reranked as an original"]
     Q --> Z
     U --> Z
     W --> Z
     AA --> Z
-    AC --> Z
+    AG --> Z
 ```
 
 ### 1. Start with a transient Pi session
@@ -212,11 +215,11 @@ Choose an original and a guided mode. The command prepares a private prompt in P
 
 After you submit, the selected Pi agent uses `career_run` to rerun complete deterministic baselines and Core-review any proposed suggestions, replacements, or vacancy-specific changes. The original remains immutable.
 
-For a non-PDF tailored variation, `career_run variant-review` ends the agent turn. Run `/career-review <review-handle>` to inspect every warning/discard and each exact before/after/evidence record; all retained changes start excluded. Explicitly include the IDs you want, review those selected changes together, and separately confirm the handle/ID-only editor handoff before submitting it as a later turn. The selector never materializes or submits automatically. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics; PDF review handles cannot enter selection or materialization.
+For a non-PDF tailored variation, `career_run variant-review` ends the agent turn. Run `/career-review <review-handle>` to inspect every warning/discard and each exact before/after/evidence record; all retained changes start excluded. Explicitly include the IDs you want, review those selected changes together, and separately confirm the handle/ID-only editor handoff before submitting it as a later turn. The selector never materializes or submits automatically. After successful materialization, you may separately run `/career-save <variant-handle>` to inspect the complete local file plan and confirm it; the model cannot invoke saving. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics; PDF review handles cannot enter selection, materialization, or saving.
 
 ## Slash command reference
 
-The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-review` is TUI-only and `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` and `/career-review` prepare editor prompts whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
+The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-review` is TUI-only, `/career-save` supports TUI/RPC, and `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` and `/career-review` prepare editor prompts whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
 
 ### `/career-setup [status]`
 
@@ -326,7 +329,7 @@ The optional resume filter behaves like `/career-analyze`. Available modes are:
 
 The command itself calls neither Career Core nor a provider. It puts the complete selected resume—and the vacancy only for tailoring—into Pi's editor. Nothing is sent until you submit. Submitting may persist that message and send it to the provider selected in Pi.
 
-`pi-career` currently does not save the resulting variation to disk.
+The workbench and model never save automatically. Only a later successful non-PDF materialization can be passed by the user to `/career-save` for separate exact local preview and confirmation.
 
 ### `/career-review <review-handle>`
 
@@ -343,7 +346,23 @@ The bounded selector:
 
 Only that final prepare choice creates a short editor message containing the review handle and selected IDs. It does not invoke Career Core, materialize a result, contact a provider, append selection state to the Pi session, save a result, or write a file. Review and submit that editor message manually to start the later materialization turn. Escape cancels without preparing anything.
 
-PDF review changes remain manual-application guidance and are rejected by both `/career-review` and `career_run materialize`.
+PDF review changes remain manual-application guidance and are rejected by `/career-review`, `career_run materialize`, and `/career-save`.
+
+### `/career-save <variant-handle>`
+
+Save one current successful Markdown/text `career_run materialize` result as a new assisted local variant. This user-only command is not a model tool and is available in TUI/RPC mode on supported POSIX systems.
+
+Before writing anything, it:
+
+1. revalidates the ephemeral variant and unchanged original;
+2. derives an eligible direct-child managed variants directory;
+3. opens a complete canonical preview containing exact destination paths, artifact/sidecar bytes, hashes, and any directory marker;
+4. requires the preview to be returned byte-identically;
+5. asks for a separate final confirmation.
+
+It then publishes new `0600` files in a `0700` managed directory without replacing existing paths, writes a strict assisted/non-authoritative sidecar, and rescans before reporting success. Missing, malformed, edited, or hash-mismatched assisted metadata is quarantined and never falls back to original eligibility. Saving invokes no Career Core operation, provider, model, network request, or session entry. PDF handles and Windows fail closed; Windows needs a separately reviewed private-ACL design.
+
+Saved files are not securely erased by session deletion, root removal, package removal, or `PI_OFFLINE=1`. Pi-career never automatically overwrites, updates, moves, or deletes them.
 
 ### `/career-tools [managed|raw|status]`
 
@@ -364,7 +383,8 @@ Normal users do not need to call raw JSON tools. The package's Agent Skill instr
 3. suggestion, replacement, and variant proposals must pass the corresponding Core review command;
 4. `detail` hydrates only the requested evidence, warning, check, change, document, or raw section;
 5. non-PDF `variant-review` ends its turn so `/career-review` can collect an explicit local selection and prepare a later user message;
-6. `materialize` requires that unchanged review handle and exactly the user-selected retained IDs.
+6. `materialize` requires that unchanged review handle and exactly the user-selected retained IDs;
+7. only the user may separately run `/career-save <variant-handle>` for unchanged preview and confirmation.
 
 Handles and complete results remain bounded in process memory and disappear on session/branch replacement, reload, or shutdown. They are not result files and cannot be reconstructed safely from chat text.
 
@@ -428,9 +448,10 @@ Possible persistence surfaces are distinct:
 - **Package config:** canonical resume-root paths, bounded labels, and an optional variation-directory suggestion; never resume text, vacancy text, or full Core output.
 - **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
 - **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission, while `/career-review` prepares only an ephemeral handle and selected canonical IDs.
+- **Approved local variant files:** exact assisted Markdown/text bytes plus bounded marker/sidecar metadata only after `/career-save` preview and confirmation; never full Core JSON.
 - **npm cache:** ordinary package-acquisition data, never private Career Core stdin.
 
-`pi-career` does not create payload/result temporary files, export full Core JSON, overwrite originals, or automatically save assisted resumes. Searchable PDF extraction is local, bounded, and network-disabled.
+`pi-career` does not create payload/result temporary files, export full Core JSON, overwrite originals, or automatically save assisted resumes. Explicit `/career-save` files are local, private-mode, assisted/non-authoritative, and excluded from analysis/matching. Searchable PDF extraction is local, bounded, and network-disabled.
 
 See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs/product-flow.md`](docs/product-flow.md) for the complete boundary and threat model.
 
@@ -438,7 +459,7 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 
 - Supported original formats: searchable PDF, Markdown, and UTF-8 text.
 - No OCR, DOCX/Pages editing, vacancy URL fetching, or PDF layout reconstruction.
-- No automatic resume or application-workspace saving.
+- No automatic resume or application-workspace saving; explicit materialized-variant saving is POSIX Markdown/text only.
 - PDF workbench output is targeted manual guidance only.
 - Assisted variants remain non-authoritative and cannot be reranked as originals.
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.

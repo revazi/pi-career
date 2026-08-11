@@ -1250,7 +1250,7 @@ function validLabel(value) {
 }
 function normalizeGeneratedVariantsRoot(value) {
   if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || !path2.isAbsolute(value) || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
-  const normalized = path2.normalize(value);
+  const normalized = path2.resolve(value);
   return path2.dirname(normalized) === normalized ? void 0 : normalized;
 }
 function parseRoot(value) {
@@ -1415,7 +1415,7 @@ function serializeCoreInput(value) {
 }
 
 // src/workflow/scan.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath3 } from "node:fs/promises";
 import path3 from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
@@ -1489,20 +1489,245 @@ function isWithinCoreCharacterLimit(value) {
   return true;
 }
 
+// src/workflow/variant-metadata.ts
+import { createHash as createHash2 } from "node:crypto";
+
+// src/workflow/strict-json.ts
+var MAX_DEPTH = 32;
+var NUMBER_PATTERN = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/;
+function invalidJson() {
+  throw new SyntaxError("invalid strict JSON");
+}
+function parseStrictJson(text) {
+  let offset = 0;
+  function skipWhitespace() {
+    while (offset < text.length && /[\u0009\u000a\u000d\u0020]/.test(text[offset])) offset += 1;
+  }
+  function skipEscape() {
+    offset += 1;
+    const escaped = text[offset];
+    if (escaped === "u") {
+      if (!/^[0-9a-fA-F]{4}$/.test(text.slice(offset + 1, offset + 5))) invalidJson();
+      offset += 5;
+      return;
+    }
+    if (escaped === void 0 || !['"', "\\", "/", "b", "f", "n", "r", "t"].includes(escaped)) {
+      invalidJson();
+    }
+    offset += 1;
+  }
+  function parseString() {
+    if (text[offset] !== '"') invalidJson();
+    const start = offset;
+    offset += 1;
+    while (offset < text.length) {
+      const character = text[offset];
+      if (character === '"') {
+        offset += 1;
+        try {
+          return JSON.parse(text.slice(start, offset));
+        } catch {
+          invalidJson();
+        }
+      }
+      if (text.charCodeAt(offset) <= 31) invalidJson();
+      if (character === "\\") skipEscape();
+      else offset += 1;
+    }
+    invalidJson();
+  }
+  function parseObject2(depth) {
+    offset += 1;
+    skipWhitespace();
+    const keys = /* @__PURE__ */ new Set();
+    if (text[offset] === "}") {
+      offset += 1;
+      return;
+    }
+    while (offset < text.length) {
+      const key = parseString();
+      if (keys.has(key)) invalidJson();
+      keys.add(key);
+      skipWhitespace();
+      if (text[offset] !== ":") invalidJson();
+      offset += 1;
+      parseValue(depth + 1);
+      skipWhitespace();
+      if (text[offset] === "}") {
+        offset += 1;
+        return;
+      }
+      if (text[offset] !== ",") invalidJson();
+      offset += 1;
+      skipWhitespace();
+    }
+    invalidJson();
+  }
+  function parseArray(depth) {
+    offset += 1;
+    skipWhitespace();
+    if (text[offset] === "]") {
+      offset += 1;
+      return;
+    }
+    while (offset < text.length) {
+      parseValue(depth + 1);
+      skipWhitespace();
+      if (text[offset] === "]") {
+        offset += 1;
+        return;
+      }
+      if (text[offset] !== ",") invalidJson();
+      offset += 1;
+      skipWhitespace();
+    }
+    invalidJson();
+  }
+  function parseValue(depth) {
+    if (depth > MAX_DEPTH) invalidJson();
+    skipWhitespace();
+    const character = text[offset];
+    if (character === "{") return parseObject2(depth);
+    if (character === "[") return parseArray(depth);
+    if (character === '"') {
+      parseString();
+      return;
+    }
+    for (const literal of ["true", "false", "null"]) {
+      if (text.startsWith(literal, offset)) {
+        offset += literal.length;
+        return;
+      }
+    }
+    const number = text.slice(offset).match(NUMBER_PATTERN)?.[0];
+    if (number !== void 0) {
+      offset += number.length;
+      return;
+    }
+    invalidJson();
+  }
+  if (text.length === 0) invalidJson();
+  parseValue(0);
+  skipWhitespace();
+  if (offset !== text.length) invalidJson();
+  try {
+    return JSON.parse(text);
+  } catch {
+    invalidJson();
+  }
+}
+
+// src/workflow/variant-metadata.ts
+var ASSISTED_SIDECAR_MAX_BYTES = 16384;
+var MANAGED_VARIANTS_MARKER_NAME = ".pi-career-variants.json";
+var MANAGED_VARIANTS_MARKER_SCHEMA = "pi.career.variants_directory.v1";
+var ASSISTED_VARIANT_SCHEMA_V1 = "pi.career.assisted_variant_meta.v1";
+var ASSISTED_VARIANT_SCHEMA_V2 = "pi.career.assisted_variant_meta.v2";
+var SHA2562 = /^[a-f0-9]{64}$/;
+var CANONICAL_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var LEGACY_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+function isRecord3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys4(value, expected) {
+  return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+function validSha256(value) {
+  return typeof value === "string" && SHA2562.test(value);
+}
+function validCanonicalTimestamp(value) {
+  return typeof value === "string" && CANONICAL_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+function sha256Bytes(value) {
+  return createHash2("sha256").update(value).digest("hex");
+}
+function encodeCanonical(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function encodeManagedVariantsMarker(libraryRootId, createdAt) {
+  if (!validSha256(libraryRootId) || !validCanonicalTimestamp(createdAt)) {
+    throw new TypeError("invalid managed variants marker");
+  }
+  return encodeCanonical({
+    schema_version: MANAGED_VARIANTS_MARKER_SCHEMA,
+    kind: "managed_variants_directory",
+    library_root_id: libraryRootId,
+    created_at: createdAt
+  });
+}
+function parseManagedVariantsMarker(text, expectedLibraryRootId) {
+  try {
+    const value = parseStrictJson(text);
+    if (!isRecord3(value) || !exactKeys4(value, [
+      "schema_version",
+      "kind",
+      "library_root_id",
+      "created_at"
+    ])) return void 0;
+    if (value.schema_version !== MANAGED_VARIANTS_MARKER_SCHEMA || value.kind !== "managed_variants_directory" || value.library_root_id !== expectedLibraryRootId || !validSha256(value.library_root_id) || !validCanonicalTimestamp(value.created_at)) return void 0;
+    return value;
+  } catch {
+    return void 0;
+  }
+}
+function encodeAssistedVariantMetadataV2(metadata) {
+  if (!validSha256(metadata.base_document_id) || !validSha256(metadata.base_text_sha256) || !validSha256(metadata.artifact_sha256) || !validCanonicalTimestamp(metadata.created_at)) throw new TypeError("invalid assisted variant metadata");
+  return encodeCanonical({
+    schema_version: ASSISTED_VARIANT_SCHEMA_V2,
+    kind: "assisted_variant",
+    authority: "assisted_non_authoritative",
+    base_document_id: metadata.base_document_id,
+    base_text_sha256: metadata.base_text_sha256,
+    artifact_sha256: metadata.artifact_sha256,
+    created_at: metadata.created_at
+  });
+}
+function parseLegacyMetadata(value) {
+  if (!exactKeys4(value, ["schema_version", "kind", "base_document_id", "created_at"])) {
+    return void 0;
+  }
+  if (value.kind !== "assisted_variant" || !validSha256(value.base_document_id) || typeof value.created_at !== "string" || !LEGACY_TIMESTAMP.test(value.created_at) || !Number.isFinite(Date.parse(value.created_at))) return void 0;
+  return { schemaVersion: ASSISTED_VARIANT_SCHEMA_V1, baseDocumentId: value.base_document_id };
+}
+function parseHashBoundMetadata(value, artifactBytes) {
+  if (!exactKeys4(value, [
+    "schema_version",
+    "kind",
+    "authority",
+    "base_document_id",
+    "base_text_sha256",
+    "artifact_sha256",
+    "created_at"
+  ])) return void 0;
+  if (value.kind !== "assisted_variant" || value.authority !== "assisted_non_authoritative" || !validSha256(value.base_document_id) || !validSha256(value.base_text_sha256) || !validSha256(value.artifact_sha256) || value.artifact_sha256 !== sha256Bytes(artifactBytes) || !validCanonicalTimestamp(value.created_at)) return void 0;
+  return { schemaVersion: ASSISTED_VARIANT_SCHEMA_V2, baseDocumentId: value.base_document_id };
+}
+function parseAssistedVariantMetadata(text, artifactBytes) {
+  try {
+    const value = parseStrictJson(text);
+    if (!isRecord3(value)) return void 0;
+    if (value.schema_version === ASSISTED_VARIANT_SCHEMA_V1) return parseLegacyMetadata(value);
+    if (value.schema_version === ASSISTED_VARIANT_SCHEMA_V2) {
+      return parseHashBoundMetadata(value, artifactBytes);
+    }
+    return void 0;
+  } catch {
+    return void 0;
+  }
+}
+
 // src/workflow/scan.ts
 var SCAN_MAX_DEPTH = 8;
 var SCAN_MAX_FILES_PER_ROOT = 500;
 var SCAN_MAX_FILES_TOTAL = 2e3;
 var SCAN_MAX_RAW_BYTES = 256 * 1024;
-var SIDECAR_MAX_BYTES = 16384;
 var MAX_DIRECTORY_ENTRIES_PER_ROOT = 1e4;
-var SHA2562 = /^[a-f0-9]{64}$/;
-var ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 function sha256(value) {
-  return createHash2("sha256").update(value).digest("hex");
+  return createHash3("sha256").update(value).digest("hex");
 }
 function normalizeDocumentText(value) {
   return value.replace(/\r\n?/g, "\n");
@@ -1535,33 +1760,58 @@ function resumeLabel(file, format, text) {
 function sidecarPath(file) {
   return path3.join(path3.dirname(file), `${path3.basename(file, path3.extname(file))}.pi-career.json`);
 }
-function validSidecar(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value;
-  const keys = "base_document_id,created_at,kind,schema_version";
-  if (Object.keys(record).sort().join(",") !== keys) return false;
-  if (record.schema_version !== "pi.career.assisted_variant_meta.v1" || record.kind !== "assisted_variant") {
-    return false;
-  }
-  if (typeof record.base_document_id !== "string" || !SHA2562.test(record.base_document_id)) return false;
-  return typeof record.created_at === "string" && ISO_UTC.test(record.created_at) && Number.isFinite(Date.parse(record.created_at));
+function privateMode(metadata, expected) {
+  if (process.platform === "win32") return true;
+  const userId = process.geteuid?.() ?? process.getuid?.();
+  return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === expected;
 }
-async function readSidecar(file) {
+async function readSidecar(file, artifactBytes, required) {
   const sidecar = sidecarPath(file);
   try {
     const metadata = await lstat3(sidecar);
-    const invalidMetadata = !metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > SIDECAR_MAX_BYTES;
-    if (invalidMetadata) return { kind: "original", invalid: true };
+    const invalidMetadata = !metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > ASSISTED_SIDECAR_MAX_BYTES;
+    if (invalidMetadata) return { kind: "quarantined" };
     const bytes = await readFile3(sidecar);
-    if (bytes.length !== metadata.size) return { kind: "original", invalid: true };
+    if (bytes.length !== metadata.size) return { kind: "quarantined" };
     const text = new TextDecoder4("utf-8", { fatal: true }).decode(bytes);
-    const parsed = JSON.parse(text);
-    if (!validSidecar(parsed)) return { kind: "original", invalid: true };
-    return { kind: "assisted_variant", variantGroupId: parsed.base_document_id, invalid: false };
+    const parsed = parseAssistedVariantMetadata(text, artifactBytes);
+    if (parsed === void 0 || parsed.schemaVersion === "pi.career.assisted_variant_meta.v2" && !privateMode(metadata, 384)) {
+      return { kind: "quarantined" };
+    }
+    return { kind: "assisted_variant", variantGroupId: parsed.baseDocumentId };
   } catch (error) {
-    if (error?.code === "ENOENT") return { kind: "original", invalid: false };
-    return { kind: "original", invalid: true };
+    if (error?.code === "ENOENT") {
+      return { kind: required ? "quarantined" : "original" };
+    }
+    return { kind: "quarantined" };
   }
+}
+function managedVariantsPath(config, root) {
+  const configured = config.generated_variants_root === void 0 ? void 0 : path3.resolve(config.generated_variants_root);
+  return configured !== void 0 && path3.dirname(configured) === root.path ? configured : path3.join(root.path, "variants");
+}
+async function managedVariantsDirectory(config, root) {
+  const directoryPath = managedVariantsPath(config, root);
+  try {
+    const directory = await lstat3(directoryPath);
+    const canonical = await realpath3(directoryPath);
+    if (!directory.isDirectory() || directory.isSymbolicLink() || canonical !== directoryPath || !privateMode(directory, 448)) return { path: directoryPath, markerValid: false };
+    const markerPath = path3.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
+    const marker = await lstat3(markerPath);
+    if (!marker.isFile() || marker.isSymbolicLink() || marker.size <= 0 || marker.size > ASSISTED_SIDECAR_MAX_BYTES || !privateMode(marker, 384)) return { path: directoryPath, markerValid: false };
+    const bytes = await readFile3(markerPath);
+    if (bytes.length !== marker.size) return { path: directoryPath, markerValid: false };
+    const text = new TextDecoder4("utf-8", { fatal: true }).decode(bytes);
+    return {
+      path: directoryPath,
+      markerValid: parseManagedVariantsMarker(text, root.id) !== void 0
+    };
+  } catch {
+    return { path: directoryPath, markerValid: false };
+  }
+}
+function containingManagedVariants(file, managedDirectories) {
+  return managedDirectories.filter((managed) => file.startsWith(`${managed.path}${path3.sep}`));
 }
 async function scanRootIsCurrent(root) {
   try {
@@ -1645,7 +1895,7 @@ async function collectCandidates(root, maximum, warnings2) {
   });
   return { candidates, capped, stale: false };
 }
-async function scanCandidate(root, candidate, warnings2) {
+async function scanCandidate(root, candidate, managedDirectories, warnings2) {
   let metadata;
   let canonical;
   try {
@@ -1690,9 +1940,15 @@ async function scanCandidate(root, candidate, warnings2) {
   }
   const text = normalizeDocumentText(decoded);
   const id = sha256(canonical);
-  const sidecar = await readSidecar(canonical);
-  if (sidecar.invalid) {
+  const containingManaged = containingManagedVariants(canonical, managedDirectories);
+  if (containingManaged.some((managed) => !managed.markerValid)) {
     warnings2.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+    return void 0;
+  }
+  const sidecar = await readSidecar(canonical, bytes, containingManaged.length > 0);
+  if (sidecar.kind === "quarantined") {
+    warnings2.push({ code: "invalid_assisted_sidecar", root_id: root.id, relative_path: candidate.relative });
+    return void 0;
   }
   return {
     id,
@@ -1714,6 +1970,9 @@ async function scanLibrary(config) {
   const warnings2 = [];
   const records = [];
   const roots = [];
+  const managedDirectories = await Promise.all(
+    config.library_roots.map((root) => managedVariantsDirectory(config, root))
+  );
   let totalCapped = false;
   let scannedCandidateCount = 0;
   for (const root of config.library_roots) {
@@ -1736,7 +1995,7 @@ async function scanLibrary(config) {
     scannedCandidateCount += collected.candidates.length;
     const rootRecords = [];
     for (const candidate of collected.candidates) {
-      const record = await scanCandidate(root, candidate, warnings2);
+      const record = await scanCandidate(root, candidate, managedDirectories, warnings2);
       if (record !== void 0) rootRecords.push(record);
     }
     records.push(...rootRecords);
@@ -1762,7 +2021,7 @@ function eligibleOriginals(scan) {
 }
 
 // src/workflow/result-projection.ts
-function isRecord3(value) {
+function isRecord4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function numberField(value, field) {
@@ -1772,7 +2031,7 @@ function numberField(value, field) {
 }
 function recordField(value, field) {
   const found = value[field];
-  if (!isRecord3(found)) throw workflowError("core_result_invalid");
+  if (!isRecord4(found)) throw workflowError("core_result_invalid");
   return found;
 }
 function arrayField(value, field) {
@@ -1782,7 +2041,7 @@ function arrayField(value, field) {
 }
 function compactObjects(value, fields, maximum) {
   return value.slice(0, maximum).flatMap((candidate) => {
-    if (!isRecord3(candidate)) return [];
+    if (!isRecord4(candidate)) return [];
     const selected = {};
     for (const field of fields) {
       if (candidate[field] !== void 0) selected[field] = candidate[field];
@@ -1794,7 +2053,7 @@ function compactWarnings(value) {
   return compactObjects(value, ["code", "message", "related_fields", "related_categories"], 3);
 }
 function parseConfidencePreview(value) {
-  if (!isRecord3(value) || typeof value.label !== "string" || typeof value.score !== "number") {
+  if (!isRecord4(value) || typeof value.label !== "string" || typeof value.score !== "number") {
     throw workflowError("core_result_invalid");
   }
   return { label: value.label, score: value.score };
@@ -1802,7 +2061,7 @@ function parseConfidencePreview(value) {
 function parseCoreJson(json) {
   try {
     const value = JSON.parse(json);
-    if (!isRecord3(value)) throw workflowError("core_result_invalid");
+    if (!isRecord4(value)) throw workflowError("core_result_invalid");
     return value;
   } catch (error) {
     if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
@@ -1814,7 +2073,7 @@ function projectResumeAnalysis(result) {
   const checks = arrayField(result, "checks");
   const confidence = recordField(result, "confidence_context");
   const parseConfidence = parseConfidencePreview(confidence.parse_confidence);
-  const adjusted = checks.some((check) => isRecord3(check) && check.score_adjusted === true);
+  const adjusted = checks.some((check) => isRecord4(check) && check.score_adjusted === true);
   return {
     schema_version: RESULT_PROJECTION_SCHEMA,
     core_schema_version: "career.resume_analysis.v1",
@@ -1841,7 +2100,7 @@ function projectJobMatch(result) {
   const recommendation = recordField(result, "recommendation");
   if (typeof recommendation.label !== "string") throw workflowError("core_result_invalid");
   const provisional = confidence.is_uncertain === true;
-  const adjusted = categories.some((category) => isRecord3(category) && category.score_adjusted === true);
+  const adjusted = categories.some((category) => isRecord4(category) && category.score_adjusted === true);
   return {
     schema_version: RESULT_PROJECTION_SCHEMA,
     core_schema_version: "career.job_match.v1",
@@ -1932,12 +2191,12 @@ function rankMatches(values) {
 // src/workflow/session-state.ts
 var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var SHA2563 = /^[a-f0-9]{64}$/;
-var ISO_UTC2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 var CARD_MAX_BYTES = 16384;
-function isRecord4(value) {
+function isRecord5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exactKeys4(value, required, optional = []) {
+function exactKeys5(value, required, optional = []) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
@@ -1948,10 +2207,10 @@ function boundedLabel(value) {
   return typeof value === "string" && value.length > 0 && [...value].length <= 120 && !/[\u0000-\u001f\u007f]/.test(value);
 }
 function validBase(value) {
-  return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
+  return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
 }
 function validFlags(value) {
-  if (!isRecord4(value) || !exactKeys4(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
+  if (!isRecord5(value) || !exactKeys5(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
     return false;
   }
   return [value.adjusted, value.provisional, value.close_cluster, value.stale].every(
@@ -1959,10 +2218,10 @@ function validFlags(value) {
   );
 }
 function validProjection(value) {
-  if (!isRecord4(value) || !exactKeys4(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
+  if (!isRecord5(value) || !exactKeys5(value, ["schema_version", "core_schema_version", "summary", "ui_flags"])) {
     return false;
   }
-  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord4(value.summary) || !validFlags(value.ui_flags)) return false;
+  if (value.schema_version !== RESULT_PROJECTION_SCHEMA || value.core_schema_version !== "career.resume_analysis.v1" && value.core_schema_version !== "career.job_match.v1" || !isRecord5(value.summary) || !validFlags(value.ui_flags)) return false;
   return Buffer.byteLength(JSON.stringify(value), "utf8") <= CARD_MAX_BYTES;
 }
 function isUuid(value) {
@@ -1973,7 +2232,7 @@ function isSha256(value) {
 }
 var APPLICATION_STATUSES = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
 function parseApplication(value) {
-  if (!exactKeys4(value, [
+  if (!exactKeys5(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -1988,10 +2247,10 @@ function parseApplication(value) {
 }
 function parseApplicationClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys4(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys5(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseVacancy(value) {
-  if (!exactKeys4(value, [
+  if (!exactKeys5(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -2011,21 +2270,21 @@ function parseVacancy(value) {
 }
 function parseVacancyClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "clears_state_id"];
-  return exactKeys4(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys5(value, keys) && isUuid(value.clears_state_id) ? value : void 0;
 }
 function parseConsent(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "granted"];
-  return exactKeys4(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
+  return exactKeys5(value, keys) && value.scope === "session_persistence" && typeof value.granted === "boolean" ? value : void 0;
 }
 function parseConsentClear(value) {
   const keys = ["schema_version", "kind", "state_id", "created_at", "scope", "clears_state_id"];
-  return exactKeys4(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
+  return exactKeys5(value, keys) && value.scope === "session_persistence" && isUuid(value.clears_state_id) ? value : void 0;
 }
 function validInputDigests(value) {
-  return isRecord4(value) && exactKeys4(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha256(value.resume_text_sha256) && isSha256(value.vacancy_text_sha256);
+  return isRecord5(value) && exactKeys5(value, ["resume_text_sha256", "vacancy_text_sha256"]) && isSha256(value.resume_text_sha256) && isSha256(value.vacancy_text_sha256);
 }
 function parseResultCard(value) {
-  if (!exactKeys4(value, [
+  if (!exactKeys5(value, [
     "schema_version",
     "kind",
     "state_id",
@@ -2049,7 +2308,7 @@ function parseResultCard(value) {
   return validProjection(value.projection) ? value : void 0;
 }
 function parseWorkflowEntryData(value) {
-  if (!isRecord4(value) || !validBase(value)) return void 0;
+  if (!isRecord5(value) || !validBase(value)) return void 0;
   switch (value.kind) {
     case "application":
       return parseApplication(value);
@@ -2208,7 +2467,14 @@ var MESSAGES = {
   managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
-  session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles."
+  session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
+  variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
+  variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
+  variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
+  variant_save_collision: "A save destination already exists; no existing file was replaced.",
+  variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
+  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying.",
+  variant_save_platform_unsupported: "Private materialized-variant saving is not supported on this platform."
 };
 var CareerRunError = class extends Error {
   code;
@@ -2250,7 +2516,7 @@ var SECTIONS = /* @__PURE__ */ new Set([
   "certifications",
   "other"
 ]);
-function isRecord5(value) {
+function isRecord6(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function hasExactKeys(value, keys) {
@@ -2271,7 +2537,7 @@ function stringList(value, minimum, maximum, itemMaximum) {
   return new Set(strings).size === strings.length ? [...strings] : void 0;
 }
 function parseVariantChange(value) {
-  if (!isRecord5(value) || !hasExactKeys(value, [
+  if (!isRecord6(value) || !hasExactKeys(value, [
     "section",
     "start_line",
     "end_line",
@@ -2294,7 +2560,7 @@ function parseVariantChange(value) {
   };
 }
 function parseAnalysisSuggestion(value) {
-  if (!isRecord5(value) || !hasExactKeys(value, [
+  if (!isRecord6(value) || !hasExactKeys(value, [
     "basis_check_id",
     "start_line",
     "end_line",
@@ -2314,7 +2580,7 @@ function parseAnalysisSuggestion(value) {
   };
 }
 function parseAnalysisReplacement(value) {
-  if (!isRecord5(value) || !hasExactKeys(value, [
+  if (!isRecord6(value) || !hasExactKeys(value, [
     "basis_check_id",
     "start_line",
     "end_line",
@@ -2334,7 +2600,7 @@ function parseAnalysisReplacement(value) {
   };
 }
 function parseVariantChanges(payload) {
-  if (!isRecord5(payload) || !hasExactKeys(payload, ["changes"]) || !Array.isArray(payload.changes) || payload.changes.length > 50) {
+  if (!isRecord6(payload) || !hasExactKeys(payload, ["changes"]) || !Array.isArray(payload.changes) || payload.changes.length > 50) {
     throw new Error("managed_payload_invalid");
   }
   const changes = payload.changes.map(parseVariantChange);
@@ -2342,7 +2608,7 @@ function parseVariantChanges(payload) {
   return changes;
 }
 function parseAnalysisSuggestions(payload) {
-  if (!isRecord5(payload) || !hasExactKeys(payload, ["suggestions"]) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 3) {
+  if (!isRecord6(payload) || !hasExactKeys(payload, ["suggestions"]) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 3) {
     throw new Error("managed_payload_invalid");
   }
   const suggestions = payload.suggestions.map(parseAnalysisSuggestion);
@@ -2352,7 +2618,7 @@ function parseAnalysisSuggestions(payload) {
   return suggestions;
 }
 function parseAnalysisReplacements(payload) {
-  if (!isRecord5(payload) || !hasExactKeys(payload, ["replacements"]) || !Array.isArray(payload.replacements) || payload.replacements.length > 3) {
+  if (!isRecord6(payload) || !hasExactKeys(payload, ["replacements"]) || !Array.isArray(payload.replacements) || payload.replacements.length > 3) {
     throw new Error("managed_payload_invalid");
   }
   const replacements = payload.replacements.map(parseAnalysisReplacement);
@@ -2374,7 +2640,7 @@ function handlePrefix(kind) {
   return kind === "review" ? "review" : kind === "variant" ? "variant" : "result";
 }
 function entryBytes(entry) {
-  return Buffer.byteLength(entry.json, "utf8") + (entry.reviewInput === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8"));
+  return Buffer.byteLength(entry.json, "utf8") + (entry.reviewInput === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8")) + (entry.variantSource === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.variantSource), "utf8"));
 }
 var ManagedRegistry = class {
   constructor(uuid, now) {
@@ -2493,14 +2759,14 @@ var careerRunParameters = Type.Object({
 
 // src/managed/engine.ts
 var MODEL_DETAIL_MAX_BYTES = 5e4;
-function isRecord6(value) {
+function isRecord7(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function stringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 function validVariantSelectionChange(value, expectedId) {
-  if (!isRecord6(value)) return false;
+  if (!isRecord7(value)) return false;
   return [
     value.change_id === expectedId,
     typeof value.section === "string",
@@ -2542,13 +2808,13 @@ function parseConsentDecision(payload) {
   return payload;
 }
 function parseMaterializeRequest(payload) {
-  if (!isRecord6(payload) || Object.keys(payload).join("") !== "selected_change_ids") {
+  if (!isRecord7(payload) || Object.keys(payload).join("") !== "selected_change_ids") {
     throw careerRunError("invalid_request");
   }
   return parseSelectedChangeIds(payload.selected_change_ids);
 }
 function parseDetailRequest(payload) {
-  if (!isRecord6(payload)) throw careerRunError("invalid_request");
+  if (!isRecord7(payload)) throw careerRunError("invalid_request");
   const keys = Object.keys(payload).sort().join("\0");
   if (keys !== "section" && keys !== "item\0section") throw careerRunError("invalid_request");
   if (!DETAIL_SECTIONS.includes(payload.section)) {
@@ -2676,7 +2942,7 @@ function compactReplacementReview(result) {
   };
 }
 function compactCanonicalChanges(changes) {
-  return changes.map((change) => isRecord6(change) ? {
+  return changes.map((change) => isRecord7(change) ? {
     change_id: change.change_id,
     section: change.section,
     start_line: change.start_line,
@@ -2711,9 +2977,9 @@ function compactVariant(result) {
   };
 }
 function evidenceDetail(value) {
-  const analysis = isRecord6(value.baseline_analysis) ? value.baseline_analysis : value;
-  const checks = isRecord6(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
-  return checks.flatMap((check) => isRecord6(check) && Array.isArray(check.evidence) ? [{ check_id: check.check_id, evidence: check.evidence }] : []);
+  const analysis = isRecord7(value.baseline_analysis) ? value.baseline_analysis : value;
+  const checks = isRecord7(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+  return checks.flatMap((check) => isRecord7(check) && Array.isArray(check.evidence) ? [{ check_id: check.check_id, evidence: check.evidence }] : []);
 }
 var DETAIL_SUMMARIES = {
   "resume.analyze": compactAnalyze,
@@ -2724,8 +2990,8 @@ var DETAIL_SUMMARIES = {
   "resume.variant.materialize": compactVariant
 };
 function analysisChecks(value) {
-  const analysis = isRecord6(value.baseline_analysis) ? value.baseline_analysis : value;
-  return isRecord6(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+  const analysis = isRecord7(value.baseline_analysis) ? value.baseline_analysis : value;
+  return isRecord7(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
 }
 function reviewedItems(value) {
   const items = value.changes ?? value.suggestions ?? value.replacements ?? value.selected_changes ?? [];
@@ -2733,7 +2999,7 @@ function reviewedItems(value) {
   return items;
 }
 function exactReviewedItem(items, item) {
-  const found = items.find((candidate) => isRecord6(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
+  const found = items.find((candidate) => isRecord7(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
   if (found === void 0) throw careerRunError("result_not_found");
   return found;
 }
@@ -2803,6 +3069,35 @@ var CareerRunEngine = class {
   }
   shutdown() {
     this.registry.clear();
+  }
+  materializedVariantForSave(handle, ctx) {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const entry = this.registry.get(handle, "variant");
+      if (entry === void 0 || entry.operation !== "resume.variant.materialize" || entry.variantSource === void 0) throw careerRunError("variant_save_unavailable");
+      ensureSchema(entry.value, "career.resume_variant.v1");
+      validateAuthority(entry.value);
+      const assistedText = entry.value.assisted_resume_text;
+      const selected = arrayField2(entry.value, "selected_changes");
+      if (typeof assistedText !== "string" || selected.length === 0) {
+        throw careerRunError("managed_result_invalid");
+      }
+      const selectedChangeIds = selected.map((change) => isRecord7(change) && typeof change.change_id === "string" ? change.change_id : "");
+      if (selectedChangeIds.some((id) => !/^change-[0-9]{4}$/.test(id))) {
+        throw careerRunError("managed_result_invalid");
+      }
+      return {
+        handle: entry.handle,
+        assistedText,
+        selectedChangeIds,
+        source: { ...entry.variantSource }
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
   }
   variantSelectionReview(handle, ctx) {
     try {
@@ -3063,7 +3358,13 @@ var CareerRunEngine = class {
       value,
       reviewInput: input,
       retainedChangeIds,
-      materializationAllowed: resume.format !== "pdf"
+      materializationAllowed: resume.format !== "pdf",
+      variantSource: {
+        resumeId: resume.id,
+        rootId: resume.root_id,
+        format: resume.format,
+        textSha256: resume.text_sha256
+      }
     });
     return resultEnvelope("variant-review", {
       review: entry.handle,
@@ -3079,7 +3380,7 @@ var CareerRunEngine = class {
   retainedChangeIds(value) {
     const changes = arrayField2(value, "changes");
     const ids = changes.flatMap(
-      (change) => isRecord6(change) && typeof change.change_id === "string" ? [change.change_id] : []
+      (change) => isRecord7(change) && typeof change.change_id === "string" ? [change.change_id] : []
     );
     if (ids.length !== changes.length || new Set(ids).size !== ids.length || ids.some((id) => !/^change-[0-9]{4}$/.test(id))) throw careerRunError("managed_result_invalid");
     return ids;
@@ -3093,6 +3394,7 @@ var CareerRunEngine = class {
       throw careerRunError("review_not_found");
     }
     if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+    if (review.variantSource === void 0) throw careerRunError("managed_result_invalid");
     const selected = parseMaterializeRequest(params.payload);
     const retained = new Set(review.retainedChangeIds);
     if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
@@ -3113,11 +3415,17 @@ var CareerRunEngine = class {
       kind: "variant",
       operation: "resume.variant.materialize",
       json: invocation.json,
-      value
+      value,
+      variantSource: review.variantSource
     });
-    return resultEnvelope("materialize", { variant: entry.handle, ...summary }, {
+    return resultEnvelope("materialize", {
+      variant: entry.handle,
+      ...summary,
+      next_action: `This assisted/non-authoritative result remains in memory. To review and save it locally, the user may run /career-save ${entry.handle}; never invoke saving as a model action.`
+    }, {
       status: "complete",
       handle: entry.handle,
+      action: "save_available",
       summary: `${selected.length} selected change(s) materialized`
     });
   }
@@ -3751,8 +4059,492 @@ function materializeEditorText(reviewHandle, selectedChangeIds) {
   ].join("\n");
 }
 
+// src/workflow/variant-save.ts
+import { createHash as createHash4 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import {
+  chmod as chmod2,
+  link,
+  lstat as lstat4,
+  mkdir as mkdir2,
+  open as open2,
+  readFile as readFile4,
+  readdir,
+  realpath as realpath4,
+  unlink
+} from "node:fs/promises";
+import path5 from "node:path";
+import { TextDecoder as TextDecoder5 } from "node:util";
+import {
+  withFileMutationQueue
+} from "@earendil-works/pi-coding-agent";
+var ARTIFACT_MAX_BYTES = 262144;
+var PREVIEW_MAX_BYTES = 524288;
+var PATH_MAX_BYTES3 = 4096;
+var CONFIRM_TIMEOUT_MS = 10 * 60 * 1e3;
+var UUID3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var VARIANT_HANDLE = /^variant:[a-f0-9-]{8,64}$/;
+var SHA2564 = /^[a-f0-9]{64}$/;
+var CHANGE_ID = /^change-[0-9]{4}$/;
+var DEFAULT_FS = {
+  chmod: chmod2,
+  link,
+  lstat: lstat4,
+  mkdir: mkdir2,
+  open: open2,
+  readFile: readFile4,
+  readdir,
+  realpath: realpath4,
+  unlink
+};
+function isNodeError(error, code) {
+  return error !== null && typeof error === "object" && error.code === code;
+}
+function hash(value) {
+  return createHash4("sha256").update(value).digest("hex");
+}
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 55296 && code <= 56319) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 56320 && next <= 57343)) return true;
+      index += 1;
+    } else if (code >= 56320 && code <= 57343) {
+      return true;
+    }
+  }
+  return false;
+}
+function sameCandidate(left, right) {
+  return left.handle === right.handle && left.assistedText === right.assistedText && left.selectedChangeIds.join("\0") === right.selectedChangeIds.join("\0") && left.source.resumeId === right.source.resumeId && left.source.rootId === right.source.rootId && left.source.format === right.source.format && left.source.textSha256 === right.source.textSha256;
+}
+function validCandidateIdentity(candidate) {
+  return VARIANT_HANDLE.test(candidate.handle) && SHA2564.test(candidate.source.resumeId) && SHA2564.test(candidate.source.rootId) && SHA2564.test(candidate.source.textSha256) && (candidate.source.format === "markdown" || candidate.source.format === "text");
+}
+function validSelectedChanges(selectedChangeIds) {
+  return selectedChangeIds.length > 0 && new Set(selectedChangeIds).size === selectedChangeIds.length && selectedChangeIds.every((id) => CHANGE_ID.test(id));
+}
+function validateCandidate(candidate) {
+  if (!validCandidateIdentity(candidate) || !validSelectedChanges(candidate.selectedChangeIds) || candidate.assistedText.length === 0 || candidate.assistedText.includes("\r") || hasUnpairedSurrogate(candidate.assistedText)) {
+    throw careerRunError("variant_save_unavailable");
+  }
+  const bytes = Buffer.from(candidate.assistedText, "utf8");
+  if (bytes.length === 0 || bytes.length > ARTIFACT_MAX_BYTES) {
+    throw careerRunError("variant_save_unavailable");
+  }
+  return bytes;
+}
+function effectiveUserId() {
+  return process.geteuid?.() ?? process.getuid?.();
+}
+function privateMetadata(metadata, mode) {
+  const userId = effectiveUserId();
+  return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === mode;
+}
+function directManagedRoot(config, root) {
+  const configured = config.generated_variants_root === void 0 ? void 0 : path5.resolve(config.generated_variants_root);
+  return configured !== void 0 && path5.dirname(configured) === root.path ? configured : path5.join(root.path, "variants");
+}
+function validBoundedPath(value) {
+  return path5.isAbsolute(value) && path5.normalize(value) === value && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES3 && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function validDestination(config, root, directoryPath) {
+  return validBoundedPath(root.path) && validBoundedPath(directoryPath) && path5.dirname(directoryPath) === root.path && directoryPath !== root.path && !config.library_roots.some((configuredRoot) => configuredRoot.path === directoryPath);
+}
+function basicTimestamp(createdAt) {
+  return createdAt.replace(/[-:.]/g, "");
+}
+function canonicalJson(value) {
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
+function fileNameFor(candidate, createdAt, saveId) {
+  const extension = candidate.source.format === "markdown" ? "md" : "txt";
+  const suffix = saveId.replaceAll("-", "").slice(0, 8);
+  return `resume-assisted-${basicTimestamp(createdAt)}-${suffix}.${extension}`;
+}
+var VariantSaveWorkflow = class {
+  constructor(options) {
+    this.options = options;
+    this.fs = options.fs ?? DEFAULT_FS;
+    this.platform = options.platform ?? process.platform;
+  }
+  options;
+  fs;
+  platform;
+  receipts = /* @__PURE__ */ new Map();
+  rootLocks = /* @__PURE__ */ new Map();
+  clearReceipts() {
+    this.receipts.clear();
+  }
+  async run(handle, ctx, resolveCandidate) {
+    if (this.platform === "win32") throw careerRunError("variant_save_platform_unsupported");
+    if (!ctx.isIdle()) throw careerRunError("variant_save_unavailable");
+    const candidate = resolveCandidate();
+    const existing = this.receipts.get(handle);
+    if (existing !== void 0) {
+      if (!sameCandidate(existing.plan.candidate, candidate) || existing.plan.sessionId !== ctx.sessionManager.getSessionId()) {
+        throw careerRunError("variant_save_unavailable");
+      }
+      if (!await this.verifyPublishedPair(existing.plan)) {
+        throw careerRunError("variant_save_verification_failed");
+      }
+      await this.verifyRescan(existing.plan);
+      return {
+        status: "existing",
+        artifactPath: existing.plan.artifactPath,
+        sidecarPath: existing.plan.sidecarPath
+      };
+    }
+    const plan = await this.preparePlan(candidate, ctx.sessionManager.getSessionId());
+    const reviewed = await ctx.ui.editor("Review exact assisted-variant save plan", plan.previewText);
+    if (reviewed === void 0) return { status: "cancelled" };
+    if (reviewed !== plan.previewText) throw careerRunError("variant_save_preview_changed");
+    const confirmed = await ctx.ui.confirm(
+      "Save assisted resume variant?",
+      [
+        `Save ID: ${plan.saveId}`,
+        `Directory: ${plan.directoryPath}`,
+        `Artifact: ${path5.basename(plan.artifactPath)} (${plan.artifactBytes.length} bytes, ${hash(plan.artifactBytes)})`,
+        `Sidecar: ${path5.basename(plan.sidecarPath)} (${plan.sidecarBytes.length} bytes, ${hash(plan.sidecarBytes)})`,
+        ...plan.markerBytes === void 0 ? [] : [
+          `Create managed marker: ${MANAGED_VARIANTS_MARKER_NAME} (${plan.markerBytes.length} bytes, ${hash(plan.markerBytes)})`
+        ],
+        "This is assisted/non-authoritative. Existing files will never be replaced."
+      ].join("\n"),
+      { timeout: CONFIRM_TIMEOUT_MS }
+    );
+    if (!confirmed || ctx.signal?.aborted) return { status: "cancelled" };
+    const current = resolveCandidate();
+    if (!sameCandidate(plan.candidate, current) || plan.sessionId !== ctx.sessionManager.getSessionId()) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    const paths = [plan.artifactPath, plan.sidecarPath, ...plan.markerBytes === void 0 ? [] : [plan.markerPath]].sort();
+    await this.withRootLock(plan.directoryPath, () => this.withMutationQueues(paths, async () => {
+      const lockedCandidate = resolveCandidate();
+      if (!sameCandidate(plan.candidate, lockedCandidate) || plan.sessionId !== ctx.sessionManager.getSessionId() || !ctx.isIdle() || ctx.signal?.aborted) {
+        throw careerRunError("variant_save_unavailable");
+      }
+      await this.revalidatePlan(plan);
+      await this.publishPlan(plan);
+    }));
+    this.receipts.set(handle, { plan });
+    await this.verifyRescan(plan);
+    return { status: "saved", artifactPath: plan.artifactPath, sidecarPath: plan.sidecarPath };
+  }
+  async currentOriginal(candidate) {
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const root = config.library_roots.find((value) => value.id === candidate.source.rootId);
+    const rootSummary = scan.roots.find((value) => value.root_id === candidate.source.rootId);
+    const matches = eligibleOriginals(scan).filter((record) => record.id === candidate.source.resumeId && record.root_id === candidate.source.rootId && record.format === candidate.source.format && record.text_sha256 === candidate.source.textSha256);
+    if (root === void 0 || rootSummary === void 0 || rootSummary.stale || rootSummary.capped || scan.total_capped || matches.length !== 1) throw careerRunError("variant_save_unavailable");
+    const directoryPath = directManagedRoot(config, root);
+    if (!validDestination(config, root, directoryPath)) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    const destination = await this.inspectDestination(directoryPath, root);
+    return { config, root, record: matches[0], destination };
+  }
+  async inspectDestination(directoryPath, root) {
+    const markerPath = path5.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
+    let metadata;
+    try {
+      metadata = await this.fs.lstat(directoryPath);
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return { kind: "absent", directoryPath, markerPath };
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    const canonical = await this.fs.realpath(directoryPath).catch(() => void 0);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== directoryPath || !privateMetadata(metadata, 448)) throw careerRunError("variant_save_destination_invalid");
+    const entries = await this.fs.readdir(directoryPath).catch(() => void 0);
+    if (entries === void 0) throw careerRunError("variant_save_destination_invalid");
+    const markerState = await this.inspectMarker(markerPath, root.id);
+    if (markerState === "valid") return { kind: "managed", directoryPath, markerPath };
+    if (markerState === "invalid" || entries.length !== 0) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    return { kind: "empty", directoryPath, markerPath };
+  }
+  async inspectMarker(markerPath, expectedRootId) {
+    try {
+      const marker = await this.fs.lstat(markerPath);
+      if (!marker.isFile() || marker.isSymbolicLink() || !privateMetadata(marker, 384) || marker.size <= 0 || marker.size > ASSISTED_SIDECAR_MAX_BYTES) return "invalid";
+      const bytes = await this.fs.readFile(markerPath);
+      if (bytes.length !== marker.size) return "invalid";
+      const text = new TextDecoder5("utf-8", { fatal: true }).decode(bytes);
+      return parseManagedVariantsMarker(text, expectedRootId) === void 0 ? "invalid" : "valid";
+    } catch (error) {
+      return isNodeError(error, "ENOENT") ? "absent" : "invalid";
+    }
+  }
+  async preparePlan(candidate, sessionId) {
+    const artifactBytes = validateCandidate(candidate);
+    const prepared = await this.currentOriginal(candidate);
+    const saveId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    if (!UUID3.test(saveId)) throw careerRunError("variant_save_unavailable");
+    const fileName = fileNameFor(candidate, createdAt, saveId);
+    const artifactPath = path5.join(prepared.destination.directoryPath, fileName);
+    const sidecarPath2 = path5.join(
+      prepared.destination.directoryPath,
+      `${fileName.slice(0, -path5.extname(fileName).length)}.pi-career.json`
+    );
+    if (![prepared.destination.markerPath, artifactPath, sidecarPath2].every(validBoundedPath)) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    await this.requireAbsent(artifactPath);
+    await this.requireAbsent(sidecarPath2);
+    const sidecarBytes = encodeAssistedVariantMetadataV2({
+      base_document_id: candidate.source.resumeId,
+      base_text_sha256: candidate.source.textSha256,
+      artifact_sha256: sha256Bytes(artifactBytes),
+      created_at: createdAt
+    });
+    const markerBytes = prepared.destination.kind === "managed" ? void 0 : encodeManagedVariantsMarker(prepared.root.id, createdAt);
+    if (sidecarBytes.length > ASSISTED_SIDECAR_MAX_BYTES || markerBytes !== void 0 && markerBytes.length > ASSISTED_SIDECAR_MAX_BYTES) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    const preview = {
+      schema_version: "pi.career.variant_save_preview.v1",
+      save_id: saveId,
+      initialize_directory: markerBytes !== void 0,
+      directory_path: prepared.destination.directoryPath,
+      marker: markerBytes === void 0 ? null : {
+        path: prepared.destination.markerPath,
+        utf8_bytes: markerBytes.length,
+        sha256: hash(markerBytes),
+        text: markerBytes.toString("utf8")
+      },
+      artifact: {
+        path: artifactPath,
+        format: candidate.source.format,
+        utf8_bytes: artifactBytes.length,
+        sha256: hash(artifactBytes),
+        text: candidate.assistedText
+      },
+      sidecar: {
+        path: sidecarPath2,
+        utf8_bytes: sidecarBytes.length,
+        sha256: hash(sidecarBytes),
+        text: sidecarBytes.toString("utf8")
+      }
+    };
+    const previewText = canonicalJson(preview);
+    if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    return {
+      saveId,
+      sessionId,
+      candidate,
+      createdAt,
+      directoryPath: prepared.destination.directoryPath,
+      markerPath: prepared.destination.markerPath,
+      artifactPath,
+      sidecarPath: sidecarPath2,
+      artifactBytes,
+      sidecarBytes,
+      ...markerBytes === void 0 ? {} : { markerBytes },
+      initialDestinationKind: prepared.destination.kind,
+      previewText
+    };
+  }
+  async revalidatePlan(plan) {
+    validateCandidate(plan.candidate);
+    const prepared = await this.currentOriginal(plan.candidate);
+    if (prepared.destination.directoryPath !== plan.directoryPath || prepared.destination.markerPath !== plan.markerPath || prepared.destination.kind !== plan.initialDestinationKind) throw careerRunError("variant_save_destination_invalid");
+    await this.requireAbsent(plan.artifactPath);
+    await this.requireAbsent(plan.sidecarPath);
+  }
+  async requireAbsent(file) {
+    try {
+      await this.fs.lstat(file);
+      throw careerRunError("variant_save_collision");
+    } catch (error) {
+      if (error instanceof CareerRunError) throw error;
+      if (!isNodeError(error, "ENOENT")) throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async publishPlan(plan) {
+    if (plan.markerBytes !== void 0) await this.initializeDirectory(plan);
+    let sidecarTemp;
+    let artifactTemp;
+    let sidecarLinked = false;
+    let artifactLinked = false;
+    try {
+      sidecarTemp = await this.writeTemp(plan, "sidecar", plan.sidecarBytes);
+      artifactTemp = await this.writeTemp(plan, "artifact", plan.artifactBytes);
+      await this.publishTemp(sidecarTemp, plan.sidecarPath);
+      sidecarLinked = true;
+      await this.publishTemp(artifactTemp, plan.artifactPath);
+      artifactLinked = true;
+      await this.safeUnlink(sidecarTemp.path);
+      await this.safeUnlink(artifactTemp.path);
+      await this.syncDirectory(plan.directoryPath);
+      if (!await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) {
+        throw careerRunError("variant_save_status_unknown");
+      }
+    } catch (error) {
+      if (sidecarTemp !== void 0) await this.safeUnlink(sidecarTemp.path);
+      if (artifactTemp !== void 0) await this.safeUnlink(artifactTemp.path);
+      if (sidecarTemp !== void 0 && artifactTemp !== void 0 && await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) return;
+      if (!artifactLinked && sidecarTemp !== void 0) {
+        await this.unlinkIfIdentity(plan.sidecarPath, sidecarTemp.metadata);
+      }
+      this.throwPublicationFailure(error, sidecarLinked, artifactLinked);
+    }
+  }
+  throwPublicationFailure(error, sidecarLinked, artifactLinked) {
+    if (error instanceof CareerRunError) throw error;
+    if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+    throw careerRunError(sidecarLinked || artifactLinked ? "variant_save_status_unknown" : "variant_save_destination_invalid");
+  }
+  async initializeDirectory(plan) {
+    if (plan.markerBytes === void 0) return;
+    if (plan.initialDestinationKind === "absent") {
+      try {
+        await this.fs.mkdir(plan.directoryPath, { mode: 448, recursive: false });
+      } catch (error) {
+        if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+        throw careerRunError("variant_save_destination_invalid");
+      }
+      await this.fs.chmod(plan.directoryPath, 448).catch(() => {
+        throw careerRunError("variant_save_destination_invalid");
+      });
+    }
+    const directory = await this.fs.lstat(plan.directoryPath).catch(() => {
+      throw careerRunError("variant_save_destination_invalid");
+    });
+    const canonical = await this.fs.realpath(plan.directoryPath).catch(() => {
+      throw careerRunError("variant_save_destination_invalid");
+    });
+    if (!directory.isDirectory() || directory.isSymbolicLink() || canonical !== plan.directoryPath || !privateMetadata(directory, 448)) throw careerRunError("variant_save_destination_invalid");
+    await this.requireAbsent(plan.markerPath);
+    const markerTemp = await this.writeTemp(plan, "marker", plan.markerBytes);
+    try {
+      await this.publishTemp(markerTemp, plan.markerPath);
+      await this.safeUnlink(markerTemp.path);
+      await this.syncDirectory(plan.directoryPath);
+      if (!await this.verifyExactFile(plan.markerPath, plan.markerBytes, markerTemp.metadata)) {
+        throw careerRunError("variant_save_status_unknown");
+      }
+    } catch (error) {
+      await this.safeUnlink(markerTemp.path);
+      if (error instanceof CareerRunError) throw error;
+      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+      throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async writeTemp(plan, role, bytes) {
+    const temporary = path5.join(plan.directoryPath, `.pi-career-${plan.saveId}-${role}.tmp`);
+    let handle;
+    try {
+      handle = await this.fs.open(
+        temporary,
+        constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW,
+        384
+      );
+      await handle.writeFile(bytes);
+      await handle.sync();
+      await handle.chmod(384);
+      const metadata = await handle.stat();
+      await handle.close();
+      handle = void 0;
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== bytes.length) {
+        throw careerRunError("variant_save_destination_invalid");
+      }
+      const checked = await this.fs.readFile(temporary);
+      if (!checked.equals(bytes)) throw careerRunError("variant_save_destination_invalid");
+      return { path: temporary, metadata };
+    } catch (error) {
+      if (handle !== void 0) await handle.close().catch(() => void 0);
+      await this.safeUnlink(temporary);
+      if (error instanceof CareerRunError) throw error;
+      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+      throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async publishTemp(temporary, finalPath) {
+    await this.fs.link(temporary.path, finalPath);
+  }
+  async verifyExactFile(file, expected, identity) {
+    try {
+      const metadata = await this.fs.lstat(file);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== expected.length || identity !== void 0 && (metadata.dev !== identity.dev || metadata.ino !== identity.ino)) return false;
+      const bytes = await this.fs.readFile(file);
+      return bytes.equals(expected);
+    } catch {
+      return false;
+    }
+  }
+  async verifyPublishedPair(plan, sidecarIdentity, artifactIdentity) {
+    if (!await this.verifyExactFile(plan.sidecarPath, plan.sidecarBytes, sidecarIdentity) || !await this.verifyExactFile(plan.artifactPath, plan.artifactBytes, artifactIdentity)) return false;
+    try {
+      const text = new TextDecoder5("utf-8", { fatal: true }).decode(await this.fs.readFile(plan.sidecarPath));
+      const parsed = parseAssistedVariantMetadata(text, plan.artifactBytes);
+      return parsed?.baseDocumentId === plan.candidate.source.resumeId;
+    } catch {
+      return false;
+    }
+  }
+  async verifyRescan(plan) {
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const root = scan.roots.find((value) => value.root_id === plan.candidate.source.rootId);
+    const configuredRoot = config.library_roots.find((value) => value.id === plan.candidate.source.rootId);
+    const relativePath = configuredRoot === void 0 ? void 0 : path5.relative(configuredRoot.path, plan.artifactPath).split(path5.sep).join("/");
+    const records = scan.records.filter((record) => record.path === plan.artifactPath);
+    const eligible = eligibleOriginals(scan).some((record) => record.path === plan.artifactPath);
+    if (root === void 0 || configuredRoot === void 0 || relativePath === void 0 || root.stale || root.capped || scan.total_capped || records.length !== 1 || records[0].format !== plan.candidate.source.format || records[0].text !== plan.candidate.assistedText || records[0].kind !== "assisted_variant" || records[0].variant_group_id !== plan.candidate.source.resumeId || eligible || scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar" && warning.root_id === plan.candidate.source.rootId && warning.relative_path === relativePath)) throw careerRunError("variant_save_verification_failed");
+  }
+  async unlinkIfIdentity(file, identity) {
+    try {
+      const metadata = await this.fs.lstat(file);
+      if (metadata.dev === identity.dev && metadata.ino === identity.ino) await this.fs.unlink(file);
+    } catch {
+    }
+  }
+  async safeUnlink(file) {
+    await this.fs.unlink(file).catch(() => void 0);
+  }
+  async syncDirectory(directory) {
+    let handle;
+    try {
+      handle = await this.fs.open(directory, constants2.O_RDONLY);
+      await handle.sync();
+      await handle.close();
+    } catch {
+      if (handle !== void 0) await handle.close().catch(() => void 0);
+      throw careerRunError("variant_save_status_unknown");
+    }
+  }
+  async withMutationQueues(paths, operation) {
+    const run = (index) => index >= paths.length ? operation() : withFileMutationQueue(paths[index], () => run(index + 1));
+    return run(0);
+  }
+  async withRootLock(root, operation) {
+    const previous = this.rootLocks.get(root) ?? Promise.resolve();
+    let release = () => void 0;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const current = previous.then(() => gate);
+    this.rootLocks.set(root, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.rootLocks.get(root) === current) this.rootLocks.delete(root);
+    }
+  }
+};
+
 // src/managed/tool.ts
 var REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
+var VARIANT_HANDLE_PATTERN = /^variant:[a-f0-9-]{8,64}$/;
 function managedToolActive(pi, includeRaw) {
   const current = pi.getActiveTools();
   const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name));
@@ -3761,13 +4553,17 @@ function managedToolActive(pi, includeRaw) {
   pi.setActiveTools([...new Set(next)]);
 }
 function registerCareerRun(pi, options = {}) {
+  const agentDir = options.agentDir ?? getAgentDir();
+  const now = options.now ?? (() => /* @__PURE__ */ new Date());
+  const uuid = options.uuid ?? randomUUID2;
   const engine = new CareerRunEngine({
     pi,
-    agentDir: options.agentDir ?? getAgentDir(),
+    agentDir,
     invoke: options.invoke ?? invokeCareerCli,
-    now: options.now ?? (() => /* @__PURE__ */ new Date()),
-    uuid: options.uuid ?? randomUUID2
+    now,
+    uuid
   });
+  const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
   pi.registerTool({
     name: MANAGED_TOOL_NAME,
     label: "Career",
@@ -3775,7 +4571,8 @@ function registerCareerRun(pi, options = {}) {
     promptGuidelines: [
       "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
       "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically.",
-      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only."
+      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only.",
+      "After materialization, never initiate persistence. The user alone may run /career-save with the returned variant handle for exact local preview and confirmation."
     ],
     parameters: careerRunParameters,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -3784,6 +4581,9 @@ function registerCareerRun(pi, options = {}) {
         details: { schema_version: "pi.career.run_details.v1", command: params.command }
       });
       const result = await engine.run(params, signal, ctx);
+      if (params.command === "consent" && params.payload === "decline") {
+        variantSave.clearReceipts();
+      }
       return params.command === "variant-review" ? { ...result, terminate: true } : result;
     },
     renderCall(args, theme) {
@@ -3800,7 +4600,8 @@ function registerCareerRun(pi, options = {}) {
       const lines = [
         theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
         ...details.action === "review_select" && details.handle !== void 0 ? [theme.fg("accent", `Run /career-review ${details.handle}`)] : [],
-        ...expanded && details.handle !== void 0 && details.action !== "review_select" ? [theme.fg("dim", details.handle)] : []
+        ...details.action === "save_available" && details.handle !== void 0 ? [theme.fg("accent", `User may run /career-save ${details.handle}`)] : [],
+        ...expanded && details.handle !== void 0 && details.action !== "review_select" && details.action !== "save_available" ? [theme.fg("dim", details.handle)] : []
       ];
       return new Text2(lines.join("\n"), 0, 0);
     }
@@ -3840,6 +4641,46 @@ function registerCareerRun(pi, options = {}) {
       }
     }
   });
+  pi.registerCommand("career-save", {
+    description: "Preview and explicitly save one current assisted Markdown/text materialization",
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+        ctx.ui.notify("/career-save requires TUI or RPC mode.", "error");
+        return;
+      }
+      if (!ctx.isIdle()) {
+        ctx.ui.notify("Wait for the current agent run to settle before saving.", "warning");
+        return;
+      }
+      const handle = args.trim();
+      if (!VARIANT_HANDLE_PATTERN.test(handle)) {
+        ctx.ui.notify("Usage: /career-save variant:<ephemeral-handle>", "warning");
+        return;
+      }
+      try {
+        const outcome = await variantSave.run(
+          handle,
+          ctx,
+          () => engine.materializedVariantForSave(handle, ctx)
+        );
+        if (outcome.status === "cancelled") {
+          ctx.ui.notify("Assisted-variant save cancelled; no file was written.", "info");
+          return;
+        }
+        ctx.ui.notify(
+          `${outcome.status === "existing" ? "Verified existing" : "Saved"} assisted variant: ${outcome.artifactPath}
+Sidecar: ${outcome.sidecarPath}`,
+          "info"
+        );
+      } catch (error) {
+        if (error instanceof CareerRunError) {
+          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
+          return;
+        }
+        ctx.ui.notify("The assisted variant could not be saved or verified.", "error");
+      }
+    }
+  });
   pi.registerCommand("career-tools", {
     description: "Choose managed or advanced raw Career Core tools",
     getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
@@ -3859,13 +4700,16 @@ function registerCareerRun(pi, options = {}) {
     }
   });
   pi.on("session_start", (_event, ctx) => {
+    variantSave.clearReceipts();
     engine.enterSession(ctx.sessionManager.getSessionId());
     managedToolActive(pi, false);
   });
   pi.on("session_tree", (_event, ctx) => {
+    variantSave.clearReceipts();
     engine.resetSession(ctx.sessionManager.getSessionId());
   });
   pi.on("session_shutdown", () => {
+    variantSave.clearReceipts();
     engine.shutdown();
   });
 }
@@ -3922,7 +4766,7 @@ function workflowProtocol(mode, resume) {
       }
       return `${review}
 4. Ask the user to select retained IDs, then stop; never select or materialize now.
-5. Only after later selection, call career_run "materialize" with the returned review handle and selected IDs. Keep it assisted/non-authoritative; never analyze, match, or save it as original.`;
+5. Only after later selection, call career_run "materialize" with the returned review handle and selected IDs. Keep it assisted/non-authoritative and never analyze or match it as original. Do not initiate persistence; only tell the user they may run the returned \`/career-save <variant-handle>\` command for a separate exact local preview and confirmation.`;
     }
     case "question":
       return `1. Answer from the original; use complete analysis or matching when relevant.
