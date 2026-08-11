@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review navigation/presentation, and further PDF generator/font coverage remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review navigation, and further PDF generator/font coverage remain later reviewed work.
 
 Completed sequence:
 
@@ -196,11 +196,11 @@ For non-PDF variant reviews, `career_run variant-review` terminates the agent tu
 - every canonical retained change, excluded by default;
 - exact before/proposed-after text, line bounds, resume evidence, and vacancy evidence in a paged view;
 - an explicit included-ID set in original Core order;
-- a final paged cross-change view of the exact selected records, followed by a separate prepare-or-back decision.
+- a final paged cross-change view with compact labels for every exact selected record, followed by a separate prepare-or-back decision.
 
 Only the final prepare decision creates a later ordinary editor message containing the unchanged review handle and selected canonical IDs. It does not call Core, submit to a provider, append selection state, materialize, save, or write. The user must review and submit that message separately. Exact cached review input remains process-memory-only and deterministic materialization still reuses it unchanged. PDF review handles fail closed at selection and materialization because extracted text cannot preserve PDF styling.
 
-Further reviewed work may improve compact presentation or navigation, but must retain the same warning, evidence, authority, cancellation, process-memory, cross-change confirmation, and explicit-selection boundaries.
+Further reviewed work may improve navigation or presentation further, but must retain the same warning, evidence, authority, cancellation, process-memory, cross-change confirmation, and explicit-selection boundaries.
 
 ### Approved save workflow
 

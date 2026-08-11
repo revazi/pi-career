@@ -418,13 +418,21 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     const finalReview = finalViewer.render(64);
     assert.ok(finalReview.every((line) => visibleWidth(line) <= 64));
     assert.ok(finalViewer.render(32).every((line) => visibleWidth(line) <= 32));
-    assert.match(finalReview.join("\n"), /selected_change_count/);
-    assert.match(finalReview.join("\n"), /change-0001/);
-    assert.match(finalReview.join("\n"), /Built reliable TypeScript APIs/);
+    assert.match(finalReview.join("\n"), /Authority: assisted_non_authoritative/);
+    assert.match(finalReview.join("\n"), /Selected changes: 2/);
+    assert.match(finalReview.join("\n"), /Change 1 of 2/);
+    assert.match(finalReview.join("\n"), /ID: "change-0001"/);
+    assert.match(finalReview.join("\n"), /Before: "Built reliable APIs\."/);
+    assert.match(finalReview.join("\n"), /After: "Built reliable TypeScript APIs\."/);
+    assert.match(finalReview.join("\n"), /Resume evidence \(1\)/);
+    assert.doesNotMatch(finalReview.join("\n"), /selected_change_count|selected_changes/);
     finalViewer.handleInput("\x1b[F");
     const finalReviewEnd = finalViewer.render(64).join("\n");
-    assert.match(finalReviewEnd, /change-0002/);
-    assert.match(finalReviewEnd, /TypeScript, Testing, APIs/);
+    assert.match(finalReviewEnd, /Change 2 of 2/);
+    assert.match(finalReviewEnd, /ID: "change-0002"/);
+    assert.match(finalReviewEnd, /Before: "TypeScript, Testing"/);
+    assert.match(finalReviewEnd, /After: "TypeScript, Testing, APIs"/);
+    assert.match(finalReviewEnd, /Vacancy evidence \(1\)/);
     finalViewer.handleInput("\x1b");
 
     while (components.length < 5) await new Promise((resolve) => setImmediate(resolve));
