@@ -70,6 +70,7 @@ try {
     "career-application",
     "career-library",
     "career-match",
+    "career-review",
     "career-setup",
     "career-tools",
     "career-vacancy",

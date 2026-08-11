@@ -92,7 +92,7 @@ The current application workflow binds only:
 - the current vacancy;
 - bounded deterministic analysis/match cards.
 
-Selected-original handles, complete Core results, exact review inputs, and materialized text remain process-memory-only. A submitted workbench message may persist as an ordinary Pi conversation entry, but pi-career does not store it as application workspace state. Assisted artifact references are not implemented yet.
+Selected-original handles, complete Core results, exact review inputs, live reviewed-change selections, and materialized text remain process-memory-only. A submitted workbench or prepared materialization-selection message may persist as an ordinary Pi conversation entry, but pi-career does not store either as application workspace state. Assisted artifact references are not implemented yet.
 
 A persisted Pi session can still contain private prompts and tool arguments. Application-file approval is separate from Pi session persistence and separate from provider disclosure. The workflow must ask before the first private workspace write and show the exact workspace path and files to be created.
 
@@ -108,7 +108,7 @@ This sequence extends the current in-session flow; steps involving an applicatio
 4. `/career-match` ranks eligible originals and records the selected original reference.
 5. `/career-workbench` prepares a visible guided editor prompt that reruns complete deterministic baselines after submission; its rewrite interview can ask one bounded batch of factual questions and wait for a later answer.
 6. External suggestions, replacements, or vacancy-specific variant changes use exact verbatim source targets and are reviewed once by exact Career Core schemas; discarded proposals are reported rather than automatically repaired or retried.
-7. For a non-PDF variant, the first assisted turn stops so the user can explicitly select canonical retained change IDs; only a later turn materializes those exact selections.
+7. For a non-PDF variant, the first assisted turn terminates after review. `/career-review` defaults all changes to excluded, pages exact warnings/discards and before/after/evidence, and prepares only the explicitly selected IDs for a later user-submitted materialization turn.
 8. A future save action separately requests local-file approval, previews exact new files, and writes only inside the selected application directory.
 9. Originals remain unchanged, and assisted variants remain excluded from authoritative reranking.
 
@@ -118,6 +118,7 @@ This sequence extends the current in-session flow; steps involving an applicatio
 
 - searchable PDF indexing and actionable notices
 - visible, bounded workbench editor handoff
+- bounded TUI reviewed-change selection and later handle/ID-only editor handoff
 - immutable-original and format-fidelity instructions
 - branch-aware application metadata in consented custom session entries
 - company/role/status selection and vacancy/result binding to application ID

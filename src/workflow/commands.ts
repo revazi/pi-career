@@ -24,7 +24,6 @@ import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput
 import {
   analyzeDetailSections,
   deriveMatchTieStateIds,
-  DetailViewer,
   detailText,
   libraryIndexPreview,
   librarySummary,
@@ -45,6 +44,7 @@ import {
   rankMatches,
   type CoreResult,
 } from "./result-projection.ts";
+import { showDetailText } from "./detail-viewer.ts";
 import { eligibleOriginals, scanLibrary } from "./scan.ts";
 import {
   createApplicationClearEntry,
@@ -372,20 +372,7 @@ async function showDetail(
   const choice = await ctx.ui.select("Career detail", [...sections.map((section) => section.label), "Close"]);
   const section = sections.find((candidate) => candidate.label === choice);
   if (section === undefined) return;
-  const text = detailText(section);
-  if (ctx.mode !== "tui") {
-    ctx.ui.notify(text, "info");
-    return;
-  }
-  await ctx.ui.custom<void>((tui, theme, keybindings, done) => new DetailViewer(
-    section.label,
-    text,
-    theme,
-    keybindings,
-    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
-    () => tui.requestRender(),
-    () => done(undefined),
-  ));
+  await showDetailText(ctx, section.label, detailText(section));
 }
 
 export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntimeOptions = {}): void {

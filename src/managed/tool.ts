@@ -8,6 +8,8 @@ import { Text } from "@earendil-works/pi-tui";
 import { invokeCareerCli } from "../process.ts";
 import type { ManagedInvoke } from "./catalog.ts";
 import { CareerRunEngine } from "./engine.ts";
+import { CareerRunError, careerRunErrorMessage } from "./errors.ts";
+import { materializeEditorText, selectVariantChanges } from "./review-selector.ts";
 import {
   careerRunParameters,
   MANAGED_TOOL_NAME,
@@ -22,6 +24,8 @@ interface ManagedToolOptions {
   now?: () => Date;
   uuid?: () => string;
 }
+
+const REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
 
 function managedToolActive(pi: ExtensionAPI, includeRaw: boolean): void {
   const current = pi.getActiveTools();
@@ -47,6 +51,7 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
     promptGuidelines: [
       "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
       "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically.",
+      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only.",
     ],
     parameters: careerRunParameters,
     async execute(_toolCallId, params: CareerRunParams, signal, onUpdate, ctx) {
@@ -54,7 +59,8 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
         content: [{ type: "text", text: `Running career ${params.command}…` }],
         details: { schema_version: "pi.career.run_details.v1", command: params.command },
       });
-      return engine.run(params, signal, ctx);
+      const result = await engine.run(params, signal, ctx);
+      return params.command === "variant-review" ? { ...result, terminate: true } : result;
     },
     renderCall(args, theme) {
       return new Text(
@@ -69,9 +75,50 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
       if (details === undefined) return new Text(theme.fg("dim", "Career result unavailable"), 0, 0);
       const lines = [
         theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
-        ...(expanded && details.handle !== undefined ? [theme.fg("dim", details.handle)] : []),
+        ...(details.action === "review_select" && details.handle !== undefined
+          ? [theme.fg("accent", `Run /career-review ${details.handle}`)]
+          : []),
+        ...(expanded && details.handle !== undefined && details.action !== "review_select"
+          ? [theme.fg("dim", details.handle)]
+          : []),
       ];
       return new Text(lines.join("\n"), 0, 0);
+    },
+  });
+
+  pi.registerCommand("career-review", {
+    description: "Review and explicitly select retained variant changes in TUI",
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/career-review requires TUI mode.", "error");
+        return;
+      }
+      const handle = args.trim();
+      if (!REVIEW_HANDLE_PATTERN.test(handle)) {
+        ctx.ui.notify("Usage: /career-review review:<ephemeral-handle>", "warning");
+        return;
+      }
+      try {
+        await ctx.waitForIdle();
+        const review = engine.variantSelectionReview(handle, ctx);
+        if (review.changes.length === 0) {
+          ctx.ui.notify("This review has no retained changes to select.", "warning");
+          return;
+        }
+        const selected = await selectVariantChanges(ctx, review);
+        if (selected === undefined) return;
+        ctx.ui.setEditorText(materializeEditorText(review.handle, selected));
+        ctx.ui.notify(
+          `${selected.length} reviewed change ID${selected.length === 1 ? "" : "s"} prepared in the editor. Review and submit manually; nothing was materialized, sent, saved, or written.`,
+          "info",
+        );
+      } catch (error) {
+        if (error instanceof CareerRunError) {
+          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
+          return;
+        }
+        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
+      }
     },
   });
 

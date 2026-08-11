@@ -7,13 +7,14 @@
 
 `pi-career` is a [Pi package](https://github.com/earendil-works/pi) for deterministic resume analysis and conservative vacancy matching, with an optional model-assisted workflow for reviewed resume improvements.
 
-The package's command handlers do not call a model/provider. `/career-workbench` instead prepares a visible private prompt in Pi's editor; only the user's later submission invokes the selected Pi model/provider. At runtime, pi-career never uses a Career Core source checkout or Cargo build. Its optional maintainer compatibility test may read an explicitly supplied, reviewed Core fixture checkout.
+The package's command handlers do not call a model/provider. `/career-workbench` prepares a visible private prompt in Pi's editor, while `/career-review` prepares only an ephemeral review handle and explicitly selected canonical IDs; only the user's later submission invokes the selected Pi model/provider. At runtime, pi-career never uses a Career Core source checkout or Cargo build. Its optional maintainer compatibility test may read an explicitly supplied, reviewed Core fixture checkout.
 
 It gives you:
 
 - local slash commands for setting up a resume library, analyzing originals, and matching them to a vacancy;
 - one compact managed agent tool, `career_run`, for guided work after the deterministic baseline;
 - a visible workbench handoff that never sends private resume text until you review and submit it yourself;
+- bounded TUI inspection and explicit selection of Core-reviewed non-PDF changes without automatic materialization;
 - a bounded resolver for a compatible external Career Core runtime;
 - no bundled native binary, telemetry, vacancy URL fetching, automatic document overwrite, or hidden provider call.
 
@@ -108,8 +109,11 @@ flowchart TD
     T -->|Tailor to vacancy| X["Analyze and match the original<br/>Career Core reviews variant changes once"]
     X --> Y{"Original format"}
     Y -->|PDF| AA["Return targeted manual changes only"]
-    Y -->|Markdown/text| AB["Later turn: user selects retained change IDs"]
-    AB --> AC["career_run materialize<br/>assisted text; still not saved"]
+    Y -->|Markdown/text| AB["career_run ends the review turn"]
+    AB --> AD["/career-review<br/>inspect notices and exact changes<br/>all IDs start excluded"]
+    AD --> AE{"Review and submit selected IDs?"}
+    AE -->|No| Z
+    AE -->|Yes| AC["Later turn: career_run materialize<br/>assisted text; still not saved"]
 
     N --> Z["Original remains unchanged<br/>assisted output is non-authoritative<br/>and is never reranked as an original"]
     Q --> Z
@@ -208,11 +212,11 @@ Choose an original and a guided mode. The command prepares a private prompt in P
 
 After you submit, the selected Pi agent uses `career_run` to rerun complete deterministic baselines and Core-review any proposed suggestions, replacements, or vacancy-specific changes. The original remains immutable.
 
-For a non-PDF tailored variation, the agent must stop after review and ask you to select retained change IDs. Materialization can happen only in a later turn with exactly those IDs. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics.
+For a non-PDF tailored variation, `career_run variant-review` ends the agent turn. Run `/career-review <review-handle>` to inspect every warning/discard and each exact before/after/evidence record; all retained changes start excluded. Explicitly include the IDs you want, then review and submit the prepared editor message as a later turn. The selector never materializes or submits automatically. For PDFs, the workbench returns targeted manual changes only because extracted text cannot preserve typography, columns, spacing, or graphics; PDF review handles cannot enter selection or materialization.
 
 ## Slash command reference
 
-The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` prepares an editor prompt whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
+The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-review` is TUI-only and `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` and `/career-review` prepare editor prompts whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
 
 ### `/career-setup [status]`
 
@@ -324,6 +328,22 @@ The command itself calls neither Career Core nor a provider. It puts the complet
 
 `pi-career` currently does not save the resulting variation to disk.
 
+### `/career-review <review-handle>`
+
+Review and explicitly select retained changes from a current non-PDF `career_run variant-review` result. This command is available only in TUI mode and only while the ephemeral review handle remains in the current process/session branch.
+
+The bounded selector:
+
+- requires inspection/acknowledgment of all Core warnings and discarded-change reasons;
+- shows every canonical change as excluded by default;
+- opens a paged exact view of its before text, proposed after text, line bounds, resume evidence, and vacancy evidence;
+- includes a change only after you toggle it from that exact view;
+- requires at least one included canonical ID before continuing.
+
+Continuing prepares a short editor message containing only the review handle and selected IDs. It does not invoke Career Core, materialize a result, contact a provider, append selection state to the Pi session, save a result, or write a file. Review and submit that editor message manually to start the later materialization turn. Escape cancels without preparing anything.
+
+PDF review changes remain manual-application guidance and are rejected by both `/career-review` and `career_run materialize`.
+
 ### `/career-tools [managed|raw|status]`
 
 Control which Career tools are active in model context.
@@ -342,7 +362,8 @@ Normal users do not need to call raw JSON tools. The package's Agent Skill instr
 2. `analyze` and `match` return compact projections backed by complete in-memory Core results;
 3. suggestion, replacement, and variant proposals must pass the corresponding Core review command;
 4. `detail` hydrates only the requested evidence, warning, check, change, document, or raw section;
-5. `materialize` requires a prior variant-review handle and explicit user-selected retained IDs.
+5. non-PDF `variant-review` ends its turn so `/career-review` can collect an explicit local selection and prepare a later user message;
+6. `materialize` requires that unchanged review handle and exactly the user-selected retained IDs.
 
 Handles and complete results remain bounded in process memory and disappear on session/branch replacement, reload, or shutdown. They are not result files and cannot be reconstructed safely from chat text.
 
@@ -363,7 +384,7 @@ When raw mode is explicitly enabled, discovery-first use remains mandatory: capa
 3. package-local exact `@revazi/career@0.1.1`;
 4. bounded acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry.
 
-Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, and `/career-workbench` do not need Core. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do.
+Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, `/career-workbench`, and `/career-review` itself do not resolve or invoke Core; `/career-review` requires a still-live review produced earlier by `career_run`. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do need Core.
 
 Before private document stdin opens, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback. On Windows, the PATH route remains direct-argv-only and selects a native `career.exe`; npm command shims are not executed through a caller-selected shell.
 
@@ -405,7 +426,7 @@ Possible persistence surfaces are distinct:
 
 - **Package config:** canonical resume-root paths, bounded labels, and an optional variation-directory suggestion; never resume text, vacancy text, or full Core output.
 - **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
-- **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission.
+- **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission, while `/career-review` prepares only an ephemeral handle and selected canonical IDs.
 - **npm cache:** ordinary package-acquisition data, never private Career Core stdin.
 
 `pi-career` does not create payload/result temporary files, export full Core JSON, overwrite originals, or automatically save assisted resumes. Searchable PDF extraction is local, bounded, and network-disabled.

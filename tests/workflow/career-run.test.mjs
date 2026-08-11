@@ -6,12 +6,21 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { CareerRunError } from "../../src/managed/errors.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
 import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { createVacancyEntry } from "../../src/workflow/session-state.ts";
-import { makeContext, makeFakePi, matchResult, resumeResult, uuidSequence } from "./helpers.mjs";
+import {
+  makeContext,
+  makeFakePi,
+  matchResult,
+  resumeResult,
+  syntheticTextPdf,
+  uuidSequence,
+} from "./helpers.mjs";
 
 const now = () => new Date("2026-08-08T20:00:00.000Z");
 const FILE_NAMES = {
@@ -69,14 +78,14 @@ function schemaBundle(schemaId) {
   };
 }
 
-async function configuredAgent(temp) {
+async function configuredAgent(temp, fileName = "resume.md", content = [
+  "Morgan Lee", "SUMMARY", "Backend engineer.", "EXPERIENCE",
+  "Engineer at Example", "Built reliable APIs.", "SKILLS", "TypeScript, Testing",
+].join("\n")) {
   const root = path.join(temp, "library");
   const agentDir = path.join(temp, "agent");
   await mkdir(root);
-  await writeFile(path.join(root, "resume.md"), [
-    "Morgan Lee", "SUMMARY", "Backend engineer.", "EXPERIENCE",
-    "Engineer at Example", "Built reliable APIs.", "SKILLS", "TypeScript, Testing",
-  ].join("\n"));
+  await writeFile(path.join(root, fileName), content);
   const config = await addLibraryRoot(emptyConfig(), root, "Synthetic library");
   await writeConfig(agentDir, config, uuidSequence());
   return { agentDir };
@@ -324,7 +333,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
     assert.equal(context.vacancy.handle, "vacancy:current");
 
-    const review = parsed(await runTool(tool, {
+    const reviewResult = await runTool(tool, {
       command: "variant-review",
       handle: context.resumes[0].handle,
       payload: { changes: [{
@@ -332,10 +341,79 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
         resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
       }] },
-    }, rpc.ctx));
+    }, rpc.ctx);
+    const review = parsed(reviewResult);
+    assert.equal(reviewResult.terminate, true, "variant review must stop before user selection");
+    assert.equal(reviewResult.details.action, "review_select");
+    const renderedReview = tool.renderResult(reviewResult, { expanded: false, isPartial: false }, {
+      fg(_color, text) { return text; }, bold(text) { return text; },
+    }).render(100).join("\n");
+    assert.match(renderedReview, new RegExp(`/career-review ${review.review}`));
     assert.equal(review.authority, "assisted_non_authoritative");
     assert.match(review.review, /^review:/);
+    assert.match(review.next_action, /\/career-review/);
     assert.equal(review.changes[0].proposed_text, undefined, "summary must not repeat proposal text");
+
+    const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
+    setKeybindings(keybindings);
+    const components = [];
+    const editorText = [];
+    const entriesBeforeSelection = fake.entries.length;
+    const tui = makeContext(fake, {
+      mode: "tui", persisted: false, components, editorText, keybindings,
+      terminal: { rows: 24, columns: 64 },
+      selects: [
+        "Continue with selected changes",
+        "Warnings and discards • 3 warnings • 0 discarded • review required",
+        "Continue with selected changes",
+        "change-0001 • experience • line 6 • excluded",
+        "Include",
+        "Continue with selected changes",
+      ],
+    });
+    const selectionPending = fake.commands.get("career-review").handler(review.review, tui.ctx);
+    await new Promise((resolve) => setImmediate(resolve));
+    const noticesViewer = components[0];
+    assert.ok(noticesViewer);
+    const notices = noticesViewer.render(64);
+    assert.ok(notices.every((line) => visibleWidth(line) <= 64));
+    assert.ok(noticesViewer.render(32).every((line) => visibleWidth(line) <= 32));
+    assert.match(notices.join("\n"), /assisted_content_non_authoritative/);
+    assert.match(notices.join("\n"), /evidence_occurrence_not_factual_certification/);
+    assert.match(notices.join("\n"), /deterministic_baseline_preserved/);
+    noticesViewer.handleInput("\x1b");
+
+    while (components.length < 2) await new Promise((resolve) => setImmediate(resolve));
+    const exactViewer = components[1];
+    const exactReview = exactViewer.render(64);
+    assert.ok(exactReview.every((line) => visibleWidth(line) <= 64));
+    assert.ok(exactViewer.render(32).every((line) => visibleWidth(line) <= 32));
+    assert.match(exactReview.join("\n"), /Built reliable APIs/);
+    assert.match(exactReview.join("\n"), /Built reliable TypeScript APIs/);
+    assert.match(exactReview.join("\n"), /TypeScript/);
+    exactViewer.handleInput("\x1b");
+    await selectionPending;
+    assert.equal(editorText.length, 1);
+    assert.ok(tui.notifications.some(({ message }) => message.includes("Review all Career Core warnings")));
+    assert.ok(tui.notifications.some(({ message }) => message.includes("Include at least one")));
+    assert.match(editorText[0], /"selected_change_ids":\["change-0001"\]/);
+    assert.match(editorText[0], new RegExp(review.review));
+    assert.doesNotMatch(editorText[0], /Built reliable APIs/);
+    assert.doesNotMatch(editorText[0], /Built reliable TypeScript APIs/);
+    assert.equal(calls.some(({ invocation }) => invocation.operation === "variant-materialize"), false);
+    assert.equal(fake.entries.length, entriesBeforeSelection, "selection must not persist a session entry");
+
+    const cancelledComponents = [];
+    const cancelledEditor = [];
+    const cancelled = makeContext(fake, {
+      mode: "tui", persisted: false, components: cancelledComponents,
+      editorText: cancelledEditor, keybindings, selects: ["Cancel"],
+    });
+    await fake.commands.get("career-review").handler(review.review, cancelled.ctx);
+    assert.deepEqual(cancelledComponents, []);
+    assert.deepEqual(cancelledEditor, []);
+    assert.equal(fake.entries.length, entriesBeforeSelection);
+
     const exactChange = parsed(await runTool(tool, {
       command: "detail", handle: review.review,
       payload: { section: "changes", item: "change-0001" },
@@ -366,6 +444,77 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
   }
 });
 
+test("PDF variant review remains manual guidance and cannot enter selection or materialization", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-pdf-variant-"));
+  try {
+    const { agentDir } = await configuredAgent(temp, "resume.pdf", syntheticTextPdf([
+      "Morgan Lee", "Built reliable APIs.", "TypeScript, Testing",
+    ]));
+    const fake = makeFakePi();
+    const calls = [];
+    fake.entries.push({
+      type: "custom", customType: "career.workflow",
+      data: createVacancyEntry("Backend Engineer\nTypeScript required", "paste", { uuid: uuidSequence(), now }),
+      id: "vacancy", parentId: null, timestamp: now().toISOString(),
+    });
+    const reviewedPdf = {
+      schema_version: "career.resume_variant_review.v1",
+      policy_version: "resume_variant_review_v1",
+      core_version: "0.1.1",
+      authority: "assisted_non_authoritative",
+      baseline_resume: { schema_version: "career.resume_input.v1", text: "baseline", metadata: { document_id: "x" } },
+      proposed_preview_text: "preview",
+      changes: [{
+        change_id: "change-0001", section: "experience", start_line: 2, end_line: 2,
+        original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
+        resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }],
+      discarded_changes: [],
+      warnings: [{ code: "assisted_content_non_authoritative", message: "Assisted." }],
+    };
+    registerCareerRun(fake.api, {
+      agentDir, uuid: uuidSequence(), now,
+      invoke: managedInvoke(calls, { "resume.variant-review": reviewedPdf }),
+    });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    assert.equal(context.resumes[0].format, "pdf");
+    const result = await runTool(tool, {
+      command: "variant-review", handle: context.resumes[0].handle,
+      payload: { changes: [{
+        section: "experience", start_line: 2, end_line: 2,
+        original_text: "Built reliable APIs.", proposed_text: "Built reliable TypeScript APIs.",
+        resume_evidence: ["Built reliable APIs."], vacancy_evidence: ["TypeScript"],
+      }] },
+    }, rpc.ctx);
+    const review = parsed(result);
+    assert.equal(result.terminate, true);
+    assert.equal(result.details.action, "pdf_manual");
+    assert.match(review.next_action, /manual-application guidance only/);
+    assert.doesNotMatch(review.next_action, /\/career-review/);
+
+    const components = [];
+    const editorText = [];
+    const tui = makeContext(fake, { mode: "tui", persisted: false, components, editorText });
+    await fake.commands.get("career-review").handler(review.review, tui.ctx);
+    assert.deepEqual(components, []);
+    assert.deepEqual(editorText, []);
+    assert.ok(tui.notifications.some(({ message }) => message.includes("manual-application guidance")));
+
+    await assert.rejects(
+      runTool(tool, {
+        command: "materialize", handle: review.review,
+        payload: { selected_change_ids: ["change-0001"] },
+      }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "pdf_materialization_unsupported",
+    );
+    assert.equal(calls.some(({ invocation }) => invocation.operation === "variant-materialize"), false);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("career-tools keeps raw tools available but inactive by default", async () => {
   const fake = makeFakePi();
   for (const name of ["career_core_discover", "career_core_resume", "career_core_job"]) {
@@ -375,6 +524,9 @@ test("career-tools keeps raw tools available but inactive by default", async () 
   const rpc = makeContext(fake, { persisted: false });
   for (const handler of fake.events.get("session_start") ?? []) await handler({}, rpc.ctx);
   assert.deepEqual(fake.activeTools, ["career_run"]);
+  assert.ok(fake.commands.has("career-review"));
+  await fake.commands.get("career-review").handler("review:00000000", rpc.ctx);
+  assert.ok(rpc.notifications.some(({ message }) => message.includes("requires TUI mode")));
 
   await fake.commands.get("career-tools").handler("raw", rpc.ctx);
   assert.deepEqual(new Set(fake.activeTools), new Set([

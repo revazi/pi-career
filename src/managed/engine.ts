@@ -54,8 +54,59 @@ export interface ManagedToolResult {
   details: CareerRunDetails;
 }
 
+export interface VariantSelectionChange {
+  change_id: string;
+  section: string;
+  start_line: number;
+  end_line: number;
+  original_text: string;
+  proposed_text: string;
+  resume_evidence: string[];
+  vacancy_evidence: string[];
+}
+
+export interface VariantSelectionReview {
+  handle: string;
+  authority: "assisted_non_authoritative";
+  changes: VariantSelectionChange[];
+  discarded_changes: unknown[];
+  warnings: unknown[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function validVariantSelectionChange(value: unknown, expectedId: string): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  return [
+    value.change_id === expectedId,
+    typeof value.section === "string",
+    Number.isSafeInteger(value.start_line),
+    Number.isSafeInteger(value.end_line),
+    typeof value.original_text === "string",
+    typeof value.proposed_text === "string",
+    stringArray(value.resume_evidence),
+    stringArray(value.vacancy_evidence),
+  ].every(Boolean);
+}
+
+function variantSelectionChange(value: unknown, expectedId: string): VariantSelectionChange | undefined {
+  if (!validVariantSelectionChange(value, expectedId)) return undefined;
+  return {
+    change_id: expectedId,
+    section: value.section as string,
+    start_line: value.start_line as number,
+    end_line: value.end_line as number,
+    original_text: value.original_text as string,
+    proposed_text: value.proposed_text as string,
+    resume_evidence: [...value.resume_evidence as string[]],
+    vacancy_evidence: [...value.vacancy_evidence as string[]],
+  };
 }
 
 function arrayField(value: CoreResult, field: string): unknown[] {
@@ -340,6 +391,30 @@ function mapInternalError(error: unknown): never {
   throw managedFailure(error);
 }
 
+interface SelectableVariantReviewEntry extends ManagedEntry {
+  retainedChangeIds: string[];
+}
+
+function selectableVariantReview(review: ManagedEntry | undefined): SelectableVariantReviewEntry {
+  if (review === undefined) throw careerRunError("review_not_found");
+  if (![review.operation === "resume.variant.review", review.retainedChangeIds !== undefined].every(Boolean)) {
+    throw careerRunError("review_not_found");
+  }
+  if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+  ensureSchema(review.value, "career.resume_variant_review.v1");
+  validateAuthority(review.value);
+  return review as SelectableVariantReviewEntry;
+}
+
+function selectableVariantChanges(review: SelectableVariantReviewEntry): VariantSelectionChange[] {
+  const values = arrayField(review.value, "changes");
+  if (values.length !== review.retainedChangeIds.length) throw careerRunError("managed_result_invalid");
+  const changes = values.map((value, index) =>
+    variantSelectionChange(value, review.retainedChangeIds[index]!));
+  if (changes.some((change) => change === undefined)) throw careerRunError("managed_result_invalid");
+  return changes as VariantSelectionChange[];
+}
+
 export class CareerRunEngine {
   private readonly registry: ManagedRegistry;
   private readonly contracts = new ManagedContractCache();
@@ -365,6 +440,25 @@ export class CareerRunEngine {
 
   shutdown(): void {
     this.registry.clear();
+  }
+
+  variantSelectionReview(handle: string, ctx: ExtensionContext): VariantSelectionReview {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const review = selectableVariantReview(this.registry.get(handle, "review"));
+      return {
+        handle: review.handle,
+        authority: "assisted_non_authoritative",
+        changes: selectableVariantChanges(review),
+        discarded_changes: arrayField(review.value, "discarded_changes"),
+        warnings: warnings(review.value),
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
   }
 
   async run(params: CareerRunParams, signal: AbortSignal | undefined, ctx: ExtensionContext): Promise<ManagedToolResult> {
@@ -619,10 +713,20 @@ export class CareerRunEngine {
     const entry = this.registry.store({
       kind: "review", operation: "resume.variant.review", json: invocation.json, value,
       reviewInput: input, retainedChangeIds,
+      materializationAllowed: resume.format !== "pdf",
     });
-    return resultEnvelope("variant-review", { review: entry.handle, ...summary }, {
+    return resultEnvelope("variant-review", {
+      review: entry.handle,
+      ...summary,
+      next_action: resume.format === "pdf"
+        ? "Stop this turn. Present the reviewed changes as manual-application guidance only; extracted PDF text cannot be materialized as a styled resume."
+        : `Stop this turn. In TUI, ask the user to run /career-review ${entry.handle}; otherwise show exact change details and ask for explicit canonical IDs. Only a later user turn may materialize the selected IDs.`,
+    }, {
       status: "complete", handle: entry.handle,
-      summary: `${retainedChangeIds.length} retained change(s)`,
+      action: resume.format === "pdf" ? "pdf_manual" : "review_select",
+      summary: resume.format === "pdf"
+        ? `${retainedChangeIds.length} retained change(s) • PDF manual application only`
+        : `${retainedChangeIds.length} retained change(s) • explicit selection required`,
     });
   }
 
@@ -631,7 +735,8 @@ export class CareerRunEngine {
     const ids = changes.flatMap((change) =>
       isRecord(change) && typeof change.change_id === "string" ? [change.change_id] : [],
     );
-    if (ids.length !== changes.length) throw careerRunError("managed_result_invalid");
+    if (ids.length !== changes.length || new Set(ids).size !== ids.length ||
+      ids.some((id) => !/^change-[0-9]{4}$/.test(id))) throw careerRunError("managed_result_invalid");
     return ids;
   }
 
@@ -648,6 +753,7 @@ export class CareerRunEngine {
       review.reviewInput === undefined || review.retainedChangeIds === undefined) {
       throw careerRunError("review_not_found");
     }
+    if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
     const selected = parseMaterializeRequest(params.payload);
     const retained = new Set(review.retainedChangeIds);
     if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");

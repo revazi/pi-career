@@ -1163,7 +1163,7 @@ async function invokeCareerCli(invocation, signal, options = {}) {
 // src/managed/tool.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text as Text2 } from "@earendil-works/pi-tui";
 
 // src/workflow/config.ts
 import { createHash, randomUUID } from "node:crypto";
@@ -2203,6 +2203,7 @@ var MESSAGES = {
   result_not_found: "The requested ephemeral result handle is unavailable or expired.",
   review_not_found: "The requested ephemeral review handle is unavailable or expired.",
   selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
+  pdf_materialization_unsupported: "PDF review changes are manual-application guidance and cannot be materialized from extracted text.",
   managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
   managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
@@ -2221,6 +2222,9 @@ var CareerRunError = class extends Error {
     this.code = code;
   }
 };
+function careerRunErrorMessage(code) {
+  return MESSAGES[code];
+}
 function careerRunError(code) {
   return new CareerRunError(code);
 }
@@ -2492,6 +2496,35 @@ var MODEL_DETAIL_MAX_BYTES = 5e4;
 function isRecord6(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+function stringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function validVariantSelectionChange(value, expectedId) {
+  if (!isRecord6(value)) return false;
+  return [
+    value.change_id === expectedId,
+    typeof value.section === "string",
+    Number.isSafeInteger(value.start_line),
+    Number.isSafeInteger(value.end_line),
+    typeof value.original_text === "string",
+    typeof value.proposed_text === "string",
+    stringArray(value.resume_evidence),
+    stringArray(value.vacancy_evidence)
+  ].every(Boolean);
+}
+function variantSelectionChange(value, expectedId) {
+  if (!validVariantSelectionChange(value, expectedId)) return void 0;
+  return {
+    change_id: expectedId,
+    section: value.section,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    original_text: value.original_text,
+    proposed_text: value.proposed_text,
+    resume_evidence: [...value.resume_evidence],
+    vacancy_evidence: [...value.vacancy_evidence]
+  };
+}
 function arrayField2(value, field) {
   const found = value[field];
   if (!Array.isArray(found)) throw careerRunError("managed_result_invalid");
@@ -2730,6 +2763,23 @@ function mapInternalError(error) {
   }
   throw managedFailure(error);
 }
+function selectableVariantReview(review) {
+  if (review === void 0) throw careerRunError("review_not_found");
+  if (![review.operation === "resume.variant.review", review.retainedChangeIds !== void 0].every(Boolean)) {
+    throw careerRunError("review_not_found");
+  }
+  if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+  ensureSchema(review.value, "career.resume_variant_review.v1");
+  validateAuthority(review.value);
+  return review;
+}
+function selectableVariantChanges(review) {
+  const values = arrayField2(review.value, "changes");
+  if (values.length !== review.retainedChangeIds.length) throw careerRunError("managed_result_invalid");
+  const changes = values.map((value, index) => variantSelectionChange(value, review.retainedChangeIds[index]));
+  if (changes.some((change) => change === void 0)) throw careerRunError("managed_result_invalid");
+  return changes;
+}
 var CareerRunEngine = class {
   constructor(options) {
     this.options = options;
@@ -2753,6 +2803,24 @@ var CareerRunEngine = class {
   }
   shutdown() {
     this.registry.clear();
+  }
+  variantSelectionReview(handle, ctx) {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const review = selectableVariantReview(this.registry.get(handle, "review"));
+      return {
+        handle: review.handle,
+        authority: "assisted_non_authoritative",
+        changes: selectableVariantChanges(review),
+        discarded_changes: arrayField2(review.value, "discarded_changes"),
+        warnings: warnings(review.value)
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
   }
   async run(params, signal, ctx) {
     try {
@@ -2994,12 +3062,18 @@ var CareerRunEngine = class {
       json: invocation.json,
       value,
       reviewInput: input,
-      retainedChangeIds
+      retainedChangeIds,
+      materializationAllowed: resume.format !== "pdf"
     });
-    return resultEnvelope("variant-review", { review: entry.handle, ...summary }, {
+    return resultEnvelope("variant-review", {
+      review: entry.handle,
+      ...summary,
+      next_action: resume.format === "pdf" ? "Stop this turn. Present the reviewed changes as manual-application guidance only; extracted PDF text cannot be materialized as a styled resume." : `Stop this turn. In TUI, ask the user to run /career-review ${entry.handle}; otherwise show exact change details and ask for explicit canonical IDs. Only a later user turn may materialize the selected IDs.`
+    }, {
       status: "complete",
       handle: entry.handle,
-      summary: `${retainedChangeIds.length} retained change(s)`
+      action: resume.format === "pdf" ? "pdf_manual" : "review_select",
+      summary: resume.format === "pdf" ? `${retainedChangeIds.length} retained change(s) • PDF manual application only` : `${retainedChangeIds.length} retained change(s) • explicit selection required`
     });
   }
   retainedChangeIds(value) {
@@ -3007,7 +3081,7 @@ var CareerRunEngine = class {
     const ids = changes.flatMap(
       (change) => isRecord6(change) && typeof change.change_id === "string" ? [change.change_id] : []
     );
-    if (ids.length !== changes.length) throw careerRunError("managed_result_invalid");
+    if (ids.length !== changes.length || new Set(ids).size !== ids.length || ids.some((id) => !/^change-[0-9]{4}$/.test(id))) throw careerRunError("managed_result_invalid");
     return ids;
   }
   async materialize(params, signal, ctx) {
@@ -3018,6 +3092,7 @@ var CareerRunEngine = class {
     if (review === void 0 || review.operation !== "resume.variant.review" || review.reviewInput === void 0 || review.retainedChangeIds === void 0) {
       throw careerRunError("review_not_found");
     }
+    if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
     const selected = parseMaterializeRequest(params.payload);
     const retained = new Set(review.retainedChangeIds);
     if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
@@ -3080,93 +3155,6 @@ var CareerRunEngine = class {
     };
   }
 };
-
-// src/managed/tool.ts
-function managedToolActive(pi, includeRaw) {
-  const current = pi.getActiveTools();
-  const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name));
-  const next = includeRaw ? [...retained, ...RAW_TOOL_NAMES] : retained;
-  if (!next.includes(MANAGED_TOOL_NAME)) next.push(MANAGED_TOOL_NAME);
-  pi.setActiveTools([...new Set(next)]);
-}
-function registerCareerRun(pi, options = {}) {
-  const engine = new CareerRunEngine({
-    pi,
-    agentDir: options.agentDir ?? getAgentDir(),
-    invoke: options.invoke ?? invokeCareerCli,
-    now: options.now ?? (() => /* @__PURE__ */ new Date()),
-    uuid: options.uuid ?? randomUUID2
-  });
-  pi.registerTool({
-    name: MANAGED_TOOL_NAME,
-    label: "Career",
-    description: "Run managed local Career Core workflows with ephemeral handles and native payload objects instead of nested JSON strings.",
-    promptGuidelines: [
-      "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
-      "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically."
-    ],
-    parameters: careerRunParameters,
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      onUpdate?.({
-        content: [{ type: "text", text: `Running career ${params.command}…` }],
-        details: { schema_version: "pi.career.run_details.v1", command: params.command }
-      });
-      return engine.run(params, signal, ctx);
-    },
-    renderCall(args, theme) {
-      return new Text(
-        theme.fg("toolTitle", theme.bold("career ")) + theme.fg("accent", args.command ?? "run"),
-        0,
-        0
-      );
-    },
-    renderResult(result, { expanded, isPartial }, theme) {
-      if (isPartial) return new Text(theme.fg("warning", "Running Career Core…"), 0, 0);
-      const details = result.details;
-      if (details === void 0) return new Text(theme.fg("dim", "Career result unavailable"), 0, 0);
-      const lines = [
-        theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
-        ...expanded && details.handle !== void 0 ? [theme.fg("dim", details.handle)] : []
-      ];
-      return new Text(lines.join("\n"), 0, 0);
-    }
-  });
-  pi.registerCommand("career-tools", {
-    description: "Choose managed or advanced raw Career Core tools",
-    getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
-    handler: async (args, ctx) => {
-      const mode = args.trim();
-      if (mode === "managed") managedToolActive(pi, false);
-      else if (mode === "raw") managedToolActive(pi, true);
-      else if (mode !== "status" && mode !== "") {
-        ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
-        return;
-      }
-      const activeRaw = RAW_TOOL_NAMES.filter((name) => pi.getActiveTools().includes(name));
-      ctx.ui.notify(
-        `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`,
-        "info"
-      );
-    }
-  });
-  pi.on("session_start", (_event, ctx) => {
-    engine.enterSession(ctx.sessionManager.getSessionId());
-    managedToolActive(pi, false);
-  });
-  pi.on("session_tree", (_event, ctx) => {
-    engine.resetSession(ctx.sessionManager.getSessionId());
-  });
-  pi.on("session_shutdown", () => {
-    engine.shutdown();
-  });
-}
-
-// src/workflow/commands.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import {
-  BorderedLoader,
-  getAgentDir as getAgentDir2
-} from "@earendil-works/pi-coding-agent";
 
 // src/workflow/renderers.ts
 import os from "node:os";
@@ -3533,6 +3521,297 @@ var DetailViewer = class {
   }
 };
 
+// src/workflow/detail-viewer.ts
+async function showDetailText(ctx, label, text) {
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(text, "info");
+    return;
+  }
+  await ctx.ui.custom((tui, theme, keybindings, done) => new DetailViewer(
+    label,
+    text,
+    theme,
+    keybindings,
+    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
+    () => tui.requestRender(),
+    () => done(void 0)
+  ));
+}
+
+// src/managed/review-selector.ts
+var CONTINUE = "Continue with selected changes";
+var CANCEL = "Cancel";
+var REPEAT_SELECTION = { done: false };
+function lineRange(change) {
+  return change.start_line === change.end_line ? `line ${change.start_line}` : `lines ${change.start_line}-${change.end_line}`;
+}
+function exactChangeText(change) {
+  return JSON.stringify({
+    change_id: change.change_id,
+    section: change.section,
+    start_line: change.start_line,
+    end_line: change.end_line,
+    original_text: change.original_text,
+    proposed_text: change.proposed_text,
+    resume_evidence: change.resume_evidence,
+    vacancy_evidence: change.vacancy_evidence
+  }, null, 2);
+}
+function noticeText(review) {
+  return JSON.stringify({
+    authority: review.authority,
+    warnings: review.warnings,
+    discarded_changes: review.discarded_changes
+  }, null, 2);
+}
+function changeOption(change, included) {
+  return `${change.change_id} • ${change.section} • ${lineRange(change)} • ${included ? "included" : "excluded"}`;
+}
+function noticesOption(review, reviewed) {
+  return `Warnings and discards • ${review.warnings.length} warnings • ${review.discarded_changes.length} discarded • ${reviewed ? "reviewed" : "review required"}`;
+}
+function changeOptions(review, included) {
+  return new Map(review.changes.map((change) => [
+    changeOption(change, included.has(change.change_id)),
+    change
+  ]));
+}
+function selectedAction(selected, notices, byOption) {
+  const fixed = /* @__PURE__ */ new Map([
+    [void 0, { kind: "cancel" }],
+    [CANCEL, { kind: "cancel" }],
+    [notices, { kind: "notices" }],
+    [CONTINUE, { kind: "continue" }]
+  ]);
+  const change = byOption.get(selected ?? "");
+  return fixed.get(selected) ?? (change === void 0 ? { kind: "cancel" } : { kind: "change", change });
+}
+async function nextReviewAction(ctx, review, state) {
+  const notices = noticesOption(review, state.noticesReviewed);
+  const byOption = changeOptions(review, state.included);
+  const selected = await ctx.ui.select(
+    `Career reviewed changes • assisted/non-authoritative • ${state.included.size} selected`,
+    [notices, ...byOption.keys(), CONTINUE, CANCEL]
+  );
+  return selectedAction(selected, notices, byOption);
+}
+function selectionOptions(wasIncluded) {
+  return wasIncluded ? ["Keep included", "Exclude", "Back without changing"] : ["Include", "Keep excluded", "Back without changing"];
+}
+async function exactSelection(ctx, change, included) {
+  await showDetailText(
+    ctx,
+    `${change.change_id} • ${change.section} • ${lineRange(change)}`,
+    exactChangeText(change)
+  );
+  const decision = await ctx.ui.select(
+    `Explicit selection • ${change.change_id}`,
+    selectionOptions(included.has(change.change_id))
+  );
+  const decisions = /* @__PURE__ */ new Map([
+    ["Include", () => included.add(change.change_id)],
+    ["Keep included", () => included.add(change.change_id)],
+    ["Exclude", () => included.delete(change.change_id)],
+    ["Keep excluded", () => included.delete(change.change_id)]
+  ]);
+  decisions.get(decision)?.();
+}
+function completeSelection(ctx, review, state) {
+  if (!state.noticesReviewed) {
+    ctx.ui.notify("Review all Career Core warnings and discarded-change reasons before continuing.", "warning");
+    return void 0;
+  }
+  if (state.included.size === 0) {
+    ctx.ui.notify("Include at least one exact canonical change before continuing.", "warning");
+    return void 0;
+  }
+  return review.changes.filter((change) => state.included.has(change.change_id)).map((change) => change.change_id);
+}
+function continueSelection(ctx, review, state) {
+  const complete = completeSelection(ctx, review, state);
+  return complete === void 0 ? REPEAT_SELECTION : { done: true, selection: complete };
+}
+async function reviewNotices(ctx, review, state) {
+  await showDetailText(ctx, "Warnings and discarded changes", noticeText(review));
+  state.noticesReviewed = true;
+  return REPEAT_SELECTION;
+}
+async function reviewChange(ctx, state, change) {
+  await exactSelection(ctx, change, state.included);
+  return REPEAT_SELECTION;
+}
+async function applyAction(ctx, review, state, action) {
+  const handlers = {
+    cancel: async () => ({ done: true }),
+    notices: async () => await reviewNotices(ctx, review, state),
+    continue: async () => continueSelection(ctx, review, state),
+    change: async () => await reviewChange(
+      ctx,
+      state,
+      action.change
+    )
+  };
+  return await handlers[action.kind]();
+}
+function noticesRequired(review) {
+  return [review.warnings.length > 0, review.discarded_changes.length > 0].some(Boolean);
+}
+function selectableReview(ctx, review) {
+  return [ctx.mode === "tui", review.changes.length > 0].every(Boolean);
+}
+async function selectVariantChanges(ctx, review) {
+  if (!selectableReview(ctx, review)) return void 0;
+  const state = {
+    included: /* @__PURE__ */ new Set(),
+    noticesReviewed: !noticesRequired(review)
+  };
+  while (true) {
+    const action = await nextReviewAction(ctx, review, state);
+    const outcome = await applyAction(ctx, review, state, action);
+    if (outcome.done) return outcome.selection;
+  }
+}
+function materializeEditorText(reviewHandle, selectedChangeIds) {
+  const request = {
+    command: "materialize",
+    handle: reviewHandle,
+    payload: { selected_change_ids: selectedChangeIds }
+  };
+  return [
+    "I explicitly reviewed and selected these canonical Career Core changes in /career-review.",
+    "",
+    `Call career_run with exactly this request: ${JSON.stringify(request)}`,
+    "",
+    "Use exactly these selected IDs and the unchanged review handle. Keep the result assisted/non-authoritative. Do not analyze or match it as an original, and do not save or write any file."
+  ].join("\n");
+}
+
+// src/managed/tool.ts
+var REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
+function managedToolActive(pi, includeRaw) {
+  const current = pi.getActiveTools();
+  const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name));
+  const next = includeRaw ? [...retained, ...RAW_TOOL_NAMES] : retained;
+  if (!next.includes(MANAGED_TOOL_NAME)) next.push(MANAGED_TOOL_NAME);
+  pi.setActiveTools([...new Set(next)]);
+}
+function registerCareerRun(pi, options = {}) {
+  const engine = new CareerRunEngine({
+    pi,
+    agentDir: options.agentDir ?? getAgentDir(),
+    invoke: options.invoke ?? invokeCareerCli,
+    now: options.now ?? (() => /* @__PURE__ */ new Date()),
+    uuid: options.uuid ?? randomUUID2
+  });
+  pi.registerTool({
+    name: MANAGED_TOOL_NAME,
+    label: "Career",
+    description: "Run managed local Career Core workflows with ephemeral handles and native payload objects instead of nested JSON strings.",
+    promptGuidelines: [
+      "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
+      "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically.",
+      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only."
+    ],
+    parameters: careerRunParameters,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      onUpdate?.({
+        content: [{ type: "text", text: `Running career ${params.command}…` }],
+        details: { schema_version: "pi.career.run_details.v1", command: params.command }
+      });
+      const result = await engine.run(params, signal, ctx);
+      return params.command === "variant-review" ? { ...result, terminate: true } : result;
+    },
+    renderCall(args, theme) {
+      return new Text2(
+        theme.fg("toolTitle", theme.bold("career ")) + theme.fg("accent", args.command ?? "run"),
+        0,
+        0
+      );
+    },
+    renderResult(result, { expanded, isPartial }, theme) {
+      if (isPartial) return new Text2(theme.fg("warning", "Running Career Core…"), 0, 0);
+      const details = result.details;
+      if (details === void 0) return new Text2(theme.fg("dim", "Career result unavailable"), 0, 0);
+      const lines = [
+        theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
+        ...details.action === "review_select" && details.handle !== void 0 ? [theme.fg("accent", `Run /career-review ${details.handle}`)] : [],
+        ...expanded && details.handle !== void 0 && details.action !== "review_select" ? [theme.fg("dim", details.handle)] : []
+      ];
+      return new Text2(lines.join("\n"), 0, 0);
+    }
+  });
+  pi.registerCommand("career-review", {
+    description: "Review and explicitly select retained variant changes in TUI",
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/career-review requires TUI mode.", "error");
+        return;
+      }
+      const handle = args.trim();
+      if (!REVIEW_HANDLE_PATTERN.test(handle)) {
+        ctx.ui.notify("Usage: /career-review review:<ephemeral-handle>", "warning");
+        return;
+      }
+      try {
+        await ctx.waitForIdle();
+        const review = engine.variantSelectionReview(handle, ctx);
+        if (review.changes.length === 0) {
+          ctx.ui.notify("This review has no retained changes to select.", "warning");
+          return;
+        }
+        const selected = await selectVariantChanges(ctx, review);
+        if (selected === void 0) return;
+        ctx.ui.setEditorText(materializeEditorText(review.handle, selected));
+        ctx.ui.notify(
+          `${selected.length} reviewed change ID${selected.length === 1 ? "" : "s"} prepared in the editor. Review and submit manually; nothing was materialized, sent, saved, or written.`,
+          "info"
+        );
+      } catch (error) {
+        if (error instanceof CareerRunError) {
+          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
+          return;
+        }
+        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
+      }
+    }
+  });
+  pi.registerCommand("career-tools", {
+    description: "Choose managed or advanced raw Career Core tools",
+    getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
+    handler: async (args, ctx) => {
+      const mode = args.trim();
+      if (mode === "managed") managedToolActive(pi, false);
+      else if (mode === "raw") managedToolActive(pi, true);
+      else if (mode !== "status" && mode !== "") {
+        ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
+        return;
+      }
+      const activeRaw = RAW_TOOL_NAMES.filter((name) => pi.getActiveTools().includes(name));
+      ctx.ui.notify(
+        `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`,
+        "info"
+      );
+    }
+  });
+  pi.on("session_start", (_event, ctx) => {
+    engine.enterSession(ctx.sessionManager.getSessionId());
+    managedToolActive(pi, false);
+  });
+  pi.on("session_tree", (_event, ctx) => {
+    engine.resetSession(ctx.sessionManager.getSessionId());
+  });
+  pi.on("session_shutdown", () => {
+    engine.shutdown();
+  });
+}
+
+// src/workflow/commands.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import {
+  BorderedLoader,
+  getAgentDir as getAgentDir2
+} from "@earendil-works/pi-coding-agent";
+
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;
 var WORKBENCH_MAX_PROMPT_BYTES = 262144;
@@ -3866,20 +4145,7 @@ async function showDetail(ctx, sections) {
   const choice = await ctx.ui.select("Career detail", [...sections.map((section2) => section2.label), "Close"]);
   const section = sections.find((candidate) => candidate.label === choice);
   if (section === void 0) return;
-  const text = detailText(section);
-  if (ctx.mode !== "tui") {
-    ctx.ui.notify(text, "info");
-    return;
-  }
-  await ctx.ui.custom((tui, theme, keybindings, done) => new DetailViewer(
-    section.label,
-    text,
-    theme,
-    keybindings,
-    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
-    () => tui.requestRender(),
-    () => done(void 0)
-  ));
+  await showDetailText(ctx, section.label, detailText(section));
 }
 function registerCareerCommands(pi, options = {}) {
   const dependencies = {

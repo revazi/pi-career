@@ -17,6 +17,7 @@ export interface ManagedEntry {
   createdAt: number;
   reviewInput?: Record<string, unknown>;
   retainedChangeIds?: string[];
+  materializationAllowed?: boolean;
 }
 
 interface StoredEntry extends ManagedEntry {
