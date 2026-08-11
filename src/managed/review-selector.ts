@@ -185,6 +185,14 @@ function prepareOption(count: number): string {
   return `Prepare ${count} selected change ID${count === 1 ? "" : "s"}`;
 }
 
+function finalChangeOption(
+  change: VariantSelectionChange,
+  index: number,
+  total: number,
+): string {
+  return `Review selected ${index + 1}/${total} • ${change.change_id} • ${change.section} • ${lineRange(change)}`;
+}
+
 function confirmationOutcome(
   decision: string | undefined,
   prepare: string,
@@ -199,6 +207,30 @@ function confirmationOutcome(
   return outcomes.get(decision) ?? { done: true };
 }
 
+async function confirmSelection(
+  ctx: ExtensionCommandContext,
+  selected: VariantSelectionChange[],
+): Promise<SelectionOutcome> {
+  const prepare = prepareOption(selected.length);
+  const byOption = new Map(selected.map((change, index) => [
+    finalChangeOption(change, index, selected.length),
+    { change, index },
+  ]));
+  while (true) {
+    const decision = await ctx.ui.select(
+      "Final selection • inspect, prepare, or go back • nothing runs automatically",
+      [...byOption.keys(), prepare, BACK_TO_REVIEW, CANCEL],
+    );
+    const target = byOption.get(decision ?? "");
+    if (target === undefined) return confirmationOutcome(decision, prepare, selected);
+    await showDetailText(
+      ctx,
+      `Selected ${target.index + 1}/${selected.length} • ${target.change.change_id}`,
+      selectedChangeText(target.change, target.index, selected.length),
+    );
+  }
+}
+
 async function continueSelection(
   ctx: ExtensionCommandContext,
   review: VariantSelectionReview,
@@ -211,12 +243,7 @@ async function continueSelection(
     `${selected.length} selected change${selected.length === 1 ? "" : "s"} • final review`,
     selectedChangesText(review, selected),
   );
-  const prepare = prepareOption(selected.length);
-  const decision = await ctx.ui.select(
-    "Final explicit selection • nothing runs automatically",
-    [prepare, BACK_TO_REVIEW, CANCEL],
-  );
-  return confirmationOutcome(decision, prepare, selected);
+  return await confirmSelection(ctx, selected);
 }
 
 async function reviewNotices(
