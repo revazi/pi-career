@@ -53,6 +53,7 @@ const allowed = new Set([
   "docs/product-flow.md",
   "docs/releasing.md",
   "docs/unpdf-LICENSE-MIT.txt",
+  "docs/variant-save-workflow.md",
   "package.json",
   "skills/career-core/SKILL.md",
   "skills/career-core/references/cli-contract.md",

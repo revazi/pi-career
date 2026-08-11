@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review UX, and further PDF generator/font coverage remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. A package-owned materialized-variant save target now has a design and threat-review record, but no save behavior is implemented; implementation, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
 
 Completed sequence:
 
@@ -205,7 +205,7 @@ Further reviewed work may improve navigation or presentation further, but must r
 
 ### Approved save workflow
 
-A later explicitly authorized save action should require:
+The exact design and threat model are recorded in [`variant-save-workflow.md`](variant-save-workflow.md). That document does not authorize implementation. A later explicitly authorized save action should require:
 
 1. exact destination and file preview
 2. explicit user confirmation
@@ -215,7 +215,7 @@ A later explicitly authorized save action should require:
 6. immutable originals and overwrite rejection
 7. immediate library rescan with variants excluded from authoritative analysis/matching
 
-Destination configuration remains suggestion-only until this phase is designed, threat-reviewed, implemented, and tested.
+Destination configuration remains suggestion-only until the separately approved design is implemented and tested. Full-result export and application-workspace persistence remain outside this narrower materialized-variant save target.
 
 ### Document ingestion
 
