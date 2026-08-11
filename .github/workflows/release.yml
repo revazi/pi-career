@@ -103,6 +103,7 @@ jobs:
           npm run build
           git diff --exit-code -- dist/index.js dist/pdf-worker.js
           npm run bench:tokens
+          npm run bench:tokens:compare
           npm run check
           npm run test:runtime-resolution
           npm run test:career-package

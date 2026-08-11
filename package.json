@@ -56,6 +56,7 @@
     "audit:production": "node scripts/audit-production.mjs",
     "audit:full": "node scripts/audit-full.mjs",
     "bench:tokens": "node --import tsx scripts/token-benchmark.mjs",
+    "bench:tokens:compare": "node --import tsx scripts/token-benchmark-compare.mjs",
     "check:syntax": "node --check scripts/*.mjs scripts/lib/*.mjs tests/audit/*.mjs tests/process/*.mjs tests/runtime/*.mjs tests/workflow/*.mjs",
     "check": "npm run typecheck && npm run check:dist && npm test && npm run check:runtime && npm run check:links && npm run check:secrets && npm run check:syntax"
   },

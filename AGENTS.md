@@ -42,6 +42,7 @@ Run before review:
 npm ci
 npm run build
 npm run bench:tokens
+npm run bench:tokens:compare
 npm run check
 npm run test:runtime-resolution
 npm run test:career-package

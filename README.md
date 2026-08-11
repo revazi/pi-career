@@ -476,6 +476,7 @@ npm ci
 npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run bench:tokens
+npm run bench:tokens:compare
 npm run check
 npm run test:runtime-resolution
 npm run test:career-package
@@ -487,6 +488,8 @@ PI_OFFLINE=1 npm run test:install
 npm run test:compat
 git diff --check
 ```
+
+`npm run bench:tokens` collects the current synthetic model-visible surfaces, including Pi's stable always-visible Skill name/description metadata and the complete on-demand `career-core` Skill for matching career tasks. Linked Skill references and machine-specific discovery paths stay outside that boundary. `npm run bench:tokens:compare` verifies the surface digest, `c7d7634…` production source/Skill trees, immutable baseline bytes from Git history in optimizing/after phases, managed serialization parity, semantic/privacy invariants, budgets, and phase deltas described in [`docs/career-run-roadmap.md`](docs/career-run-roadmap.md). The optimization may merge under the distinct `optimizing` gate before a separate after snapshot is bound to its merge commit.
 
 `npm run test:career-package` is the network-capable exact-package integration test. `npm run test:compat` skips unless an explicitly reviewed fixture checkout is provided:
 

@@ -103,6 +103,7 @@ npm ci
 npm run build
 git diff --exit-code -- dist/index.js dist/pdf-worker.js
 npm run bench:tokens
+npm run bench:tokens:compare
 npm run check
 npm run test:runtime-resolution
 npm run test:career-package
@@ -119,11 +120,11 @@ git diff --check
 Requirements:
 
 - The immediate dist diff after `npm run build` must pass; a later reproducibility test alone does not prove the candidate committed the generated output.
-- Token measurements must exactly reproduce the committed baseline and remain within budgets.
+- Token measurements must satisfy the active before/optimizing/after manifest: immutable Git-history baseline bytes and source/Skill tree anchors, exact frozen-snapshot reproduction where required, unchanged shape/invariants, budgets, and every enforced reduction/no-regression target.
 - Exact-package acquisition must execute managed discovery plus representative synthetic resume/job operations.
 - Compatibility must run against an explicitly reviewed fixture checkout. A skip is not release evidence.
 - The production npm tree must remain empty apart from unmet external peers expected in the Pi host.
-- No command may create a repository tarball, native runtime, payload/result file, acceptance baseline, or publication side effect.
+- No command may create a repository tarball, native runtime, payload/result file, audit-acceptance baseline, or publication side effect. Reviewed synthetic token snapshots are benchmark evidence, not vulnerability acceptance.
 
 ### 5. Require hosted checks on the same SHA
 
