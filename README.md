@@ -339,7 +339,7 @@ The bounded selector:
 - opens a paged exact view of its before text, proposed after text, line bounds, resume evidence, and vacancy evidence;
 - includes a change only after you toggle it from that exact view;
 - requires at least one included canonical ID before continuing;
-- pages all selected exact changes together in a compact labeled view and requires a separate final prepare choice, with a back option for revisions.
+- pages all selected exact changes together in a compact labeled view, lets you reopen any selected record directly, and requires a separate final prepare choice with a back option for revisions.
 
 Only that final prepare choice creates a short editor message containing the review handle and selected IDs. It does not invoke Career Core, materialize a result, contact a provider, append selection state to the Pi session, save a result, or write a file. Review and submit that editor message manually to start the later materialization turn. Escape cancels without preparing anything.
 

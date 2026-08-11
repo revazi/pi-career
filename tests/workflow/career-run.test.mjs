@@ -381,6 +381,7 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
         "Continue with selected changes",
         "Back to reviewed changes",
         "Continue with selected changes",
+        "Review selected 2/2 • change-0002 • skills • line 8",
         "Prepare 2 selected change IDs",
       ],
     });
@@ -440,6 +441,17 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     const confirmedViewer = components[4];
     assert.ok(confirmedViewer.render(32).every((line) => visibleWidth(line) <= 32));
     confirmedViewer.handleInput("\x1b");
+
+    while (components.length < 6) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(editorText, [], "selected-record navigation must not prepare editor text");
+    const selectedViewer = components[5];
+    const selectedReview = selectedViewer.render(64).join("\n");
+    assert.ok(selectedViewer.render(32).every((line) => visibleWidth(line) <= 32));
+    assert.match(selectedReview, /Change 2 of 2/);
+    assert.match(selectedReview, /ID: "change-0002"/);
+    assert.match(selectedReview, /After: "TypeScript, Testing, APIs"/);
+    selectedViewer.handleInput("\x1b");
+
     await selectionPending;
     assert.equal(editorText.length, 1);
     assert.ok(tui.notifications.some(({ message }) => message.includes("Review all Career Core warnings")));
