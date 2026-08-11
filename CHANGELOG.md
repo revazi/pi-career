@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Added mocked release-automation regressions for checked-in hosted-gate invocation, bounded registry propagation, exact npm publish/SLSA attestation formats, fail-closed responses, and publication-to-release ordering.
+- Generalized the trusted-publishing checklist and recorded immutable `v0.2.0` coordinates, incident boundaries, and no-blind-rerun recovery guidance.
+
 ## 0.2.0 - 2026-08-10
 
 ### Added

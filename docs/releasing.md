@@ -1,13 +1,13 @@
 # Release process
 
-This document defines the bounded trusted-publishing release process for `pi-career@0.2.0` and records the historical `v0.1.0` outcome.
+This document defines the bounded trusted-publishing process for the next explicitly authorized pi-career release and records the historical `v0.1.0` and `v0.2.0` outcomes. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 
-The coordinated `v0.2.0` release may create exactly:
+One coordinated release may create exactly:
 
-1. one public `pi-career@0.2.0` npm package on `https://registry.npmjs.org/`;
-2. one annotated, unsigned `v0.2.0` Git tag pointing to the exact published commit; and
+1. one public `pi-career@<version>` npm package on `https://registry.npmjs.org/`;
+2. one annotated, unsigned `<tag>` Git tag pointing to the exact published commit; and
 3. one GitHub Release for that tag with notes derived from the finalized [`CHANGELOG.md`](../CHANGELOG.md) entry.
 
 The npm package must be the native-free allowlisted artifact verified by `npm run check:package`. It contains the Pi extension, generated PDF worker, Agent Skill, and documentation. It must contain no `runtime/`, native executable, `node_modules`, Pi peer package contents, production dependency tree, lifecycle download/build hook, or publication script.
@@ -31,9 +31,30 @@ Release execution completed on 2026-08-06:
 - npm shasum: `4212cea50c08c98771df267361cee28070a15765`
 - custom GitHub Release assets: none
 
-That release bundled native Career Core artifacts. Its dependency/license/provenance evidence remains historical in [`native-dependency-inventory.md`](native-dependency-inventory.md) and [`licenses/`](licenses/). None of those native files may re-enter the `v0.2.0` package.
+That release bundled native Career Core artifacts. Its dependency/license/provenance evidence remains historical in [`native-dependency-inventory.md`](native-dependency-inventory.md) and [`licenses/`](licenses/). None of those native files may re-enter a future package.
 
-## `v0.2.0` release gates
+## Historical `v0.2.0` outcome
+
+Release execution completed on 2026-08-10:
+
+- npm: [`pi-career@0.2.0`](https://www.npmjs.com/package/pi-career/v/0.2.0)
+- published commit: `6db58644a6140202de2f2d661a740acd298c79b5`
+- annotated unsigned tag and GitHub Release: [`v0.2.0`](https://github.com/revazi/pi-career/releases/tag/v0.2.0)
+- npm integrity: `sha512-2V0z42oxsDHdE9a/UTskCzLY3inU0/DX30h2QhXse/Y3rAJpsaaNweqVhvZwZlMUovtyBu7pnGSpSo8CLhVOBg==`
+- npm shasum: `c182b09945eee8cd85d817b7ce4965784731fd49`
+- same-SHA six-target compatibility run: [`31352965430`](https://github.com/revazi/pi-career/actions/runs/31352965430)
+- OIDC publication run: [`31353182855`](https://github.com/revazi/pi-career/actions/runs/31353182855)
+- npm publisher identity: GitHub Actions trusted publisher for `revazi/pi-career`, workflow `release.yml`, environment `npm`
+- SLSA provenance subject and resolved Git dependency: exact `pi-career@0.2.0` tarball and commit above
+- custom GitHub Release assets: none
+
+The first tag-triggered attempt, run [`31352716654`](https://github.com/revazi/pi-career/actions/runs/31352716654), failed before dependency installation or publication because `shell: node {0}` resolved a relative ESM import from GitHub's temporary script directory. Registry absence was reconfirmed; no publish retry occurred. PR [#23](https://github.com/revazi/pi-career/pull/23) moved the hosted-gate query into a checked-in script. After explicit incident authorization, the unpublished tag was replaced once on the corrected candidate.
+
+In run `31353182855`, every gate and the OIDC `npm publish` step succeeded. The run then failed closed before GitHub Release creation because npm's attestation endpoint propagated after the original one-minute bound and the resulting SLSA bundle used the current Sigstore v0.3 media type while npm's publish attestation remained v0.2. The version already existed authoritatively, so it was never rerun or republished. PR [#24](https://github.com/revazi/pi-career/pull/24) extended bounded propagation polling and validates both exact bundle formats. The corrected verifier subsequently proved registry metadata, tarball bytes, trusted-publisher identity, provenance workflow/tag/SHA, and latest dist-tag; exact published Pi install/load/runtime/offline/remove acceptance passed before the GitHub Release and deployment status were finalized.
+
+**Never rerun or republish after an ambiguous publish response.** Query authoritative registry state first. A post-publication recovery may finish verification and release-channel bookkeeping only; it must not create an alternate publication path, overwrite an immutable npm version, or move the published tag.
+
+## Release gates
 
 A skipped, unknown, stale, or merely planned result is not a pass.
 
@@ -41,11 +62,11 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 
 - Start from synchronized public `main` and identify one full candidate SHA.
 - Require a clean Git tree and no divergence from `origin/main`.
-- Confirm `package.json`, the root package-lock entries, the Skill metadata, package assertions, changelog, README, and release documentation all identify pi-career `0.2.0` where appropriate.
-- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.1`; do not confuse the adapter release version with the external runtime version.
+- Confirm `package.json`, the root package-lock entries, the Skill metadata, package assertions, changelog, README, and release documentation all identify the candidate version where appropriate.
+- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.1` unless a separate compatibility/provenance review explicitly updates them; do not confuse the adapter release version with the external runtime version.
 - Confirm `package.json` is explicitly public only at `https://registry.npmjs.org/`, has exactly four wildcard Pi peers, declares no production/optional/bundled dependency tree, and has no lifecycle/publication script.
 - Ensure the candidate contains no real resume, vacancy, credentials, Pi session, provider output, generated local path, npm token, or unreviewed executable.
-- Review the complete diff from `v0.1.0`, including authoritative `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, `career_run`, all three exact raw tools, slash commands, external resolver, Skill, and package documentation.
+- Review the complete diff from the prior release tag, including authoritative `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, `career_run`, all three exact raw tools, slash commands, external resolver, Skill, release automation, and package documentation.
 - Do not move the candidate after local/hosted evidence is recorded. Any content change creates a new candidate and requires the gates again.
 
 ### 2. Review the external runtime boundary
@@ -127,13 +148,13 @@ Record the dispatched run's `headSha` and reject it unless it equals the frozen 
 
 Before release authorization:
 
-- convert `CHANGELOG.md` candidate notes to the dated `0.2.0` entry;
-- ensure README installation uses exact `npm:pi-career@0.2.0` and clearly distinguishes historical v0.1.0;
+- convert `CHANGELOG.md` candidate notes to a dated candidate-version entry;
+- ensure README installation uses the exact candidate `npm:pi-career@<version>` coordinate and clearly distinguishes historical releases;
 - state that pi-career packages no native runtime and identify exact external `@revazi/career@0.1.1` plus all eight supported targets;
 - state that both production and complete development/host-Pi audits are clean at the explicit low threshold;
 - keep all full commit SHA and npm integrity placeholders out of tracked files until those values exist; record them in the GitHub Release after publication.
 
-The finalization commit cannot contain its own SHA. Only the separately authorized final clean commit may be published and receive `v0.2.0`.
+The finalization commit cannot contain its own SHA. Only the separately authorized final clean commit may be published and receive `<tag>`.
 
 ## Manual pre-publication checks
 
@@ -141,7 +162,7 @@ Run these only on the frozen clean candidate:
 
 1. Confirm npm package `pi-career` has exactly the GitHub Actions trusted publisher `revazi/pi-career`, workflow `release.yml`, environment `npm`.
 2. Confirm the GitHub `npm` environment exists and applies the reviewed deployment protections. No npm token or OTP may be stored in GitHub, npm configuration, repository files, Pi messages, logs, or release notes.
-3. Confirm `npm view pi-career@0.2.0 version --json` reports no existing version. npm versions are immutable.
+3. Confirm `npm view pi-career@<version> version --json` reports no existing version. npm versions are immutable.
 4. Run trusted `npm pack --dry-run --json --ignore-scripts` or rely on the stricter recorded `check:publish` artifact proof.
 5. Record the candidate full SHA, package filename/size, clean audit results, hosted run URLs, and reviewed fixture SHA outside private content.
 6. Obtain explicit release authorization. Do not infer authorization from readiness work.
@@ -150,12 +171,12 @@ Run these only on the frozen clean candidate:
 
 Only after every gate passes and the maintainer explicitly authorizes release execution:
 
-1. Reconfirm the clean SHA, branch protection checks, trusted-publisher/environment configuration, canonical registry, and absence of `pi-career@0.2.0`.
-2. Create one annotated unsigned `v0.2.0` tag on the exact candidate and push only that tag. The tag is the immutable input that triggers `.github/workflows/release.yml`; the workflow must never create or move it.
+1. Reconfirm the clean SHA, branch protection checks, trusted-publisher/environment configuration, canonical registry, and absence of `pi-career@<version>`.
+2. Create one annotated unsigned `<tag>` on the exact candidate and push only that tag. The tag is the immutable input that triggers `.github/workflows/release.yml`; the workflow must never create or move it.
 3. The workflow must verify the tag/version/changelog/SHA, install exact trusted-publishing-compatible npm tooling, run the complete package publication gate, and publish with lifecycle scripts disabled, public/latest coordinates, and npm provenance through OIDC.
 4. If publication returns an ambiguous response, query the registry before any rerun. Never move the tag, attempt to overwrite the version, or blindly republish.
 5. Before creating the GitHub Release, the workflow must verify registry metadata: version, repository, four wildcard peers, no dependency tree/lifecycle scripts, tarball integrity, shasum, provenance, and `gitHead` equal to the tagged candidate SHA.
-6. The workflow must create the GitHub Release from the existing `v0.2.0` tag with:
+6. The workflow must create the GitHub Release from the existing `<tag>` with:
    - full commit SHA;
    - npm integrity and shasum;
    - exact external `@revazi/career@0.1.1` coordinate;
@@ -163,7 +184,7 @@ Only after every gate passes and the maintainer explicitly authorizes release ex
    - native-free pi-career package statement;
    - clean production/full audit statement;
    - no crate publication, signing/notarization claim, or custom release asset.
-7. In an isolated Pi agent directory, install exact `npm:pi-career@0.2.0`, list/load it, exercise exact-package runtime acquisition with synthetic operations on a supported target, test offline failure, and remove it.
+7. In an isolated Pi agent directory, install exact `npm:pi-career@<version>`, list/load it, exercise exact-package runtime acquisition with synthetic operations on a supported target, test offline failure, and remove it.
 8. Recheck the npm dist-tag, Git tag target, GitHub Release target, provenance, and main CI after all channels settle.
 
-Do not sign, attach assets, change repository visibility, add an alternate publication workflow or token-based path, publish another registry tag/version, or retry an ambiguous operation without first querying authoritative state. A failed post-publication check is an incident, not permission to replace `0.2.0`.
+Do not sign, attach assets, change repository visibility, add an alternate publication workflow or token-based path, publish another registry tag/version, or retry an ambiguous operation without first querying authoritative state. A failed post-publication check is an incident, not permission to replace the immutable published version.
