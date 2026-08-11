@@ -10,6 +10,7 @@ export type CareerRunErrorCode =
   | "result_not_found"
   | "review_not_found"
   | "selection_invalid"
+  | "pdf_materialization_unsupported"
   | "managed_contract_invalid"
   | "managed_result_invalid"
   | "managed_result_capacity"
@@ -26,6 +27,7 @@ const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   result_not_found: "The requested ephemeral result handle is unavailable or expired.",
   review_not_found: "The requested ephemeral review handle is unavailable or expired.",
   selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
+  pdf_materialization_unsupported: "PDF review changes are manual-application guidance and cannot be materialized from extracted text.",
   managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
   managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
@@ -45,6 +47,10 @@ export class CareerRunError extends Error {
     this.name = "CareerRunError";
     this.code = code;
   }
+}
+
+export function careerRunErrorMessage(code: CareerRunErrorCode): string {
+  return MESSAGES[code];
 }
 
 export function careerRunError(code: CareerRunErrorCode): CareerRunError {

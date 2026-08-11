@@ -11,11 +11,11 @@
     "editor-prompt/synthetic-workbench": 706
   },
   "candidate": {
-    "tool-contract/career-run-active": 302,
+    "tool-contract/career-run-active": 356,
     "tool-contract/raw-three-inactive": 1063,
-    "tool-contract/all-registered": 1367,
+    "tool-contract/all-registered": 1421,
     "tool-result/synthetic-analyze": 161,
-    "tool-result/synthetic-variant-review": 201,
+    "tool-result/synthetic-variant-review": 256,
     "editor-prompt/synthetic-workbench": 716
   },
   "goals": {
@@ -27,6 +27,7 @@
   "notes": [
     "Before values preserve the local design-review measurements recorded before career_run implementation.",
     "Candidate values are reproducible from synthetic inputs with npm run bench:tokens.",
-    "Inactive raw contracts remain registered for explicitly enabled advanced compatibility but do not occupy normal model context."
+    "Inactive raw contracts remain registered for explicitly enabled advanced compatibility but do not occupy normal model context.",
+    "The active contract and variant-review result include the turn-termination and later explicit-selection handoff; both remain within their original budgets."
   ]
 }

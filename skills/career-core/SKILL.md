@@ -62,7 +62,7 @@ All payloads are native JSON values, never JSON strings or complete Core envelop
 }
 ```
 
-- `variant-review`: `handle` is an original resume and the current vacancy is implicit; payload is:
+- `variant-review`: `handle` is an original resume and the current vacancy is implicit. This command terminates its tool turn; do not issue another tool call in that turn. Payload is:
 
 ```json
 {
@@ -78,18 +78,18 @@ All payloads are native JSON values, never JSON strings or complete Core envelop
 }
 ```
 
-- `materialize`: `handle` is the returned variant `review:...`; only after explicit user selection, payload is `{"selected_change_ids":["change-0001"]}`.
+- `materialize`: `handle` is the returned non-PDF variant `review:...`; only in a later user-submitted turn after explicit selection, payload is `{"selected_change_ids":["change-0001"]}`. PDF review handles fail closed.
 - `detail`: `handle` is any returned result/review/variant handle; payload is `{"section":"summary|warnings|checks|evidence|changes|document|raw"}`. For one exact canonical item add `"item":"change-0001"`, `"suggestion-0001"`, or `"replacement-0001"`. Oversized model-visible detail fails rather than truncating; request a narrower section/item.
 
 Managed projections preserve all Core warnings and the relevant authority/uncertainty/discard surface. Complete authoritative JSON remains in bounded ephemeral memory for detail access and is never written to a result file.
 
 ## Deterministic slash commands
 
-Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, and `/career-analyze` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
+Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, and the TUI-only `/career-review` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. `/career-review` invokes no Core operation: it reads one current in-memory non-PDF review, collects explicit canonical IDs, and prepares a later editor message. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
 
 `/career-workbench` remains a guided, reviewable provider handoff. It places complete selected private source in Pi's editor but never submits automatically. Prefer `career_run` rather than raw schema reconstruction after the prompt is submitted.
 
-For non-PDF variants, present canonical retained IDs and all discard codes/warnings, then stop for explicit user selection. Materialize only in a later turn with exactly those IDs and the cached exact review input. Keep the result assisted/non-authoritative and never feed it into analysis or matching. PDF input remains extracted text only: provide reviewed manual changes, do not materialize, and do not claim to preserve visual layout.
+For non-PDF variants, return canonical retained IDs and every discard/warning, then stop mechanically. In TUI, tell the user to run `/career-review <review-handle>`. It requires warnings/discards acknowledgment, defaults every change to excluded, and reveals exact before/after/evidence before an ID can be included. It prepares but does not submit the later handle/ID-only materialization message. Materialize only after that later user submission with exactly those IDs and the cached exact review input. Keep the result assisted/non-authoritative and never feed it into analysis or matching. PDF input remains extracted text only: provide reviewed manual changes; selection and materialization reject its handle, and never claim to preserve visual layout.
 
 A workbench `local_save_guidance` destination is suggestion-only. Never save automatically or place assisted output under `originals/`; exact path/file approval and the assisted sidecar contract remain required. Package-owned saving is still deferred.
 
@@ -114,6 +114,7 @@ A `career.pi_error.v1` value is adapter/process status, not a deterministic care
 - `career_run` `managed_contract_invalid` means the selected operation catalog/schema bundles are incompatible; do not bypass discovery or fall back to raw guessed envelopes.
 - `context_required`, stale/missing handles, and session changes require a fresh `context`, not reconstructed identifiers.
 - `detail_too_large` requires a narrower section or exact item; it does not authorize truncation or result-file export.
+- `pdf_materialization_unsupported` means the reviewed PDF changes remain manual-application guidance; do not bypass it with reconstructed envelopes.
 - Do not ask for raw stderr, paths, environment values, source copies, or hidden process errors.
 
 ## Resume operation rules

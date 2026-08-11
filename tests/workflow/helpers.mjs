@@ -191,7 +191,10 @@ export function makeContext(fake, options = {}) {
       async custom(factory) {
         customCalls += 1;
         return new Promise((resolve) => {
-          const component = factory({ requestRender() {} }, theme, {}, (value) => {
+          const component = factory({
+            requestRender() {},
+            terminal: options.terminal ?? { rows: 24, columns: 80 },
+          }, theme, options.keybindings ?? { matches() { return false; } }, (value) => {
             component?.dispose?.();
             resolve(value);
           });

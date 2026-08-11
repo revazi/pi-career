@@ -87,6 +87,7 @@ const syntheticManagedReview = JSON.stringify({
     { code: "deterministic_baseline_preserved", message: "The deterministic baseline is preserved." },
   ],
   detail_guidance: "Use career_run detail with section=changes; add item=change-NNNN for one exact canonical change.",
+  next_action: "Stop this turn. In TUI, ask the user to run /career-review review:00000000-0000-4000; otherwise show exact change details and ask for explicit canonical IDs. Only a later user turn may materialize the selected IDs.",
 });
 
 export function collectTokenBenchmark() {

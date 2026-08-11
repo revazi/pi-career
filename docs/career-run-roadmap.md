@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The first compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, and synthetic token benchmark are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility now covers reviewed Chromium-generated tagged and untagged documents, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, richer interactive change selection/navigation, and further PDF generator/font coverage remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review navigation/presentation, and further PDF generator/font coverage remain later reviewed work.
 
 Completed sequence:
 
@@ -12,6 +12,7 @@ Completed sequence:
 4. Primary `career_run` implementation with raw tools inactive by default.
 5. Reproducible synthetic context benchmark and budget gates.
 6. External local-first resolver with exact package acquisition, pre-private-input compatibility validation, and removal of bundled native artifacts.
+7. Turn-terminating variant review plus bounded TUI warning/discard review, exact change inspection, explicit selection, and later editor handoff without automatic materialization.
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
@@ -187,17 +188,18 @@ Common results include only the decision surface needed for the next action whil
 
 The complete Core result must be captured before projection, remain unchanged, and be recoverable in the current process. It must never be partially consumed after truncation. Resume/job payloads and full results must not be written to temp files without a separately approved design.
 
-### Deferred richer review rendering and selection
+### Delivered bounded reviewed-change selection
 
-A later reviewed phase may add bounded custom rendering for:
+For non-PDF variant reviews, `career_run variant-review` terminates the agent turn and returns the ephemeral review handle. `/career-review <review-handle>` then provides bounded TUI navigation over:
 
-- before/proposed-after changes
-- evidence and source targets
-- confirmed/provisional status
-- warnings and factuality limitations
-- discard codes
+- all warnings, factuality limitations, and discard records, which require explicit acknowledgment;
+- every canonical retained change, excluded by default;
+- exact before/proposed-after text, line bounds, resume evidence, and vacancy evidence in a paged view;
+- an explicit included-ID set in original Core order.
 
-The initial managed adapter already requires explicit canonical change IDs and reuses the exact complete reviewed proposal for materialization; the model must not select automatically. A later bounded multi-select interaction may make that user decision easier without changing the authority boundary.
+Continuing prepares a later ordinary editor message containing only the unchanged review handle and selected canonical IDs. It does not call Core, submit to a provider, append selection state, materialize, save, or write. The user must review and submit that message separately. Exact cached review input remains process-memory-only and deterministic materialization still reuses it unchanged. PDF review handles fail closed at selection and materialization because extracted text cannot preserve PDF styling.
+
+Further reviewed work may improve cross-change comparison or compact presentation, but must retain the same warning, evidence, authority, cancellation, process-memory, and explicit-selection boundaries.
 
 ### Approved save workflow
 

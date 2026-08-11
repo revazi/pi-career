@@ -7,6 +7,7 @@
 - Added mocked release-automation regressions for checked-in hosted-gate invocation, bounded registry propagation, exact npm publish/SLSA attestation formats, fail-closed responses, and publication-to-release ordering.
 - Generalized the trusted-publishing checklist and recorded immutable `v0.2.0` coordinates, incident boundaries, and no-blind-rerun recovery guidance.
 - Expanded synthetic PDF compatibility coverage with pinned Chromium 150 tagged/untagged fixtures, an embedded OFL-licensed Lato subset, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs without OCR.
+- Added turn-terminating non-PDF variant review and a bounded TUI `/career-review` flow that requires warning/discard acknowledgment, exact per-change inspection, explicit inclusion, and a later handle/ID-only editor handoff; PDF handles fail closed before selection or materialization.
 
 ## 0.2.0 - 2026-08-10
 
