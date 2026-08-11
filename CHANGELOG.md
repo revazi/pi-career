@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Expanded the frozen synthetic token benchmark across managed match, suggestion/replacement review, materialization, and evidence/change/document detail hydration outputs, all under explicit common-output budgets.
 - Added mocked release-automation regressions for checked-in hosted-gate invocation, bounded registry propagation, exact npm publish/SLSA attestation formats, fail-closed responses, and publication-to-release ordering.
 - Generalized the trusted-publishing checklist and recorded immutable `v0.2.0` coordinates, incident boundaries, and no-blind-rerun recovery guidance.
 - Expanded synthetic PDF compatibility coverage with pinned Chromium 150 tagged/untagged fixtures, an embedded OFL-licensed Lato subset, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs without OCR.
