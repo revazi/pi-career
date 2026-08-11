@@ -20,14 +20,20 @@ test("career_run synthetic token baseline is reproducible and within budgets", (
     current.measurements["tool-contract/career-run-active"] <=
       baseline.goals.maximum_active_tool_contract_tokens,
   );
-  assert.ok(
-    current.measurements["tool-result/synthetic-analyze"] <=
-      baseline.goals.maximum_common_tool_result_tokens,
-  );
-  assert.ok(
-    current.measurements["tool-result/synthetic-variant-review"] <=
-      baseline.goals.maximum_common_tool_result_tokens,
-  );
+  for (const [name, tokens] of Object.entries(current.measurements)) {
+    if (name.startsWith("tool-result/")) {
+      assert.ok(
+        tokens <= baseline.goals.maximum_common_tool_result_tokens,
+        `${name} uses ${tokens} tokens`,
+      );
+    }
+    if (name.startsWith("tool-detail/")) {
+      assert.ok(
+        tokens <= baseline.goals.maximum_common_detail_tokens,
+        `${name} uses ${tokens} tokens`,
+      );
+    }
+  }
   assert.equal(baseline.goals.model_visible_schema_discovery_calls, 0);
   assert.equal(baseline.goals.nested_input_json, false);
 });

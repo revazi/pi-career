@@ -225,9 +225,8 @@ Further reviewed expansion may cover other common PDF generators and open-licens
 
 ### UX and context benchmarks
 
-The initial frozen synthetic benchmark covers the active/raw tool contracts, representative analyze and variant-review results, and the existing workbench prompt. Later benchmark expansion should cover:
+The frozen synthetic benchmark covers the active/raw tool contracts, representative analyze, match, suggestion-review, replacement-review, variant-review, and materialization results, evidence/change/document detail hydration, and the existing workbench prompt. Later benchmark expansion should cover:
 
-- match, suggestion/replacement-review, materialization, and hydration result tokens
 - model turns and tool calls
 - mandatory warning/evidence/uncertainty retention
 - repeated private-source bytes

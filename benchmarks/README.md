@@ -7,7 +7,8 @@ Measured surfaces:
 - active compact `career_run` tool contract
 - registered but normally inactive raw Career Core contracts
 - all registered contracts as a diagnostic ceiling
-- representative compact analyze and variant-review results
+- representative compact analyze, match, suggestion-review, replacement-review, variant-review, and materialization results
+- representative evidence, exact-change, and materialized-document detail hydration
 - the existing synthetic workbench editor prompt
 
 Run:
