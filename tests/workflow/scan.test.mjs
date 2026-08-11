@@ -32,6 +32,29 @@ const CHROMIUM_PDF_FIXTURES = [
   },
 ];
 
+const REPORTLAB_PDF_FIXTURE = {
+  name: "reportlab-embedded-font.pdf",
+  sha256: "92a51829077a0b33628ca0a3ae0fcb49c125a4c39e42b271eacd31fb5d578d5d",
+  text: [
+    "Synthetic ReportLab Resume",
+    "synthetic@example.invalid | Example City",
+    "EXPERIENCE",
+    "Built deterministic TypeScript test systems.",
+    "Designed bounded synthetic compatibility fixtures.",
+    "SKILLS",
+    "TypeScript",
+    "Testing",
+    "PDF compatibility",
+    "Accessibility",
+    "Synthetic ReportLab Resume - page 2",
+    "SELECTED WORK",
+    "Reviewed exact evidence before explicit selection.",
+    "Kept private document handling local and bounded.",
+    "EDUCATION",
+    "Example Institute - Synthetic Systems",
+  ].join("\n"),
+};
+
 test("scan extracts bounded searchable PDFs and reports unusable PDFs", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-pdf-"));
   try {
@@ -87,6 +110,33 @@ test("scan extracts reviewed Chromium tagged/untagged embedded-font multi-column
       assert.match(record.text, /Accessibility/);
       assert.match(record.text, /Example Institute/);
     }
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("scan extracts the reviewed ReportLab two-page embedded-font fixture", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-reportlab-pdf-"));
+  try {
+    const root = path.join(temp, "library");
+    await mkdir(root);
+    const bytes = await readFile(new URL(`./fixtures/pdf/${REPORTLAB_PDF_FIXTURE.name}`, import.meta.url));
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), REPORTLAB_PDF_FIXTURE.sha256);
+    const structure = bytes.toString("latin1");
+    assert.ok(structure.includes("/Producer (ReportLab PDF Library - \\(opensource\\))"));
+    assert.ok(structure.includes("/Creator (pi-career synthetic fixture)"));
+    assert.match(structure, /\/Count 2 /);
+    assert.match(structure, /\/FontFile2 /);
+    assert.match(structure, /\/BaseFont \/AAAAAA\+Lato-Regular/);
+    assert.doesNotMatch(structure, /\/StructTreeRoot|\/BaseFont \/Helvetica/);
+    await writeFile(path.join(root, REPORTLAB_PDF_FIXTURE.name), bytes);
+
+    const scan = await scanLibrary(await addLibraryRoot(emptyConfig(), root, "ReportLab PDF"));
+    assert.deepEqual(scan.warnings, []);
+    assert.equal(scan.records.length, 1);
+    assert.equal(scan.records[0].relative_path, REPORTLAB_PDF_FIXTURE.name);
+    assert.equal(scan.records[0].format, "pdf");
+    assert.equal(scan.records[0].text, REPORTLAB_PDF_FIXTURE.text);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

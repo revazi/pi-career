@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review UX, and further PDF generator/font coverage remain later reviewed work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. Package-owned save/export, further review UX, and further PDF generator/font coverage remain later reviewed work.
 
 Completed sequence:
 
@@ -219,7 +219,7 @@ Destination configuration remains suggestion-only until this phase is designed, 
 
 ### Document ingestion
 
-The synthetic compatibility suite includes immutable Chromium 150/Skia fixtures for tagged and untagged searchable PDFs, a CSS multi-column document, and an embedded OFL-licensed Lato subset. It pins reviewed fixture hashes and generator coordinates and exercises the normal isolated scanner. Deterministic synthetic boundary cases verify that image-only, malformed, and oversized inputs fail closed without OCR.
+The synthetic compatibility suite includes immutable Chromium 150/Skia fixtures for tagged and untagged searchable PDFs, a CSS multi-column document, and a reproducible ReportLab 4.4.10 two-page fixture. Searchable fixtures use an embedded OFL-licensed Lato subset. The suite pins reviewed fixture hashes, generator/tool-wheel coordinates, exact extracted text for the ReportLab document, and exercises the normal isolated scanner. Deterministic synthetic boundary cases verify that image-only, malformed, and oversized inputs fail closed without OCR.
 
 Further reviewed expansion may cover other common PDF generators and open-licensed embedded fonts. Continue to reject encrypted or timed-out PDFs and all text-unavailable documents without OCR unless OCR receives separate authorization.
 
