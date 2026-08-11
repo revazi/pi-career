@@ -4,7 +4,8 @@
 
 ### Changed
 
-- Added a design-only threat review for a future user-confirmed materialized-variant save workflow, including exact preview, no-clobber private publication, strict assisted sidecars, scanner quarantine, retention boundaries, and synthetic acceptance criteria; no save behavior is implemented.
+- Added user-only TUI/RPC `/career-save` for exact preview and separately confirmed no-clobber saving of current POSIX Markdown/text materializations with private managed-directory markers, strict assisted/non-authoritative v2 sidecars, in-memory idempotency, and immediate exclusion-verifying rescan; PDF and Windows saves fail closed.
+- Changed assisted-sidecar scanning to quarantine malformed, missing-in-managed-root, duplicate-key, edited, or hash-mismatched artifacts instead of allowing fallback to original analysis/matching eligibility.
 - Expanded the frozen synthetic token benchmark across managed match, suggestion/replacement review, materialization, and evidence/change/document detail hydration outputs, all under explicit common-output budgets.
 - Added mocked release-automation regressions for checked-in hosted-gate invocation, bounded registry propagation, exact npm publish/SLSA attestation formats, fail-closed responses, and publication-to-release ordering.
 - Generalized the trusted-publishing checklist and recorded immutable `v0.2.0` coordinates, incident boundaries, and no-blind-rerun recovery guidance.

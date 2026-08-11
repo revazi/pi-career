@@ -31,7 +31,11 @@ import {
   parseSelectedChangeIds,
   parseVariantChanges,
 } from "./proposals.ts";
-import { ManagedRegistry, type ManagedEntry } from "./registry.ts";
+import {
+  ManagedRegistry,
+  type ManagedEntry,
+  type VariantSourceBinding,
+} from "./registry.ts";
 import {
   DETAIL_SECTIONS,
   type CareerRunDetails,
@@ -63,6 +67,13 @@ export interface VariantSelectionChange {
   proposed_text: string;
   resume_evidence: string[];
   vacancy_evidence: string[];
+}
+
+export interface MaterializedVariantCandidate {
+  handle: string;
+  assistedText: string;
+  selectedChangeIds: string[];
+  source: VariantSourceBinding;
 }
 
 export interface VariantSelectionReview {
@@ -442,6 +453,40 @@ export class CareerRunEngine {
     this.registry.clear();
   }
 
+  materializedVariantForSave(handle: string, ctx: ExtensionContext): MaterializedVariantCandidate {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const entry = this.registry.get(handle, "variant");
+      if (
+        entry === undefined || entry.operation !== "resume.variant.materialize" ||
+        entry.variantSource === undefined
+      ) throw careerRunError("variant_save_unavailable");
+      ensureSchema(entry.value, "career.resume_variant.v1");
+      validateAuthority(entry.value);
+      const assistedText = entry.value.assisted_resume_text;
+      const selected = arrayField(entry.value, "selected_changes");
+      if (typeof assistedText !== "string" || selected.length === 0) {
+        throw careerRunError("managed_result_invalid");
+      }
+      const selectedChangeIds = selected.map((change) =>
+        isRecord(change) && typeof change.change_id === "string" ? change.change_id : "");
+      if (selectedChangeIds.some((id) => !/^change-[0-9]{4}$/.test(id))) {
+        throw careerRunError("managed_result_invalid");
+      }
+      return {
+        handle: entry.handle,
+        assistedText,
+        selectedChangeIds,
+        source: { ...entry.variantSource },
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
+  }
+
   variantSelectionReview(handle: string, ctx: ExtensionContext): VariantSelectionReview {
     try {
       const sessionId = ctx.sessionManager.getSessionId();
@@ -714,6 +759,12 @@ export class CareerRunEngine {
       kind: "review", operation: "resume.variant.review", json: invocation.json, value,
       reviewInput: input, retainedChangeIds,
       materializationAllowed: resume.format !== "pdf",
+      variantSource: {
+        resumeId: resume.id,
+        rootId: resume.root_id,
+        format: resume.format,
+        textSha256: resume.text_sha256,
+      },
     });
     return resultEnvelope("variant-review", {
       review: entry.handle,
@@ -754,6 +805,7 @@ export class CareerRunEngine {
       throw careerRunError("review_not_found");
     }
     if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+    if (review.variantSource === undefined) throw careerRunError("managed_result_invalid");
     const selected = parseMaterializeRequest(params.payload);
     const retained = new Set(review.retainedChangeIds);
     if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
@@ -772,9 +824,14 @@ export class CareerRunEngine {
     const summary = compactVariant(value);
     const entry = this.registry.store({
       kind: "variant", operation: "resume.variant.materialize", json: invocation.json, value,
+      variantSource: review.variantSource,
     });
-    return resultEnvelope("materialize", { variant: entry.handle, ...summary }, {
-      status: "complete", handle: entry.handle,
+    return resultEnvelope("materialize", {
+      variant: entry.handle,
+      ...summary,
+      next_action: `This assisted/non-authoritative result remains in memory. To review and save it locally, the user may run /career-save ${entry.handle}; never invoke saving as a model action.`,
+    }, {
+      status: "complete", handle: entry.handle, action: "save_available",
       summary: `${selected.length} selected change(s) materialized`,
     });
   }

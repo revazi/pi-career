@@ -179,6 +179,7 @@ const syntheticManagedMaterialize = JSON.stringify({
     { code: "deterministic_baseline_preserved", message: "The deterministic baseline is preserved." },
   ],
   detail_guidance: "Use career_run detail with section=document for assisted text or section=changes plus an item for one canonical change.",
+  next_action: "This assisted/non-authoritative result remains in memory. To review and save it locally, the user may run /career-save variant:00000000-0000-4000; never invoke saving as a model action.",
 });
 
 const syntheticEvidenceDetail = JSON.stringify({

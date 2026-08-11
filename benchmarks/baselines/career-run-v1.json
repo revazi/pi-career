@@ -11,19 +11,19 @@
     "editor-prompt/synthetic-workbench": 706
   },
   "candidate": {
-    "tool-contract/career-run-active": 356,
+    "tool-contract/career-run-active": 386,
     "tool-contract/raw-three-inactive": 1063,
-    "tool-contract/all-registered": 1421,
+    "tool-contract/all-registered": 1451,
     "tool-result/synthetic-analyze": 161,
     "tool-result/synthetic-match": 229,
     "tool-result/synthetic-suggestion-review": 205,
     "tool-result/synthetic-replacement-review": 205,
     "tool-result/synthetic-variant-review": 256,
-    "tool-result/synthetic-materialize": 195,
+    "tool-result/synthetic-materialize": 242,
     "tool-detail/synthetic-evidence": 128,
     "tool-detail/synthetic-change": 111,
     "tool-detail/synthetic-document": 58,
-    "editor-prompt/synthetic-workbench": 716
+    "editor-prompt/synthetic-workbench": 745
   },
   "goals": {
     "maximum_active_tool_contract_tokens": 400,
@@ -37,6 +37,7 @@
     "Candidate values are reproducible from synthetic inputs with npm run bench:tokens.",
     "Inactive raw contracts remain registered for explicitly enabled advanced compatibility but do not occupy normal model context.",
     "The active contract and variant-review result include the turn-termination and later explicit-selection handoff; both remain within their original budgets.",
-    "Synthetic managed outputs cover analyze, match, suggestion review, replacement review, variant review, materialization, and evidence/change/document detail hydration."
+    "Synthetic managed outputs cover analyze, match, suggestion review, replacement review, variant review, materialization, and evidence/change/document detail hydration.",
+    "The active contract and materialization result include the user-only local-save handoff; persistence remains outside the model-callable tool surface."
   ]
 }

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,11 @@ import {
   SCAN_MAX_FILES_PER_ROOT,
   SCAN_MAX_RAW_BYTES,
 } from "../../src/workflow/scan.ts";
+import {
+  encodeAssistedVariantMetadataV2,
+  encodeManagedVariantsMarker,
+  sha256Bytes,
+} from "../../src/workflow/variant-metadata.ts";
 import { syntheticTextPdf } from "./helpers.mjs";
 
 const CHROMIUM_PDF_FIXTURES = [
@@ -179,20 +184,87 @@ test("scan is ordered, UTF-8 strict, symlink-free, sidecar-aware, and Core-bound
     await symlink(path.join(root, "nested"), path.join(root, "linked-dir"));
 
     const config = await addLibraryRoot(emptyConfig(), root, "Synthetic");
+    const variants = path.join(config.library_roots[0].path, "variants");
+    await mkdir(variants, { mode: 0o700 });
+    await chmod(variants, 0o700);
+    await writeFile(
+      path.join(variants, ".pi-career-variants.json"),
+      encodeManagedVariantsMarker(config.library_roots[0].id, "2026-08-04T17:56:06.000Z"),
+      { mode: 0o600 },
+    );
+    const assisted = Buffer.from("# Valid assisted synthetic\n", "utf8");
+    await writeFile(path.join(variants, "valid.md"), assisted, { mode: 0o600 });
+    await writeFile(path.join(variants, "valid.pi-career.json"), encodeAssistedVariantMetadataV2({
+      base_document_id: "0".repeat(64),
+      base_text_sha256: "1".repeat(64),
+      artifact_sha256: sha256Bytes(assisted),
+      created_at: "2026-08-04T17:56:06.000Z",
+    }), { mode: 0o600 });
+    await writeFile(path.join(variants, "missing.md"), "# Missing sidecar\n", { mode: 0o600 });
+    const edited = Buffer.from("# Edited after save\n", "utf8");
+    await writeFile(path.join(variants, "edited.md"), edited, { mode: 0o600 });
+    await writeFile(path.join(variants, "edited.pi-career.json"), encodeAssistedVariantMetadataV2({
+      base_document_id: "0".repeat(64),
+      base_text_sha256: "1".repeat(64),
+      artifact_sha256: sha256Bytes(Buffer.from("# Before edit\n")),
+      created_at: "2026-08-04T17:56:06.000Z",
+    }), { mode: 0o600 });
+    await writeFile(path.join(variants, "duplicate.md"), "# Duplicate sidecar key\n", { mode: 0o600 });
+    await writeFile(path.join(variants, "duplicate.pi-career.json"), [
+      "{\"schema_version\":\"pi.career.assisted_variant_meta.v2\",",
+      "\"kind\":\"assisted_variant\",\"kind\":\"assisted_variant\",",
+      `\"authority\":\"assisted_non_authoritative\",\"base_document_id\":\"${"0".repeat(64)}\",`,
+      `\"base_text_sha256\":\"${"1".repeat(64)}\",\"artifact_sha256\":\"${"2".repeat(64)}\",`,
+      "\"created_at\":\"2026-08-04T17:56:06.000Z\"}\n",
+    ].join(""), { mode: 0o600 });
+
     const scan = await scanLibrary(config);
     assert.deepEqual(scan.records.map((record) => record.relative_path), [
-      "a.md", "b.txt", "bad.txt", "d0/d1/d2/d3/d4/d5/d6/d7/included.txt", "large.md", "nested/variant.md",
+      "a.md", "b.txt", "d0/d1/d2/d3/d4/d5/d6/d7/included.txt", "large.md", "nested/variant.md",
+      "variants/valid.md",
     ]);
     assert.equal(scan.records[0].label, "Synthetic Alpha");
     assert.equal(scan.records.find((record) => record.relative_path === "large.md").too_large_for_core_input, true);
     assert.equal(scan.records.find((record) => record.relative_path === "nested/variant.md").kind, "assisted_variant");
+    assert.equal(scan.records.find((record) => record.relative_path === "variants/valid.md").kind, "assisted_variant");
+    assert.equal(scan.records.some((record) => record.relative_path === "bad.txt"), false);
+    assert.equal(scan.records.some((record) => record.relative_path === "variants/missing.md"), false);
+    assert.equal(scan.records.some((record) => record.relative_path === "variants/edited.md"), false);
+    assert.equal(scan.records.some((record) => record.relative_path === "variants/duplicate.md"), false);
     assert.ok(scan.warnings.some((warning) => warning.code === "invalid_utf8"));
     assert.ok(scan.warnings.some((warning) => warning.code === "raw_file_too_large"));
     assert.ok(scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar"));
     assert.deepEqual(eligibleOriginals(scan).map((record) => record.relative_path), [
-      "a.md", "b.txt", "bad.txt", "d0/d1/d2/d3/d4/d5/d6/d7/included.txt",
+      "a.md", "b.txt", "d0/d1/d2/d3/d4/d5/d6/d7/included.txt",
     ]);
     assert.ok(scan.records.every((record) => record.id.length === 64 && record.text_sha256.length === 64));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("managed variants remain quarantined through trailing separators and nested configured roots", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-scan-managed-alias-"));
+  try {
+    const parent = path.join(temp, "library");
+    const variants = path.join(parent, "variants");
+    await mkdir(variants, { recursive: true, mode: 0o700 });
+    await chmod(variants, 0o700);
+    let config = await addLibraryRoot(emptyConfig(), parent, "Parent");
+    const parentRoot = config.library_roots[0];
+    await writeFile(
+      path.join(variants, ".pi-career-variants.json"),
+      encodeManagedVariantsMarker(parentRoot.id, "2026-08-04T17:56:06.000Z"),
+      { mode: 0o600 },
+    );
+    await writeFile(path.join(variants, "missing.md"), "# Must stay quarantined\n", { mode: 0o600 });
+    config = await addLibraryRoot(config, variants, "Nested variants root");
+    config = { ...config, generated_variants_root: `${variants}${path.sep}` };
+
+    const scan = await scanLibrary(config);
+    assert.equal(scan.records.some((record) => record.path === path.join(variants, "missing.md")), false);
+    assert.equal(eligibleOriginals(scan).some((record) => record.path === path.join(variants, "missing.md")), false);
+    assert.ok(scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar"));
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import type { CoreResult } from "../workflow/result-projection.ts";
+import type { ResumeFormat } from "../workflow/types.ts";
 
 const MAX_ENTRY_COUNT = 16;
 const MAX_TOTAL_BYTES = 67_108_864;
 const HANDLE_SUFFIX_PATTERN = /^[a-f0-9-]{8,64}$/;
 
 export type ManagedEntryKind = "result" | "review" | "variant";
+
+export interface VariantSourceBinding {
+  resumeId: string;
+  rootId: string;
+  format: ResumeFormat;
+  textSha256: string;
+}
 
 export interface ManagedEntry {
   handle: string;
@@ -18,6 +26,7 @@ export interface ManagedEntry {
   reviewInput?: Record<string, unknown>;
   retainedChangeIds?: string[];
   materializationAllowed?: boolean;
+  variantSource?: VariantSourceBinding;
 }
 
 interface StoredEntry extends ManagedEntry {
@@ -30,7 +39,8 @@ function handlePrefix(kind: ManagedEntryKind): string {
 
 function entryBytes(entry: Omit<ManagedEntry, "handle" | "createdAt">): number {
   return Buffer.byteLength(entry.json, "utf8") +
-    (entry.reviewInput === undefined ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8"));
+    (entry.reviewInput === undefined ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8")) +
+    (entry.variantSource === undefined ? 0 : Buffer.byteLength(JSON.stringify(entry.variantSource), "utf8"));
 }
 
 export class ManagedRegistry {

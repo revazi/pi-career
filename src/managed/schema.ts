@@ -53,6 +53,6 @@ export interface CareerRunDetails {
   command: string;
   status: "ready" | "consent_required" | "complete";
   handle?: string;
-  action?: "review_select" | "pdf_manual";
+  action?: "review_select" | "pdf_manual" | "save_available";
   summary: string;
 }

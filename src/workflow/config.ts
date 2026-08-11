@@ -69,7 +69,7 @@ function normalizeGeneratedVariantsRoot(value: unknown): string | undefined {
     !path.isAbsolute(value) ||
     /[\u0000-\u001f\u007f]/.test(value)
   ) return undefined;
-  const normalized = path.normalize(value);
+  const normalized = path.resolve(value);
   return path.dirname(normalized) === normalized ? undefined : normalized;
 }
 

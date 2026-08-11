@@ -2,7 +2,7 @@
 name: career-core
 description: Resolves and invokes a compatible deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
 license: MIT OR Apache-2.0
-compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.1 targets are ARM64/x64 macOS, GNU/musl Linux, and MSVC Windows.
+compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.1 targets are ARM64/x64 macOS, GNU/musl Linux, and MSVC Windows. User-confirmed local variant saving is POSIX-only.
 metadata:
   author: revazi
   version: "0.2.0"
@@ -85,13 +85,13 @@ Managed projections preserve all Core warnings and the relevant authority/uncert
 
 ## Deterministic slash commands
 
-Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, and the TUI-only `/career-review` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. `/career-review` invokes no Core operation: it reads one current in-memory non-PDF review, collects explicit canonical IDs, and prepares a later editor message. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
+Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, the TUI-only `/career-review`, and the user-only TUI/RPC `/career-save` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. `/career-review` invokes no Core operation: it reads one current in-memory non-PDF review, collects explicit canonical IDs, and prepares a later editor message. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
 
 `/career-workbench` remains a guided, reviewable provider handoff. It places complete selected private source in Pi's editor but never submits automatically. Prefer `career_run` rather than raw schema reconstruction after the prompt is submitted.
 
 For non-PDF variants, return canonical retained IDs and every discard/warning, then stop mechanically. In TUI, tell the user to run `/career-review <review-handle>`. It requires warnings/discards acknowledgment, defaults every change to excluded, and reveals exact before/after/evidence before an ID can be included. It then pages all selected exact changes together with compact labels, lets the user reopen any selected record directly, and requires a separate final prepare-or-back choice. Only prepare creates, but does not submit, the later handle/ID-only materialization message. Materialize only after that later user submission with exactly those IDs and the cached exact review input. Keep the result assisted/non-authoritative and never feed it into analysis or matching. PDF input remains extracted text only: provide reviewed manual changes; selection and materialization reject its handle, and never claim to preserve visual layout.
 
-A workbench `local_save_guidance` destination is suggestion-only. Never save automatically or place assisted output under `originals/`; exact path/file approval and the assisted sidecar contract remain required. Package-owned saving is still deferred.
+A workbench `local_save_guidance` destination is suggestion-only. Never save automatically or use file-writing tools for a materialized result. After successful non-PDF materialization, tell the user they may run `/career-save <variant-handle>` themselves. That command revalidates the original and handle, presents the complete exact artifact/sidecar/marker plan, requires unchanged preview and separate confirmation, writes only a new private assisted variant without clobbering, and rescans it out of original eligibility. PDF and Windows save attempts fail closed.
 
 ## Advanced raw tool surface
 
@@ -115,6 +115,7 @@ A `career.pi_error.v1` value is adapter/process status, not a deterministic care
 - `context_required`, stale/missing handles, and session changes require a fresh `context`, not reconstructed identifiers.
 - `detail_too_large` requires a narrower section or exact item; it does not authorize truncation or result-file export.
 - `pdf_materialization_unsupported` means the reviewed PDF changes remain manual-application guidance; do not bypass it with reconstructed envelopes.
+- `variant_save_*` failures mean the user-only local save was cancelled, stale, unsafe, colliding, unsupported, or unverified. Do not invoke saving for the user, reconstruct the artifact, retry an indeterminate write, or request hidden paths/raw filesystem errors.
 - Do not ask for raw stderr, paths, environment values, source copies, or hidden process errors.
 
 ## Resume operation rules
@@ -149,7 +150,7 @@ Review only the bounded external proposal supplied by the caller. Use Core-assig
 
 ### `variant-materialize`
 
-Call only after the user explicitly selects canonical IDs. Core revalidates the complete proposal and applies only selected changes. Preserve the exact baseline and assisted/non-authoritative labels. Never overwrite the original automatically or pass the assisted result to `analyze` or `job match`.
+Call only after the user explicitly selects canonical IDs. Core revalidates the complete proposal and applies only selected changes. Preserve the exact baseline and assisted/non-authoritative labels. Never overwrite the original automatically or pass the assisted result to `analyze` or `job match`. Do not initiate persistence; only the user may run the returned `/career-save <variant-handle>` command for separate exact local approval.
 
 ## Job operation rules
 
@@ -177,7 +178,7 @@ Use original resume and original job inputs matching the exported schema. Matchi
 - Do not duplicate a complete unchanged `baseline_analysis` in prose each time a review embeds it. State that the baseline was preserved; reproduce every warning, discard code, and limitation exactly; and hydrate only the scores, evidence, source spans, or canonical items needed for the request. The ephemeral complete Core result remains authoritative for the current process.
 - Keep operational narration minimal. Do not print discovered schema JSON, repeat private source text beyond bounded evidence snippets, or narrate repair attempts unless the user asks.
 - Do not reorder Core-retained items, truncate tool output, silently repair, upgrade uncertainty into fact, or claim Core generated prose it only reviewed.
-- Do not modify source documents unless the user separately requests and approves that change.
+- Do not modify source documents. A user-approved `/career-save` creates a new assisted artifact and sidecar; it never mutates an original.
 - Never place API keys in tool input, output, files, or logs.
 
 See [`references/cli-contract.md`](references/cli-contract.md) for external runtime selection and process details. Package installation and removal are in [`../../README.md`](../../README.md).

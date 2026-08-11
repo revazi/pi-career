@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. A package-owned materialized-variant save target now has a design and threat-review record, but no save behavior is implemented; implementation, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for POSIX Markdown/text artifacts; full application workspaces, Windows save ACL support, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
 
 Completed sequence:
 
@@ -13,6 +13,7 @@ Completed sequence:
 5. Reproducible synthetic context benchmark and budget gates.
 6. External local-first resolver with exact package acquisition, pre-private-input compatibility validation, and removal of bundled native artifacts.
 7. Turn-terminating variant review plus bounded TUI warning/discard review, exact change inspection, explicit selection, and later editor handoff without automatic materialization.
+8. User-only TUI/RPC exact preview and confirmed no-clobber saving of current POSIX Markdown/text materializations with fail-closed assisted sidecars and rescanning.
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
@@ -51,10 +52,10 @@ career_run {command: match, handle: resume:...}
 career_run {command: variant-review, handle: resume:..., payload: {changes: [...]}}
 career_run {command: materialize, handle: review:..., payload: {selected_change_ids: [...]}}
 career_run {command: detail, handle: result:..., payload: {section: evidence}}
-# package-owned save remains deferred
+# local saving is a separate user-only /career-save slash command
 ```
 
-This is the implemented compact v1 command shape; package-owned save remains deferred. Private document text continues to travel only through bounded stdin at the Career Core process boundary, never through CLI arguments.
+This is the implemented compact v1 model-tool shape; local saving remains outside it as the user-only `/career-save <variant-handle>` slash command. Private document text continues to travel only through bounded stdin at the Career Core process boundary, never through CLI arguments.
 
 Career Core remains authoritative for operations, schemas, algorithms, typed errors, evidence, warnings, uncertainty, ordering, deterministic baselines, and assisted/non-authoritative semantics. Pi-career owns handles, orchestration, projection, interaction, and explicitly approved persistence.
 
@@ -205,7 +206,7 @@ Further reviewed work may improve navigation or presentation further, but must r
 
 ### Approved save workflow
 
-The exact design and threat model are recorded in [`variant-save-workflow.md`](variant-save-workflow.md). That document does not authorize implementation. A later explicitly authorized save action should require:
+The implemented design and threat model are recorded in [`variant-save-workflow.md`](variant-save-workflow.md). `/career-save` requires:
 
 1. exact destination and file preview
 2. explicit user confirmation
@@ -215,7 +216,7 @@ The exact design and threat model are recorded in [`variant-save-workflow.md`](v
 6. immutable originals and overwrite rejection
 7. immediate library rescan with variants excluded from authoritative analysis/matching
 
-Destination configuration remains suggestion-only until the separately approved design is implemented and tested. Full-result export and application-workspace persistence remain outside this narrower materialized-variant save target.
+Destination configuration remains suggestion-only until one exact `/career-save` plan is previewed unchanged and separately confirmed. Full-result export and application-workspace persistence remain outside this narrower materialized-variant save workflow.
 
 ### Document ingestion
 

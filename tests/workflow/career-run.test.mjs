@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,7 +11,8 @@ import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } fro
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { CareerRunError } from "../../src/managed/errors.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
-import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
+import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import { createVacancyEntry } from "../../src/workflow/session-state.ts";
 import {
   makeContext,
@@ -88,7 +89,7 @@ async function configuredAgent(temp, fileName = "resume.md", content = [
   await writeFile(path.join(root, fileName), content);
   const config = await addLibraryRoot(emptyConfig(), root, "Synthetic library");
   await writeConfig(agentDir, config, uuidSequence());
-  return { agentDir };
+  return { agentDir, root: config.library_roots[0].path };
 }
 
 function parsed(result) {
@@ -272,10 +273,10 @@ test("career_run reviews advisory suggestions without exposing the repeated base
   }
 });
 
-test("career_run reuses the exact reviewed variant envelope for explicit materialization", async () => {
+test("career_run reuses the exact reviewed variant envelope and saves only after user approval", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-variant-"));
   try {
-    const { agentDir } = await configuredAgent(temp);
+    const { agentDir, root } = await configuredAgent(temp);
     const fake = makeFakePi();
     const calls = [];
     let reviewedInput;
@@ -495,11 +496,62 @@ test("career_run reuses the exact reviewed variant envelope for explicit materia
     }, rpc.ctx));
     assert.equal(variant.authority, "assisted_non_authoritative");
     assert.match(variant.variant, /^variant:/);
+    assert.match(variant.next_action, new RegExp(`/career-save ${variant.variant}`));
 
     const document = parsed(await runTool(tool, {
       command: "detail", handle: variant.variant, payload: { section: "document" },
     }, rpc.ctx));
     assert.equal(document.value, "Built reliable TypeScript APIs.\nTypeScript, Testing, APIs");
+
+    let preview;
+    const entriesBeforeSave = fake.entries.length;
+    const callsBeforeSave = calls.length;
+    const saveContext = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      editors: [(_title, prefill) => {
+        preview = JSON.parse(prefill);
+        return prefill;
+      }],
+      confirms: [true],
+    });
+    await fake.commands.get("career-save").handler(variant.variant, saveContext.ctx);
+    assert.equal(preview.schema_version, "pi.career.variant_save_preview.v1");
+    assert.equal(preview.artifact.text, materialized.assisted_resume_text);
+    assert.equal(preview.artifact.format, "markdown");
+    assert.equal(preview.initialize_directory, true);
+    assert.equal(calls.length, callsBeforeSave, "saving must not invoke Career Core");
+    assert.equal(fake.entries.length, entriesBeforeSave, "saving must not append session state");
+
+    const variantsRoot = path.join(root, "variants");
+    const names = (await readdir(variantsRoot)).sort();
+    assert.equal(names.length, 3);
+    assert.ok(names.includes(".pi-career-variants.json"));
+    const artifactName = names.find((name) => name.endsWith(".md"));
+    const sidecarName = names.find((name) => name.endsWith(".pi-career.json"));
+    assert.ok(artifactName);
+    assert.ok(sidecarName);
+    const artifactPath = path.join(variantsRoot, artifactName);
+    const sidecarPath = path.join(variantsRoot, sidecarName);
+    assert.equal(await readFile(artifactPath, "utf8"), materialized.assisted_resume_text);
+    const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
+    assert.equal(sidecar.schema_version, "pi.career.assisted_variant_meta.v2");
+    assert.equal(sidecar.authority, "assisted_non_authoritative");
+    assert.equal((await lstat(variantsRoot)).mode & 0o777, 0o700);
+    assert.equal((await lstat(artifactPath)).mode & 0o777, 0o600);
+    assert.equal((await lstat(sidecarPath)).mode & 0o777, 0o600);
+
+    const scan = await scanLibrary(await loadConfig(agentDir));
+    const saved = scan.records.find((record) => record.path === artifactPath);
+    assert.ok(saved, JSON.stringify({ records: scan.records, warnings: scan.warnings }));
+    assert.equal(saved.kind, "assisted_variant");
+    assert.equal(saved.variant_group_id, sidecar.base_document_id);
+    assert.equal(eligibleOriginals(scan).some((record) => record.path === artifactPath), false);
+    assert.ok(saveContext.notifications.some(({ message }) => message.includes("Saved assisted variant")));
+
+    const repeated = makeContext(fake, { mode: "tui", persisted: false });
+    await fake.commands.get("career-save").handler(variant.variant, repeated.ctx);
+    assert.deepEqual((await readdir(variantsRoot)).sort(), names);
+    assert.ok(repeated.notifications.some(({ message }) => message.includes("Verified existing")));
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
@@ -586,8 +638,14 @@ test("career-tools keeps raw tools available but inactive by default", async () 
   for (const handler of fake.events.get("session_start") ?? []) await handler({}, rpc.ctx);
   assert.deepEqual(fake.activeTools, ["career_run"]);
   assert.ok(fake.commands.has("career-review"));
+  assert.ok(fake.commands.has("career-save"));
   await fake.commands.get("career-review").handler("review:00000000", rpc.ctx);
   assert.ok(rpc.notifications.some(({ message }) => message.includes("requires TUI mode")));
+  await fake.commands.get("career-save").handler("not-a-variant", rpc.ctx);
+  assert.ok(rpc.notifications.some(({ message }) => message.includes("Usage: /career-save")));
+  const print = makeContext(fake, { mode: "print", hasUI: false, persisted: false });
+  await fake.commands.get("career-save").handler("variant:00000000", print.ctx);
+  assert.ok(print.notifications.some(({ message }) => message.includes("requires TUI or RPC")));
 
   await fake.commands.get("career-tools").handler("raw", rpc.ctx);
   assert.deepEqual(new Set(fake.activeTools), new Set([

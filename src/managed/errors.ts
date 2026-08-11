@@ -15,7 +15,14 @@ export type CareerRunErrorCode =
   | "managed_result_invalid"
   | "managed_result_capacity"
   | "detail_too_large"
-  | "session_changed";
+  | "session_changed"
+  | "variant_save_unavailable"
+  | "variant_save_destination_invalid"
+  | "variant_save_preview_changed"
+  | "variant_save_collision"
+  | "variant_save_verification_failed"
+  | "variant_save_status_unknown"
+  | "variant_save_platform_unsupported";
 
 const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   invalid_request: "The career_run request is invalid.",
@@ -33,6 +40,13 @@ const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
   session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
+  variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
+  variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
+  variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
+  variant_save_collision: "A save destination already exists; no existing file was replaced.",
+  variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
+  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying.",
+  variant_save_platform_unsupported: "Private materialized-variant saving is not supported on this platform.",
 };
 
 export class CareerRunError extends Error {
