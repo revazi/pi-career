@@ -1,6 +1,6 @@
 # Product flow roadmap
 
-The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8 and the first managed `career_run` implementation are complete. Synthetic PDF compatibility now covers reviewed Chromium-generated tagged/untagged, embedded-font, multi-column, and fail-closed text-unavailable cases; package-owned saving and further PDF extraction expansion remain later phases.
+The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8 and the first managed `career_run` implementation are complete. Synthetic PDF compatibility now covers reviewed Chromium-generated tagged/untagged and ReportLab-generated two-page documents, embedded-font and multi-column layouts, and fail-closed text-unavailable cases; package-owned saving and further PDF extraction expansion remain later phases.
 
 ## Current phase: managed agent tool and deterministic slash commands
 
