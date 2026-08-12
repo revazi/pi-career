@@ -21,8 +21,7 @@ export type CareerRunErrorCode =
   | "variant_save_preview_changed"
   | "variant_save_collision"
   | "variant_save_verification_failed"
-  | "variant_save_status_unknown"
-  | "variant_save_platform_unsupported";
+  | "variant_save_status_unknown";
 
 const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   invalid_request: "The career_run request is invalid.",
@@ -46,7 +45,6 @@ const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   variant_save_collision: "A save destination already exists; no existing file was replaced.",
   variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
   variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying.",
-  variant_save_platform_unsupported: "Private materialized-variant saving is not supported on this platform.",
 };
 
 export class CareerRunError extends Error {

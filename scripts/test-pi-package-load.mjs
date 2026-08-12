@@ -17,6 +17,7 @@ assert.deepEqual(manifest.pi, {
   extensions: ["./dist/index.js"],
   skills: ["./skills/career-core"],
 });
+assert.deepEqual(manifest.os, ["darwin", "linux"]);
 assert.equal(manifest.dependencies, undefined);
 assert.equal(manifest.files.includes("runtime"), false);
 for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepack", "postpack"]) {

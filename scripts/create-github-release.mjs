@@ -69,7 +69,7 @@ const notes = [
   `npm integrity: \`${integrity}\``,
   `npm shasum: \`${shasum}\``,
   "",
-  "This native-free pi-career package resolves the exact external `@revazi/career@0.1.1` launcher. The reviewed native targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `win32-x64-msvc`, and `win32-arm64-msvc`.",
+  "This native-free pi-career package supports `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl` through exact external `@revazi/career@0.1.1`. The pinned launcher's two Windows package entries remain upstream contract metadata and do not make pi-career available on Windows.",
   "",
   "Production and complete development/host-Pi audits passed at `--audit-level=low`. No crate was published, no signing or notarization claim is made, and this release has no custom asset.",
   "",

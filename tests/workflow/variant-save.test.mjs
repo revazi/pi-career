@@ -67,7 +67,6 @@ function workflow(agentDir, options = {}) {
     agentDir,
     now,
     uuid: uuidSequence(),
-    platform: "darwin",
     ...options,
   });
 }
@@ -141,17 +140,11 @@ test("variant save revalidates the original after confirmation and rejects nonca
   }
 });
 
-test("variant save rejects unsupported platforms and unsafe existing destinations", async () => {
+test("variant save rejects unsafe existing destinations", async () => {
   const value = await fixture();
   try {
     const fake = makeFakePi();
     const ctx = makeContext(fake, { mode: "rpc", persisted: false });
-    await assert.rejects(
-      new VariantSaveWorkflow({ agentDir: value.agentDir, now, uuid: uuidSequence(), platform: "win32" })
-        .run(value.candidate.handle, ctx.ctx, () => value.candidate),
-      (error) => error instanceof CareerRunError && error.code === "variant_save_platform_unsupported",
-    );
-
     const variants = path.join(value.root, "variants");
     await mkdir(variants, { mode: 0o700 });
     await chmod(variants, 0o700);

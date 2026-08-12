@@ -13,6 +13,7 @@ import {
 } from "./errors.ts";
 import { ManagedContractCache } from "./managed/catalog.ts";
 import {
+  assertSupportedPlatform,
   resolveCareerExecutable,
   resolveCareerRuntime,
   type RuntimeRoute,
@@ -373,7 +374,6 @@ function executePrepared(
       child = spawn(runtime.command, [...runtime.argumentPrefix, ...prepared.args], {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
       });
     } catch {
       reject(new ProcessAttemptError(adapterError("executable_unavailable"), false));
@@ -520,6 +520,7 @@ export async function invokeCareerCli(
   signal?: AbortSignal,
   options: InvokeOptions = {},
 ): Promise<CareerInvocationResult> {
+  assertSupportedPlatform();
   const prepared = prepareInvocation(invocation);
   if (signal?.aborted) throw adapterError("cancelled");
   const limits = executionLimits(options);

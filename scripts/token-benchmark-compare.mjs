@@ -26,6 +26,25 @@ const FROZEN_SOURCE_TREES = {
   src: "ac249864e443b81c18e5e4d69ccab06dc5ff7a20",
   skills: "c8707aee42ad08f2ea606dd73d667c9e34e6df44",
 };
+const FROZEN_AFTER_SNAPSHOT = "../baselines/token-optimization-v1-after.json";
+const FROZEN_AFTER_SNAPSHOT_SHA256 = "637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1";
+const FROZEN_AFTER_MANIFEST_SHA256 = "8cf305b3e46285b4c853aa565e9a16dd01ba24dcac7463b36261a81a9cf72aa4";
+const FROZEN_AFTER_SOURCE_COMMIT = "7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990";
+const FROZEN_AFTER_HISTORY_COMMIT = "9f92bd09932719b1904d0a6d973eeafb6ccffdfd";
+const FROZEN_AFTER_SOURCE_TREES = {
+  src: "ac249864e443b81c18e5e4d69ccab06dc5ff7a20",
+  skills: "5671138acce7f2875e684c408b84ea3ef3f80c80",
+};
+const FROZEN_OPTIMIZATION_DELTAS = {
+  aggregate: { before: 25652, current: 21552, delta: -4100, reduction_percent: 15.98 },
+  workflows: {
+    "managed-analysis-with-evidence": -820,
+    "managed-match": -820,
+    "reviewed-replacements": -820,
+    "reviewed-suggestion-plan": -820,
+    "tailored-variant-materialization": -820,
+  },
+};
 const PROJECT_ROOT_URL = new URL("..", import.meta.url);
 const FROZEN_TARGETS = {
   minimum_aggregate_workflow_reduction_percent: 10,
@@ -229,6 +248,41 @@ function assertPhaseManifest(manifest) {
   } else {
     assert.match(manifest.baseline_history_commit, COMMIT);
   }
+  if (manifest.status === "after_frozen") {
+    assert.equal(manifest.after_snapshot, FROZEN_AFTER_SNAPSHOT);
+    assert.equal(manifest.after_snapshot_sha256, FROZEN_AFTER_SNAPSHOT_SHA256);
+  }
+}
+
+function assertImmutableAfterHistory(manifest, afterSnapshot) {
+  assert.equal(afterSnapshot.source_commit, FROZEN_AFTER_SOURCE_COMMIT);
+  assert.deepEqual(afterSnapshot.source_trees, FROZEN_AFTER_SOURCE_TREES);
+  assertGitAncestor(manifest.baseline_history_commit, FROZEN_AFTER_SOURCE_COMMIT, "after source baseline ancestry");
+  assertGitAncestor(FROZEN_AFTER_SOURCE_COMMIT, FROZEN_AFTER_HISTORY_COMMIT, "after evidence ancestry");
+  assertGitAncestor(FROZEN_AFTER_HISTORY_COMMIT, "HEAD", "after evidence candidate ancestry");
+
+  const snapshotBytes = gitOutput(
+    ["show", `${FROZEN_AFTER_HISTORY_COMMIT}:benchmarks/baselines/token-optimization-v1-after.json`],
+    "frozen after snapshot bytes",
+    null,
+  );
+  assert.equal(createHash("sha256").update(snapshotBytes).digest("hex"), FROZEN_AFTER_SNAPSHOT_SHA256);
+  const historicalManifestBytes = gitOutput(
+    ["show", `${FROZEN_AFTER_HISTORY_COMMIT}:benchmarks/phases/token-optimization-v1.json`],
+    "frozen after phase manifest",
+    null,
+  );
+  assert.equal(
+    createHash("sha256").update(historicalManifestBytes).digest("hex"),
+    FROZEN_AFTER_MANIFEST_SHA256,
+  );
+  const historicalManifest = parseStrictJson(historicalManifestBytes.toString("utf8"), {
+    label: "frozen after phase manifest",
+    maximumBytes: 512 * 1024,
+  });
+  assert.equal(historicalManifest.status, "after_frozen");
+  assert.equal(historicalManifest.after_snapshot, FROZEN_AFTER_SNAPSHOT);
+  assert.equal(historicalManifest.after_snapshot_sha256, FROZEN_AFTER_SNAPSHOT_SHA256);
 }
 
 function assertImmutableBaselineHistory(manifest) {
@@ -277,26 +331,37 @@ export function assertMinimumReduction(before, current, minimumPercent) {
   );
 }
 
-export function assertOptimizationDeltas(before, current, targets = FROZEN_TARGETS) {
-  assertComparable(before, current);
+export function assertNoWorkflowRegression(reference, current, maximumRegression = 0) {
+  assertComparable(reference, current);
   const workflows = keyedComparisons(
-    before.workflows,
+    reference.workflows,
     current.workflows,
     (value) => value.model_visible_tokens,
   );
-  const aggregate = tokenComparison(totalWorkflowTokens(before), totalWorkflowTokens(current));
-  assertMinimumReduction(
-    aggregate.before,
-    aggregate.current,
-    targets.minimum_aggregate_workflow_reduction_percent,
-  );
   for (const [name, comparison] of Object.entries(workflows)) {
     assert.ok(
-      comparison.delta <= targets.maximum_workflow_token_regression,
+      comparison.delta <= maximumRegression,
       `${name} exceeds the workflow regression allowance`,
     );
   }
-  return { workflows, aggregate };
+  return {
+    workflows,
+    aggregate: tokenComparison(totalWorkflowTokens(reference), totalWorkflowTokens(current)),
+  };
+}
+
+export function assertOptimizationDeltas(before, current, targets = FROZEN_TARGETS) {
+  const comparison = assertNoWorkflowRegression(
+    before,
+    current,
+    targets.maximum_workflow_token_regression,
+  );
+  assertMinimumReduction(
+    comparison.aggregate.before,
+    comparison.aggregate.current,
+    targets.minimum_aggregate_workflow_reduction_percent,
+  );
+  return comparison;
 }
 
 export async function verifyTokenOptimizationPhase(options = {}) {
@@ -337,6 +402,8 @@ export async function verifyTokenOptimizationPhase(options = {}) {
   assertBudgets(current, manifest.targets);
 
   let expectedSnapshot;
+  let frozenOptimization;
+  let currentVsAfter;
   if (manifest.status === "after_frozen") {
     expectedSnapshot = await loadSnapshot(
       manifest.after_snapshot,
@@ -345,21 +412,23 @@ export async function verifyTokenOptimizationPhase(options = {}) {
       manifest.phase_id,
       manifestUrl,
     );
+    assertImmutableAfterHistory(manifest, expectedSnapshot);
     assertComparable(beforeSnapshot.benchmark, expectedSnapshot.benchmark);
-    assertGitAncestor(
-      manifest.baseline_history_commit,
-      expectedSnapshot.source_commit,
-      "after snapshot source ancestry",
-    );
-    assertGitAncestor(expectedSnapshot.source_commit, "HEAD", "after snapshot checkout ancestry");
-    assert.deepEqual({
-      src: gitTree("HEAD", "src"),
-      skills: gitTree("HEAD", "skills"),
-    }, expectedSnapshot.source_trees, "after snapshot must retain its reviewed source trees");
-    assert.deepEqual(
-      current,
+    frozenOptimization = assertOptimizationDeltas(
+      beforeSnapshot.benchmark,
       expectedSnapshot.benchmark,
-      "current source must reproduce the frozen after snapshot",
+      manifest.targets,
+    );
+    assert.deepEqual({
+      aggregate: frozenOptimization.aggregate,
+      workflows: Object.fromEntries(
+        Object.entries(frozenOptimization.workflows).map(([name, value]) => [name, value.delta]),
+      ),
+    }, FROZEN_OPTIMIZATION_DELTAS, "frozen optimization deltas");
+    currentVsAfter = assertNoWorkflowRegression(
+      expectedSnapshot.benchmark,
+      current,
+      manifest.targets.maximum_workflow_token_regression,
     );
   } else {
     assert.equal(manifest.after_snapshot, null);
@@ -389,7 +458,7 @@ export async function verifyTokenOptimizationPhase(options = {}) {
     totalWorkflowTokens(current),
   );
   const optimizationTargetsEnforced = manifest.status !== "before_frozen";
-  if (optimizationTargetsEnforced) {
+  if (manifest.status === "optimizing") {
     assertOptimizationDeltas(beforeSnapshot.benchmark, current, manifest.targets);
   }
 
@@ -401,13 +470,18 @@ export async function verifyTokenOptimizationPhase(options = {}) {
     tokenizer: current.tokenizer,
     encoding: current.encoding,
     before_source_commit: beforeSnapshot.source_commit,
-    ...(manifest.status === "after_frozen" ? { after_source_commit: expectedSnapshot.source_commit } : {}),
+    ...(manifest.status === "after_frozen" ? {
+      after_source_commit: expectedSnapshot.source_commit,
+      frozen_optimization: frozenOptimization,
+      current_vs_after: currentVsAfter,
+    } : {}),
     measurements,
     workflows,
     aggregate_workflows: aggregate,
     gates: {
-      current_snapshot_reproduced: manifest.status !== "optimizing",
       immutable_baseline_history_verified: manifest.status !== "before_frozen",
+      frozen_after_snapshot_verified: manifest.status === "after_frozen",
+      current_head_no_regression: manifest.status === "after_frozen",
       baseline_source_trees_verified: true,
       semantic_invariants_preserved: true,
       context_budgets_met: true,

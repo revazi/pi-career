@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for POSIX Markdown/text artifacts. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Full application workspaces, Windows save ACL support, further review UX, and further PDF generator/font coverage remain later explicitly authorized work.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts, supports only macOS/Linux, and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for private Markdown/text artifacts on those supported platforms. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Full application workspaces, further review UX, and further PDF generator/font coverage remain later explicitly authorized work; Windows is unsupported rather than deferred roadmap scope.
 
 Completed sequence:
 
@@ -233,7 +233,7 @@ The token-optimization study is intentionally split:
 
 1. `before_frozen` pins the post-save-workflow `c7d7634…` production `src/` and `skills/` Git trees, complete surface-digested benchmark snapshot, and snapshot SHA-256 before optimization;
 2. after the baseline merges, `optimizing` names that immutable baseline-history commit, verifies the frozen bytes from Git history, and lets the separately reviewed optimization merge only after all savings, no-regression, budget, shape, and invariant gates pass without requiring a self-referential after snapshot; and
-3. `after_frozen` adds a separately generated snapshot bound to the full merged optimization commit and its source/Skill tree IDs, then enforces exact reproduction plus the same deltas. The finalized snapshot is bound to `7ed36c4…` and records 25,652 → 21,552 aggregate workflow tokens (15.98% reduction), with every workflow reduced by 820 tokens.
+3. `after_frozen` adds a separately generated snapshot bound to the full merged optimization commit and its source/Skill tree IDs. The gate verifies that frozen snapshot and its exact deltas from immutable Git history; later current source may differ only when corpus/tokenizer/workflow shape, invariants, and budgets remain unchanged and no workflow regresses relative to the frozen after snapshot. The finalized snapshot is bound to `7ed36c4…` and records 25,652 → 21,552 aggregate workflow tokens (15.98% reduction), with every workflow reduced by 820 tokens.
 
 Predeclared after-phase targets:
 
@@ -252,6 +252,7 @@ Provider wrappers, hidden prompts/reasoning, caching, and billing remain outside
 
 Pi-career retains:
 
+- macOS/Linux-only package metadata and an adapter-level unsupported-platform failure before any route work or private stdin
 - no packaged native runtime artifacts or runtime dependencies
 - fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.1.1`
 - no Cargo, sibling checkout, source build, arbitrary executable download, unpinned package, or lifecycle fallback

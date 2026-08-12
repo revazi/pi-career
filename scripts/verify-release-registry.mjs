@@ -18,6 +18,7 @@ const EXTERNAL_PEERS = {
   "@earendil-works/pi-tui": "*",
   typebox: "*",
 };
+const SUPPORTED_OS = ["darwin", "linux"];
 const FORBIDDEN_LIFECYCLES = [
   "preinstall",
   "install",
@@ -139,6 +140,7 @@ async function assertPublished(version, gitSha) {
   assert.deepEqual(metadata.repository, { type: "git", url: `git+${REPOSITORY}.git` });
   assert.deepEqual(metadata.peerDependencies, EXTERNAL_PEERS);
   assert.deepEqual(metadata.publishConfig, { access: "public", registry: `${REGISTRY}/` });
+  assert.deepEqual(metadata.os, SUPPORTED_OS, "published package platform boundary");
   for (const field of ["dependencies", "optionalDependencies", "bundleDependencies", "bundledDependencies"]) {
     assert.equal(metadata[field], undefined, `published ${field} must be absent`);
   }

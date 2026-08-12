@@ -87,7 +87,6 @@ function sidecarPath(file: string): string {
 }
 
 function privateMode(metadata: { mode: number; uid: number }, expected: number): boolean {
-  if (process.platform === "win32") return true;
   const userId = process.geteuid?.() ?? process.getuid?.();
   return userId !== undefined && metadata.uid === userId && (metadata.mode & 0o777) === expected;
 }

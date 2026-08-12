@@ -154,14 +154,19 @@ test("registry polling fails closed immediately on a non-retryable response", as
   assert.equal(sleeps, 0);
 });
 
-test("release workflow is tag-only and orders publish before registry verification and release", async () => {
+test("release workflow is tag-only, platform-bounded, and orders publication safely", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  const releaseCreator = await readFile(new URL("../../scripts/create-github-release.mjs", import.meta.url), "utf8");
   assert.match(workflow, /on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"/);
   assert.doesNotMatch(workflow, /workflow_dispatch:|pull_request:/);
   assert.match(workflow, /environment: npm/);
   assert.match(workflow, /id-token: write/);
   assert.match(workflow, /run: node scripts\/verify-hosted-release-gates\.mjs/);
+  assert.match(workflow, /JSON\.stringify\(require\('\.\/package\.json'\)\.os\)/);
+  assert.match(workflow, /JSON\.stringify\(require\('\.\/package-lock\.json'\)\.packages\[''\]\.os\)/);
   assert.doesNotMatch(workflow, /shell: node \{0\}/);
+  assert.doesNotMatch(releaseCreator, /win32-(?:x64|arm64)-msvc|MSVC Windows/);
+  assert.match(releaseCreator, /do not make pi-career available on Windows/);
   assert.doesNotMatch(workflow, /secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)|--otp/);
 
   const absent = workflow.indexOf("verify-release-registry.mjs absent");

@@ -12,6 +12,7 @@ import { TextDecoder as TextDecoder2 } from "node:util";
 
 // src/errors.ts
 var ERROR_MESSAGES = {
+  unsupported_platform: "pi-career supports only macOS and Linux.",
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
   managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
@@ -324,6 +325,7 @@ var ACQUISITION_TIMEOUT_MS = 12e4;
 var TERMINATION_GRACE_MS = 250;
 var CANONICAL_NPM_REGISTRY = "https://registry.npmjs.org/";
 var SOURCE_ORDER = ["path", "package-local", "acquired"];
+var SUPPORTED_PLATFORMS = /* @__PURE__ */ new Set(["darwin", "linux"]);
 var requireFromPackage = createRequire(import.meta.url);
 var cachedResolution;
 var pendingResolution;
@@ -336,7 +338,11 @@ function runtimeEnvironmentKey(environment) {
     environmentValue(environment, "PATH") ?? null
   ]);
 }
+function assertSupportedPlatform() {
+  if (!SUPPORTED_PLATFORMS.has(process.platform)) throw adapterError("unsupported_platform");
+}
 function resolveCareerExecutable(environment = process.env) {
+  assertSupportedPlatform();
   const override = environmentValue(environment, "CAREER_CLI_PATH");
   if (override === void 0) return void 0;
   if (override.length === 0 || override.includes("\0") || Buffer.byteLength(override, "utf8") > EXECUTABLE_MAX_BYTES || !path.isAbsolute(override)) {
@@ -359,20 +365,15 @@ function pathEntries(environmentPath, cwd) {
   if (environmentPath === void 0 || environmentPath.includes("\0") || Buffer.byteLength(environmentPath, "utf8") > PATH_MAX_BYTES) return [];
   return environmentPath.split(path.delimiter).map((entry) => path.resolve(entry || cwd));
 }
-function executableNames() {
-  return process.platform === "win32" ? ["career.exe", "career.com", "career"] : ["career"];
-}
 async function pathRoute(environment, cwd) {
   for (const directory of pathEntries(environmentValue(environment, "PATH"), cwd)) {
-    for (const name of executableNames()) {
-      const candidate = path.join(directory, name);
-      try {
-        const metadata = await lstat(candidate);
-        if (!metadata.isFile() && !metadata.isSymbolicLink()) continue;
-        await access(candidate, fsConstants.X_OK);
-        return route(candidate, [], "path");
-      } catch {
-      }
+    const candidate = path.join(directory, "career");
+    try {
+      const metadata = await lstat(candidate);
+      if (!metadata.isFile() && !metadata.isSymbolicLink()) continue;
+      await access(candidate, fsConstants.X_OK);
+      return route(candidate, [], "path");
+    } catch {
     }
   }
   return void 0;
@@ -381,7 +382,7 @@ function isRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function boundedRegularFile(metadata, maximumBytes, executable) {
-  return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size >= 2 && metadata.size <= maximumBytes && (!executable || process.platform === "win32" || (metadata.mode & 73) !== 0);
+  return !metadata.isSymbolicLink() && metadata.isFile() && metadata.size >= 2 && metadata.size <= maximumBytes && (!executable || (metadata.mode & 73) !== 0);
 }
 function exactKeys2(value, expected) {
   return Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
@@ -410,7 +411,7 @@ async function readLauncherRoute(manifestPath, source, execPath) {
     ]);
     if (!boundedRegularFile(manifestMetadata, PACKAGE_MANIFEST_MAX_BYTES, false)) return void 0;
     const nodeMetadata = await lstat(realNodePath);
-    if (!nodeMetadata.isFile() || process.platform !== "win32" && (nodeMetadata.mode & 73) === 0) return void 0;
+    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) return void 0;
     const bytes = await readFile(manifestPath);
     if (bytes.length !== manifestMetadata.size) return void 0;
     const manifest = JSON.parse(bytes.toString("utf8"));
@@ -442,48 +443,15 @@ async function packageLocalRoute(dependencies) {
 function npmExecPathValues(environment) {
   return Object.entries(environment).filter(([key]) => key.toLowerCase() === "npm_execpath").map(([, value]) => value);
 }
-function samePath(left, right) {
-  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-}
-function environmentValues(environment, key) {
-  return Object.entries(environment).filter(([name]) => name.toLowerCase() === key.toLowerCase()).map(([, value]) => value);
-}
-async function trustedWindowsShell(environment) {
-  const roots = environmentValues(environment, "SystemRoot");
-  const suppliedShells = environmentValues(environment, "ComSpec");
-  if (roots.length !== 1 || suppliedShells.length > 1) throw new Error("invalid Windows tools");
-  const root = roots[0];
-  if (typeof root !== "string" || !path.isAbsolute(root) || root.includes("\0")) {
-    throw new Error("invalid Windows root");
-  }
-  const rootMetadata = await lstat(root);
-  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
-    throw new Error("invalid Windows root");
-  }
-  const realSystemRoot = await realpath(root);
-  const derivedShell = path.join(realSystemRoot, "System32", "cmd.exe");
-  const realShell = await realpath(derivedShell);
-  if (!samePath(realShell, derivedShell)) throw new Error("invalid Windows shell path");
-  const shellMetadata = await lstat(realShell);
-  if (shellMetadata.isSymbolicLink() || !shellMetadata.isFile()) {
-    throw new Error("invalid Windows shell");
-  }
-  if (suppliedShells.length === 1) {
-    const suppliedShell = suppliedShells[0];
-    if (typeof suppliedShell !== "string" || !path.isAbsolute(suppliedShell)) {
-      throw new Error("invalid ComSpec");
-    }
-    if (!samePath(await realpath(suppliedShell), realShell)) throw new Error("conflicting ComSpec");
-  }
-  return { scriptShell: realShell, systemRoot: realSystemRoot };
-}
 async function trustedNpm(execPath, environment) {
   try {
     if (!path.isAbsolute(execPath)) throw new Error("invalid node path");
     const realNodePath = await realpath(execPath);
     const nodeMetadata = await lstat(realNodePath);
-    if (!nodeMetadata.isFile() || process.platform !== "win32" && (nodeMetadata.mode & 73) === 0) throw new Error("invalid node executable");
-    const derivedNpmCliPath = process.platform === "win32" ? path.join(path.dirname(realNodePath), "node_modules", "npm", "bin", "npm-cli.js") : path.join(
+    if (!nodeMetadata.isFile() || (nodeMetadata.mode & 73) === 0) {
+      throw new Error("invalid node executable");
+    }
+    const derivedNpmCliPath = path.join(
       path.dirname(path.dirname(realNodePath)),
       "lib",
       "node_modules",
@@ -492,9 +460,11 @@ async function trustedNpm(execPath, environment) {
       "npm-cli.js"
     );
     const realNpmCliPath = await realpath(derivedNpmCliPath);
-    if (!samePath(realNpmCliPath, derivedNpmCliPath)) throw new Error("invalid npm path");
+    if (realNpmCliPath !== derivedNpmCliPath) throw new Error("invalid npm path");
     const npmMetadata = await lstat(realNpmCliPath);
-    if (!npmMetadata.isFile() || process.platform !== "win32" && (npmMetadata.mode & 73) === 0) throw new Error("invalid npm executable");
+    if (!npmMetadata.isFile() || (npmMetadata.mode & 73) === 0) {
+      throw new Error("invalid npm executable");
+    }
     const supplied = npmExecPathValues(environment);
     if (supplied.length > 1) throw new Error("ambiguous npm_execpath");
     if (supplied.length === 1) {
@@ -502,18 +472,9 @@ async function trustedNpm(execPath, environment) {
       if (typeof suppliedPath !== "string" || !path.isAbsolute(suppliedPath)) {
         throw new Error("invalid npm_execpath");
       }
-      if (!samePath(await realpath(suppliedPath), realNpmCliPath)) {
+      if (await realpath(suppliedPath) !== realNpmCliPath) {
         throw new Error("conflicting npm_execpath");
       }
-    }
-    if (process.platform === "win32") {
-      const windows = await trustedWindowsShell(environment);
-      return {
-        nodePath: realNodePath,
-        npmCliPath: realNpmCliPath,
-        scriptShell: windows.scriptShell,
-        windowsSystemRoot: windows.systemRoot
-      };
     }
     return { nodePath: realNodePath, npmCliPath: realNpmCliPath, scriptShell: "/bin/sh" };
   } catch {
@@ -532,24 +493,9 @@ var FORBIDDEN_NPM_ENVIRONMENT = /* @__PURE__ */ new Set([
   "npm_config_script_shell"
 ]);
 function sanitizedNpmEnvironment(environment, trusted) {
-  const windowsControlled = /* @__PURE__ */ new Set(["comspec", "pathext", "systemroot", "windir"]);
   const sanitized = Object.fromEntries(Object.entries(environment).filter(
-    ([key, value]) => typeof value === "string" && key.toLowerCase() !== "path" && !(process.platform === "win32" && windowsControlled.has(key.toLowerCase())) && !FORBIDDEN_NPM_ENVIRONMENT.has(key.toLowerCase().replaceAll("-", "_"))
+    ([key, value]) => typeof value === "string" && key.toLowerCase() !== "path" && !FORBIDDEN_NPM_ENVIRONMENT.has(key.toLowerCase().replaceAll("-", "_"))
   ));
-  if (process.platform === "win32" && trusted.windowsSystemRoot !== void 0) {
-    return {
-      ...sanitized,
-      PATH: [
-        path.dirname(trusted.nodePath),
-        path.dirname(trusted.scriptShell),
-        trusted.windowsSystemRoot
-      ].join(path.delimiter),
-      ComSpec: trusted.scriptShell,
-      SystemRoot: trusted.windowsSystemRoot,
-      WINDIR: trusted.windowsSystemRoot,
-      PATHEXT: ".COM;.EXE;.BAT;.CMD"
-    };
-  }
   return {
     ...sanitized,
     PATH: [path.dirname(trusted.nodePath), "/usr/bin", "/bin"].join(path.delimiter)
@@ -576,12 +522,7 @@ function decodeAcquiredLauncherOutput(stdout) {
 function terminateAcquisitionProcessTree(child, signal) {
   try {
     if (child.pid === void 0) throw new Error("missing process id");
-    if (process.platform === "win32") {
-      process.kill(child.pid, "SIGBREAK");
-      if (signal === "SIGKILL") child.kill("SIGKILL");
-    } else {
-      process.kill(-child.pid, signal);
-    }
+    process.kill(-child.pid, signal);
   } catch {
     try {
       child.kill(signal);
@@ -591,7 +532,6 @@ function terminateAcquisitionProcessTree(child, signal) {
 }
 async function runAcquisition(trusted, environment, cwd, signal) {
   const { nodePath, npmCliPath, scriptShell } = trusted;
-  const locatorNode = process.platform === "win32" ? path.basename(nodePath) : nodePath;
   if (signal?.aborted) throw adapterError("cancelled");
   const arguments_ = [
     npmCliPath,
@@ -604,7 +544,7 @@ async function runAcquisition(trusted, environment, cwd, signal) {
     `--registry=${CANONICAL_NPM_REGISTRY}`,
     `--package=${CAREER_PACKAGE_SPEC}`,
     "--",
-    locatorNode,
+    nodePath,
     "-p",
     LOCATE_ACQUIRED_PATH_EXPRESSION
   ];
@@ -616,8 +556,7 @@ async function runAcquisition(trusted, environment, cwd, signal) {
         detached: true,
         env: sanitizedNpmEnvironment(environment, trusted),
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true
+        stdio: ["ignore", "pipe", "pipe"]
       });
     } catch {
       resolve({ code: null, signal: null, spawnError: true, stdout: [], stderrBytes: 0 });
@@ -753,6 +692,7 @@ async function resolveUncached(options) {
   throw adapterError("runtime_unavailable");
 }
 async function resolveCareerRuntime(options) {
+  assertSupportedPlatform();
   const environment = options.environment ?? process.env;
   const environmentKey = runtimeEnvironmentKey(environment);
   const useCache = options.afterSource === void 0 && options.dependencies === void 0;
@@ -1013,8 +953,7 @@ function executePrepared(prepared, runtime, signal, limits) {
     try {
       child = spawn2(runtime.command, [...runtime.argumentPrefix, ...prepared.args], {
         shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true
+        stdio: ["pipe", "pipe", "pipe"]
       });
     } catch {
       reject(new ProcessAttemptError(adapterError("executable_unavailable"), false));
@@ -1139,6 +1078,7 @@ async function executeResolved(prepared, runtime, signal, limits) {
   }
 }
 async function invokeCareerCli(invocation, signal, options = {}) {
+  assertSupportedPlatform();
   const prepared = prepareInvocation(invocation);
   if (signal?.aborted) throw adapterError("cancelled");
   const limits = executionLimits(options);
@@ -1761,7 +1701,6 @@ function sidecarPath(file) {
   return path3.join(path3.dirname(file), `${path3.basename(file, path3.extname(file))}.pi-career.json`);
 }
 function privateMode(metadata, expected) {
-  if (process.platform === "win32") return true;
   const userId = process.geteuid?.() ?? process.getuid?.();
   return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === expected;
 }
@@ -2473,8 +2412,7 @@ var MESSAGES = {
   variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
   variant_save_collision: "A save destination already exists; no existing file was replaced.",
   variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
-  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying.",
-  variant_save_platform_unsupported: "Private materialized-variant saving is not supported on this platform."
+  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying."
 };
 var CareerRunError = class extends Error {
   code;
@@ -4168,18 +4106,15 @@ var VariantSaveWorkflow = class {
   constructor(options) {
     this.options = options;
     this.fs = options.fs ?? DEFAULT_FS;
-    this.platform = options.platform ?? process.platform;
   }
   options;
   fs;
-  platform;
   receipts = /* @__PURE__ */ new Map();
   rootLocks = /* @__PURE__ */ new Map();
   clearReceipts() {
     this.receipts.clear();
   }
   async run(handle, ctx, resolveCandidate) {
-    if (this.platform === "win32") throw careerRunError("variant_save_platform_unsupported");
     if (!ctx.isIdle()) throw careerRunError("variant_save_unavailable");
     const candidate = resolveCandidate();
     const existing = this.receipts.get(handle);
@@ -5727,6 +5662,7 @@ function resultContent(json, operation) {
   };
 }
 function careerCoreExtension(pi) {
+  assertSupportedPlatform();
   registerCareerCommands(pi);
   pi.registerTool({
     name: "career_core_discover",

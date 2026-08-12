@@ -48,8 +48,10 @@ assert.match(runtimeResolverSource, /npm_execpath/);
 assert.match(runtimeResolverSource, /--ignore-scripts/);
 assert.match(runtimeResolverSource, /--registry=/);
 assert.match(runtimeResolverSource, /LOCATE_ACQUIRED_PATH_EXPRESSION = "process\.env\.PATH"/);
+assert.match(runtimeResolverSource, /SUPPORTED_PLATFORMS = new Set<NodeJS\.Platform>\(\["darwin", "linux"\]\)/);
+assert.match(runtimeResolverSource, /SUPPORTED_PLATFORMS\.has\(process\.platform\)/);
+assert.match(runtimeResolverSource, /throw adapterError\("unsupported_platform"\)/);
 assert.match(runtimeResolverSource, /process\.kill\(-child\.pid/);
-assert.match(runtimeResolverSource, /process\.kill\(child\.pid, "SIGBREAK"\)/);
 assert.match(runtimeResolverSource, /detached:\s*true/);
 assert.match(runtimeResolverSource, /lstat/);
 assert.match(runtimeResolverSource, /readFile/);
@@ -57,6 +59,10 @@ assert.match(runtimeResolverSource, /PATH/);
 assert.match(runtimeResolverSource, /CAREER_CLI_PATH/);
 assert.doesNotMatch(processSource, /node:fs|mkdtemp|tmpdir|writeFile|exec\(|execFile\(|spawnSync\(/);
 assert.doesNotMatch(runtimeResolverSource, /writeFile|appendFile|createWriteStream|mkdir|mkdtemp|tmpdir|\bfetch\s*\(/);
+assert.doesNotMatch(
+  processBoundarySource,
+  /career\.(?:exe|com)|SystemRoot|ComSpec|PATHEXT|cmd\.exe|SIGBREAK|windowsHide|process\.platform\s*[!=]==?\s*["']win32["']/i,
+);
 assert.doesNotMatch(processBoundarySource, /appendEntry|registerProvider|registerCommand|console\./i);
 assert.doesNotMatch(processBoundarySource, /spawn\(\s*["'](?:cargo|npm|npx)["']|exec(?:File)?\(\s*["'](?:cargo|npm|npx)["']/i);
 
@@ -90,7 +96,7 @@ assert.match(releaseWorkflow, /verify-release-registry\.mjs published/);
 assert.match(releaseWorkflow, /create-github-release\.mjs/);
 assert.doesNotMatch(releaseWorkflow, /secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)|--otp|npm publish[^\n]*\|\||gh release create/);
 
-assert.match(indexSource, /registerCareerCommands\(pi\)/);
+assert.match(indexSource, /assertSupportedPlatform\(\);\s*registerCareerCommands\(pi\)/);
 assert.match(indexSource, /registerCareerRun\(pi\)/);
 assert.match(workflowSource, /invokeCareerCli/);
 assert.match(workflowSource, /registerCommand\("career-setup"/);
@@ -117,6 +123,7 @@ assert.doesNotMatch(pdfWorkerSource, /node:(?:http|https|net|tls)|XMLHttpRequest
 assert.doesNotMatch(pdfWorkerBundle, /from["']unpdf|node_modules/);
 assert.doesNotMatch(completeSource, /console\.(?:log|error|warn|debug)/);
 assert.doesNotMatch(bundle, /\bfetch\s*\(|registerProvider|modelRegistry|sendUserMessage|before_provider/);
+assert.deepEqual(packageManifest.os, ["darwin", "linux"]);
 assert.equal(packageManifest.dependencies, undefined);
 for (const lifecycle of [
   "preinstall",

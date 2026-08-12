@@ -88,7 +88,6 @@ export async function runTrustedNpm(
     maxBuffer,
     shell: false,
     timeout,
-    windowsHide: true,
   };
   try {
     const result = await exec(trusted.nodePath, [trusted.npmCliPath, ...arguments_], options);

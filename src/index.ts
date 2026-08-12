@@ -14,6 +14,7 @@ import {
   type ResumeOperation,
 } from "./process.ts";
 import { registerCareerRun } from "./managed/tool.ts";
+import { assertSupportedPlatform } from "./runtime.ts";
 import { registerCareerCommands } from "./workflow/commands.ts";
 
 const DISCOVERY_OPERATIONS = [
@@ -96,6 +97,7 @@ function resultContent(json: string, operation: string) {
 }
 
 export default function careerCoreExtension(pi: ExtensionAPI) {
+  assertSupportedPlatform();
   registerCareerCommands(pi);
 
   pi.registerTool({
