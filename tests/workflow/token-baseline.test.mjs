@@ -27,6 +27,11 @@ const beforeSnapshotText = await readFile(
   "utf8",
 );
 const beforeSnapshot = JSON.parse(beforeSnapshotText);
+const afterSnapshotText = await readFile(
+  new URL("../../benchmarks/baselines/token-optimization-v1-after.json", import.meta.url),
+  "utf8",
+);
+const afterSnapshot = JSON.parse(afterSnapshotText);
 const phaseManifestText = await readFile(
   new URL("../../benchmarks/phases/token-optimization-v1.json", import.meta.url),
   "utf8",
@@ -108,6 +113,41 @@ test("token-optimization phase reproduces its frozen current snapshot", async ()
   assert.equal(comparison.gates.optimization_targets_enforced, phaseManifest.status !== "before_frozen");
   assert.equal(comparison.gates.aggregate_reduction_target_percent, 10);
   assert.equal(comparison.gates.maximum_workflow_token_regression, 0);
+  if (phaseManifest.status === "after_frozen") {
+    assert.equal(comparison.after_source_commit, "7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990");
+    assert.equal(phaseManifest.after_snapshot, "../baselines/token-optimization-v1-after.json");
+    assert.equal(
+      createHash("sha256").update(afterSnapshotText).digest("hex"),
+      "637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1",
+    );
+    assert.equal(phaseManifest.after_snapshot_sha256, "637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1");
+    assert.equal(afterSnapshot.source_commit, "7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990");
+    assert.deepEqual(afterSnapshot.source_trees, {
+      src: "ac249864e443b81c18e5e4d69ccab06dc5ff7a20",
+      skills: "5671138acce7f2875e684c408b84ea3ef3f80c80",
+    });
+    assert.equal(
+      afterSnapshot.benchmark.surface_sha256,
+      "96361b5328ddfd68d9b5ba5dc4d9cec59888f6e84f8dead80a09c4347193ad83",
+    );
+    assert.deepEqual(current, afterSnapshot.benchmark);
+    assert.deepEqual(comparison.aggregate_workflows, {
+      before: 25652,
+      current: 21552,
+      delta: -4100,
+      reduction_percent: 15.98,
+    });
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(comparison.workflows).map(([name, value]) => [name, value.delta])),
+      {
+        "managed-analysis-with-evidence": -820,
+        "managed-match": -820,
+        "reviewed-replacements": -820,
+        "reviewed-suggestion-plan": -820,
+        "tailored-variant-materialization": -820,
+      },
+    );
+  }
   assert.deepEqual(
     Object.fromEntries(Object.entries(beforeSnapshot.benchmark.workflows).map(([name, value]) => [
       name, value.model_visible_tokens,
@@ -151,7 +191,9 @@ test("optimizing phase refuses a self-declared commit without immutable baseline
       ...phaseManifest,
       status: "optimizing",
       baseline_history_commit: "c7d76344ccdfd8a370c8c69467d2022d9aea5d2e",
+      after_snapshot: null,
     };
+    delete candidateManifest.after_snapshot_sha256;
     const manifestPath = path.join(temp, "phases", "token-optimization-v1.json");
     await writeFile(manifestPath, `${JSON.stringify(candidateManifest, null, 2)}\n`);
     await assert.rejects(

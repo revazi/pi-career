@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Consolidated the model-visible Career Skill while preserving safety invariants and avoiding workflow regressions; the non-frozen candidate reduces aggregate workflow tokens from 25,652 to 21,552 (15.98%).
+- Consolidated the model-visible Career Skill while preserving safety invariants and avoiding workflow regressions; the frozen before/after evidence records an aggregate reduction from 25,652 to 21,552 workflow tokens (15.98%).
 - Added a Git-history/source-tree/hash-bound before/optimizing/after token-optimization benchmark phase with Pi Skill discovery/full-load context, actual managed serialization parity, direct tool-call/result/detail/editor surfaces, and independent workflows; semantic/privacy gates prevent savings by dropping required context.
 - Added user-only TUI/RPC `/career-save` for exact preview and separately confirmed no-clobber saving of current POSIX Markdown/text materializations with private managed-directory markers, strict assisted/non-authoritative v2 sidecars, in-memory idempotency, and immediate exclusion-verifying rescan; PDF and Windows saves fail closed.
 - Changed assisted-sidecar scanning to quarantine malformed, missing-in-managed-root, duplicate-key, edited, or hash-mismatched artifacts instead of allowing fallback to original analysis/matching eligibility.

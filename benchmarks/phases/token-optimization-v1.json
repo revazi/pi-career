@@ -1,7 +1,7 @@
 {
   "schema_version": "pi.career.token_optimization_phase.v1",
   "phase_id": "career-run-token-optimization-v1",
-  "status": "optimizing",
+  "status": "after_frozen",
   "baseline_source": {
     "commit": "c7d76344ccdfd8a370c8c69467d2022d9aea5d2e",
     "trees": {
@@ -12,7 +12,8 @@
   "baseline_history_commit": "c72f54b2c0bc4b8c8979442041c3d7e6a1390c37",
   "before_snapshot": "../baselines/token-optimization-v1-before.json",
   "before_snapshot_sha256": "198d395fd1b81d3abd824e4d1f91ee986c196f87f10a7aaca8edccc37b2601e2",
-  "after_snapshot": null,
+  "after_snapshot": "../baselines/token-optimization-v1-after.json",
+  "after_snapshot_sha256": "637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1",
   "tokenizer": {
     "implementation": "js-tiktoken",
     "version": "1.0.21",
