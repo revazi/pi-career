@@ -11,8 +11,8 @@ Token usage is a product constraint for an agent tool, not an incidental impleme
 [`phases/token-optimization-v1.json`](phases/token-optimization-v1.json) is the state machine for the current optimization study. It deliberately separates measurement from optimization:
 
 1. **`before_frozen`:** [`baselines/token-optimization-v1-before.json`](baselines/token-optimization-v1-before.json) remains byte-hash-pinned to the post-save-workflow production source and Agent Skill at `c7d76344ccdfd8a370c8c69467d2022d9aea5d2e`. Its exact `src/` and `skills/` Git tree IDs are part of the snapshot and phase manifest; the baseline change contains no token optimization.
-2. **`optimizing` (current phase):** `baseline_history_commit` names the reviewed baseline merge. The gate reads the before snapshot and before-phase manifest bytes back from immutable Git history, verifies that commit retained the exact `c7d7634…` source/skill trees, requires unchanged corpus/workflow shape and invariants, and enforces every reduction/regression/budget target. The current non-frozen candidate measures 25,652 → 21,552 aggregate workflow tokens (15.98% reduction). `after_snapshot` remains null so the optimization can merge first.
-3. **`after_frozen` (deferred):** in a separate change, generate the after snapshot with `source_commit` equal to the full merged optimization commit, add its SHA-256/path, and change the status. The gate verifies baseline ancestry, both snapshot source-tree IDs, and exact checked-out-source reproduction before retaining all optimization gates.
+2. **`optimizing`:** `baseline_history_commit` names the reviewed baseline merge. The gate reads the before snapshot and before-phase manifest bytes back from immutable Git history, verifies that commit retained the exact `c7d7634…` source/skill trees, requires unchanged corpus/workflow shape and invariants, and enforces every reduction/regression/budget target without requiring a self-referential after snapshot.
+3. **`after_frozen` (current/final phase):** [`baselines/token-optimization-v1-after.json`](baselines/token-optimization-v1-after.json) is bound to merged optimization commit `7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990` and its exact source/Skill trees. Its SHA-256 is `637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1`. The gate reproduces it from the checked-out source and retains every immutable-history, shape, invariant, budget, reduction, and no-regression check. The finalized aggregate is 25,652 → 21,552 workflow tokens (15.98% reduction), with no workflow regression.
 
 The predeclared after-phase targets are:
 
@@ -68,6 +68,15 @@ npm run bench:tokens -- \
   --output /tmp/token-optimization-v1-before.json
 ```
 
-The future after snapshot uses the same command with `--snapshot after` and the full merged optimization commit. Snapshot generation resolves and records that commit's exact `src/` and `skills/` tree IDs. Output paths must be absolute, outside the repository, and non-symlink targets; snapshot generation never edits the manifest or baseline automatically. Hash and phase transitions remain explicit review changes.
+Reproduce the frozen after snapshot exactly:
+
+```bash
+npm run bench:tokens -- \
+  --snapshot after \
+  --source-commit 7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990 \
+  --output /tmp/token-optimization-v1-after.json
+```
+
+Snapshot generation resolves and records the commit's exact `src/` and `skills/` tree IDs. Output paths must be absolute, outside the repository, and non-symlink targets; snapshot generation never edits the manifest or baselines automatically. Hash and phase transitions remain explicit review changes.
 
 The tokenizer is lockfile-pinned `js-tiktoken` 1.0.21 with `o200k_base`. All resume, vacancy, result, and prompt content is synthetic. Token counts are stable context-occupancy signals, not provider billing guarantees.
