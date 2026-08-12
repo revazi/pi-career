@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -32,6 +33,25 @@ const phaseManifestText = await readFile(
 );
 const phaseManifest = JSON.parse(phaseManifestText);
 
+function frozenBeforeManifestBytes() {
+  if (phaseManifest.status === "before_frozen") return Buffer.from(phaseManifestText, "utf8");
+  assert.match(phaseManifest.baseline_history_commit, /^[a-f0-9]{40}$/);
+  try {
+    return execFileSync(
+      "git",
+      ["show", `${phaseManifest.baseline_history_commit}:benchmarks/phases/token-optimization-v1.json`],
+      {
+        cwd: new URL("../..", import.meta.url),
+        encoding: null,
+        maxBuffer: 512 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+  } catch {
+    assert.fail("frozen before phase manifest is unavailable from baseline Git history");
+  }
+}
+
 test("historical managed-adapter token evidence remains immutable", () => {
   assert.equal(historical.schema_version, "pi.career.token_benchmark_baseline.v1");
   assert.deepEqual(historical.before, {
@@ -62,7 +82,7 @@ test("token-optimization phase reproduces its frozen current snapshot", async ()
   );
   assert.equal(phaseManifest.before_snapshot_sha256, "198d395fd1b81d3abd824e4d1f91ee986c196f87f10a7aaca8edccc37b2601e2");
   assert.equal(
-    createHash("sha256").update(phaseManifestText).digest("hex"),
+    createHash("sha256").update(frozenBeforeManifestBytes()).digest("hex"),
     "1614cae6efc7ee4fdfc74e06b01ae0dab9907ab5404790117b569b5c3d041359",
   );
   assert.deepEqual(beforeSnapshot.source_trees, {

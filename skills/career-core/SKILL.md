@@ -10,175 +10,91 @@ metadata:
 
 # Career Core through pi-career
 
-Use `career_run` as the primary managed interface. It resolves a compatible Career Core route and discovers its exact operation catalog and self-contained schemas internally before private input, builds exact Core envelopes from ephemeral handles, captures complete bounded Core output in memory, and returns compact model-facing projections. Career Core remains authoritative for algorithms, schemas, errors, evidence, warnings, uncertainty, ordering, baselines, and assisted/non-authoritative semantics.
+Use `career_run` for normal work. It validates a compatible Core operation catalog/schemas before private input, builds exact envelopes from ephemeral handles, retains complete bounded results in memory, and returns compact projections. Career Core remains authoritative for algorithms, schemas, errors, evidence, warnings, uncertainty, ordering, baselines, and assisted/non-authoritative semantics.
 
-The raw `career_core_discover`, `career_core_resume`, and `career_core_job` tools remain registered but are normally inactive. Use `/career-tools raw` only for explicit advanced schema/debugging work; `/career-tools managed` returns to the compact surface.
+The raw `career_core_discover`, `career_core_resume`, and `career_core_job` tools are normally inactive. Enable them with `/career-tools raw` only for explicit advanced schema/debugging work; `/career-tools managed` restores the compact surface.
 
-## Privacy and managed context
+## Privacy and context
 
-Start every managed workflow with:
+Begin with `{"command":"context"}`. A persisted Pi session returns no private handles until you ask whether it may persist private career content. On approval call `{"command":"consent","payload":"approve"}`; on refusal use `"decline"` and recommend a new `pi --no-session` run. Transient runs need no persisted consent entry.
 
-```json
-{"command":"context"}
-```
-
-In a persisted Pi session, `context` returns no private handles until an explicit session-persistence decision exists. Ask the user first. If approved, call:
-
-```json
-{"command":"consent","payload":"approve"}
-```
-
-If declined, call consent with `"decline"` and recommend a new transient run:
-
-```bash
-pi --no-session
-```
-
-Do not claim secure erasure or removal of previous sessions, backups, shell history, provider copies, or separately saved results. Local-session approval is not provider approval. Transient sessions require no persisted consent entry.
-
-After approval, `context` returns bounded `resume:...` handles and, when set through `/career-vacancy`, `vacancy:current`. Handles and complete Core results are process-memory-only and disappear on session/branch replacement or restart. The model sends handles instead of repeating complete source documents in later Core envelopes.
+Local-session consent is not provider consent. Never claim secure erasure of Pi/npm data, prior sessions, backups, shell history, provider copies, or saved results. Returned resume/vacancy handles and complete Core results are process-memory-only, disappear on session/branch replacement or restart, and replace repeated complete source documents in later Core calls.
 
 ## `career_run` commands
 
-All payloads are native JSON values, never JSON strings or complete Core envelopes.
+Payloads are native JSON, never JSON strings or complete Core envelopes.
 
-- `context`: load current original-resume/current-vacancy handles after privacy checks.
-- `consent`: payload is `"approve"` or `"decline"` in a persisted session.
-- `analyze`: `handle` is an original `resume:...` handle.
-- `match`: `handle` is an original resume; the current vacancy is implicit.
-- `suggestion-review`: `handle` is an original resume; payload is `{"suggestions":[{"basis_check_id":"...","start_line":1,"end_line":1,"source_target":"verbatim source text","source_evidence":["verbatim in-range evidence"],"suggestion":"advisory text"}]}`. Suggestions are advisory, never replacements.
-- `replacement-review`: `handle` is an original resume; payload is:
+- `context`: current privacy state and original-resume/current-vacancy handles.
+- `consent`: persisted-session payload is `"approve"` or `"decline"`.
+- `analyze`: original `resume:...` handle.
+- `match`: original resume handle; current vacancy is implicit.
+- `suggestion-review`: original resume plus `{"suggestions":[{"basis_check_id":"...","start_line":1,"end_line":1,"source_target":"verbatim source text","source_evidence":["verbatim in-range evidence"],"suggestion":"advisory text"}]}`. Suggestions are advisory, not replacements.
+- `replacement-review`: original resume plus `{"replacements":[{"basis_check_id":"...","start_line":1,"end_line":1,"source_target":"verbatim source text","source_evidence":["verbatim in-range evidence"],"proposed_replacement":"..."}]}`.
+- `variant-review`: original resume (current vacancy implicit) plus `{"changes":[{"section":"experience","start_line":1,"end_line":1,"original_text":"verbatim source text","proposed_text":"...","resume_evidence":["verbatim resume evidence"],"vacancy_evidence":["verbatim vacancy evidence"]}]}`. End the turn after this call.
+- `materialize`: in a later user-submitted turn, a returned non-PDF `review:...` handle plus `{"selected_change_ids":["change-0001"]}`. PDF handles fail closed.
+- `detail`: any result/review/variant handle plus `{"section":"summary|warnings|checks|evidence|changes|document|raw"}`; add `"item":"change-0001"` (or a suggestion/replacement ID) for one canonical item. If detail is too large, narrow it; never truncate.
 
-```json
-{
-  "replacements": [{
-    "basis_check_id": "...",
-    "start_line": 1,
-    "end_line": 1,
-    "source_target": "verbatim source text",
-    "source_evidence": ["verbatim in-range evidence"],
-    "proposed_replacement": "..."
-  }]
-}
-```
+Projections retain all Core warnings and relevant authority, uncertainty, and discards. Their handles refer to complete unchanged, bounded, ephemeral results available through `detail`, never result files.
 
-- `variant-review`: `handle` is an original resume and the current vacancy is implicit. This command terminates its tool turn; do not issue another tool call in that turn. Payload is:
+## Slash-command and assisted workflows
 
-```json
-{
-  "changes": [{
-    "section": "experience",
-    "start_line": 1,
-    "end_line": 1,
-    "original_text": "verbatim source text",
-    "proposed_text": "...",
-    "resume_evidence": ["verbatim resume evidence"],
-    "vacancy_evidence": ["verbatim vacancy evidence"]
-  }]
-}
-```
+Users may run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, TUI-only `/career-review`, and user-only TUI/RPC `/career-save` without a package-initiated provider/model call. Core-backed commands use the same compatible runtime; local routes are preferred and any exact-package acquisition finishes before private stdin. `/career-application` permits one company/role per session; use `/new` for another. `/career-workbench` only prepares a visible editor prompt containing selected private source and never submits it. `/career-review` invokes neither Core nor a provider; saving invokes no Core/provider/network operation. After a workbench prompt is submitted, prefer `career_run` over raw schema reconstruction.
 
-- `materialize`: `handle` is the returned non-PDF variant `review:...`; only in a later user-submitted turn after explicit selection, payload is `{"selected_change_ids":["change-0001"]}`. PDF review handles fail closed.
-- `detail`: `handle` is any returned result/review/variant handle; payload is `{"section":"summary|warnings|checks|evidence|changes|document|raw"}`. For one exact canonical item add `"item":"change-0001"`, `"suggestion-0001"`, or `"replacement-0001"`. Oversized model-visible detail fails rather than truncating; request a narrower section/item.
+After non-PDF `variant-review`, report every retained canonical ID, discard, and warning, then stop. Tell a TUI user to run `/career-review <review-handle>`: it requires warning/discard acknowledgment, starts every change excluded, shows exact before/after/evidence before inclusion, jointly pages selected exact changes, allows reopening, and separately prepares—but never submits—only the unchanged handle and selected IDs. Materialize only after that later user submission, with exactly those IDs and cached review input. Keep output assisted/non-authoritative; never analyze or match it as original.
 
-Managed projections preserve all Core warnings and the relevant authority/uncertainty/discard surface. Complete authoritative JSON remains in bounded ephemeral memory for detail access and is never written to a result file.
+PDF extraction exposes text, not visual layout: return reviewed manual changes and never claim styling preservation; selection/materialization reject PDF handles. `local_save_guidance` is suggestion-only. Never save or use file-writing tools for a result. After successful non-PDF materialization, you may tell the user to invoke `/career-save <variant-handle>`; only that user action revalidates state, previews the exact artifact/sidecar/marker, requires unchanged preview plus separate confirmation, no-clobber writes a new private assisted variant, and rescans it out of original eligibility. PDF and Windows saves fail closed.
 
-## Deterministic slash commands
+## Advanced raw tools and failures
 
-Users can run `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, the TUI-only `/career-review`, and the user-only TUI/RPC `/career-save` without involving a provider/model. `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the same resolved compatible runtime directly. `/career-review` invokes no Core operation: it reads one current in-memory non-PDF review, collects explicit canonical IDs, and prepares a later editor message. Local routes are preferred; exact package acquisition, when enabled, completes before private stdin opens. `/career-application` owns branch-aware company/role identity and keeps one application per Pi session; use `/new` before another company/role.
-
-`/career-workbench` remains a guided, reviewable provider handoff. It places complete selected private source in Pi's editor but never submits automatically. Prefer `career_run` rather than raw schema reconstruction after the prompt is submitted.
-
-For non-PDF variants, return canonical retained IDs and every discard/warning, then stop mechanically. In TUI, tell the user to run `/career-review <review-handle>`. It requires warnings/discards acknowledgment, defaults every change to excluded, and reveals exact before/after/evidence before an ID can be included. It then pages all selected exact changes together with compact labels, lets the user reopen any selected record directly, and requires a separate final prepare-or-back choice. Only prepare creates, but does not submit, the later handle/ID-only materialization message. Materialize only after that later user submission with exactly those IDs and the cached exact review input. Keep the result assisted/non-authoritative and never feed it into analysis or matching. PDF input remains extracted text only: provide reviewed manual changes; selection and materialization reject its handle, and never claim to preserve visual layout.
-
-A workbench `local_save_guidance` destination is suggestion-only. Never save automatically or use file-writing tools for a materialized result. After successful non-PDF materialization, tell the user they may run `/career-save <variant-handle>` themselves. That command revalidates the original and handle, presents the complete exact artifact/sidecar/marker plan, requires unchanged preview and separate confirmation, writes only a new private assisted variant without clobbering, and rescans it out of original eligibility. PDF and Windows save attempts fail closed.
-
-## Advanced raw tool surface
+For raw or runtime-integration work, first read [`references/cli-contract.md`](references/cli-contract.md). Raw agents are discovery-first and use exact exported/bundled schemas:
 
 - `career_core_discover`: `capabilities`, `operations`, `schema-list`, `schema-export`, `schema-bundle`
 - `career_core_resume`: `evaluate`, `analyze`, `analysis-suggestions-review`, `analysis-replacements-review`, `normalize`, `enrich`, `variant-review`, `variant-materialize`
 - `career_core_job`: `normalize`, `match`
 
-Raw agents remain discovery-first. Run capabilities and operations, then use exact exported/bundled schemas. Raw document tools send `input_json` only to a compatibility-validated runtime stdin with `--input - --format json-compact`; they never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Resolver acquisition is limited to exact `@revazi/career@0.1.1`, happens before private stdin, and is disabled by `PI_OFFLINE=1`.
+Raw document calls pass one exact `input_json` object to compatibility-validated stdin. They never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Acquisition is restricted to exact `@revazi/career@0.1.1`, completes before private stdin, and is disabled by `PI_OFFLINE=1`.
 
-## Failure handling
+Treat `career.pi_error.v1` as adapter/process status, not a career result:
 
-A `career.pi_error.v1` value is adapter/process status, not a deterministic career result.
+- `runtime_unavailable`: install exact `@revazi/career@0.1.1` or configure a reviewed compatible executable; `runtime_acquisition_failed`: do not request npm diagnostics.
+- `managed_contract_invalid`: the selected route/catalog/bundles are incompatible; an invalid `CAREER_CLI_PATH` never falls back, and raw guessed envelopes are not a bypass.
+- On `career_cli_error`, inspect only its validated bounded `career.error.v1`. Correct typed invalid input, but never retry unchanged or guess repairs.
+- `context_required`, stale/missing handles, or session changes require fresh `context`; never reconstruct IDs.
+- `detail_too_large` requires a narrower section/item, not truncation/export. Raw size/line failures likewise return no partial output.
+- `pdf_materialization_unsupported` leaves manual guidance only. For `variant_save_*`, never save for the user, reconstruct content, retry an indeterminate write, or request hidden paths/filesystem errors.
+- Never request raw stderr, paths, environment values, source copies, npm output, or hidden process errors.
 
-- `runtime_unavailable` means no compatible local route was found and acquisition is unavailable/offline; install exact `@revazi/career@0.1.1` or configure a reviewed compatible executable.
-- `runtime_acquisition_failed` means exact-package acquisition failed; do not request npm output, paths, environment values, or raw errors.
-- `managed_contract_invalid` means an explicit selected runtime is incompatible; an invalid `CAREER_CLI_PATH` never falls back.
-- On `career_cli_error`, inspect only the nested, validated, bounded `career.error.v1`.
-- Correct typed invalid input before trying again; do not repair by guesswork or retry unchanged validation failures.
-- Raw tools may still return `result_too_large` or `result_too_many_lines`; do not request or use partial output.
-- `career_run` `managed_contract_invalid` means the selected operation catalog/schema bundles are incompatible; do not bypass discovery or fall back to raw guessed envelopes.
-- `context_required`, stale/missing handles, and session changes require a fresh `context`, not reconstructed identifiers.
-- `detail_too_large` requires a narrower section or exact item; it does not authorize truncation or result-file export.
-- `pdf_materialization_unsupported` means the reviewed PDF changes remain manual-application guidance; do not bypass it with reconstructed envelopes.
-- `variant_save_*` failures mean the user-only local save was cancelled, stale, unsafe, colliding, unsupported, or unverified. Do not invoke saving for the user, reconstruct the artifact, retry an indeterminate write, or request hidden paths/raw filesystem errors.
-- Do not ask for raw stderr, paths, environment values, source copies, or hidden process errors.
+## Resume operations
 
-## Resume operation rules
+### `evaluate` and `analyze`
 
-### `evaluate`
+`evaluate` covers recognized core-section headers only. Preserve `limited_evaluation_scope` and parser uncertainty; never call it complete quality, proprietary ATS/layout analysis, or a hiring prediction. For full readiness use `analyze`, reading raw and confidence-adjusted scores, checks, evidence, `basis_check_id`, actions, warnings, and limitations together. Treat inconclusive/provisional findings as unverified. Analysis independently normalizes only originals; assisted documents cannot enter.
 
-This is recognized core-section header coverage only. Preserve `limited_evaluation_scope` and parser uncertainty. Never present it as complete resume quality, proprietary ATS compatibility, visual-layout inspection, or a hiring prediction. Use `analyze` for full deterministic readiness analysis.
+### `normalize` and `enrich`
 
-### `analyze`
+Preserve source-grounded fields/spans, confidence, statuses, warnings, and `enrichment_request`; `not_detected` is not confirmed absence. For an eligible deterministic request only, `enrich` validates an already supplied, schema-exact, source-grounded proposal; it neither generates nor calls a provider. Target only eligible empty fields with source values, preserve the authoritative baseline, and keep the assisted document separate from analysis/matching.
 
-Read `raw_score`, confidence-adjusted `score`, checks, evidence, `basis_check_id`, actions, warnings, and limitations together. Treat `inconclusive` checks and `provisional` findings as unverified. It independently scores only deterministic normalization of the original input; assisted documents cannot enter.
+### Analysis proposal review
 
-### `normalize`
+For both `analysis-suggestions-review` and `analysis-replacements-review`, preserve the rerun `baseline_analysis`, canonical action/status, evidence, discard codes, warnings, and Core order. Copy each `source_target` verbatim from its declared lines (prefer one complete line), with every `source_evidence` item verbatim inside those bounds. Call once; report discards and stop—no automatic repair/retry. Exact occurrence is not factual or rewrite-safety certification.
 
-Preserve source-grounded fields, source spans, confidence, statuses, warnings, and `enrichment_request`. `not_detected` is not confirmed absence.
+Schema-bounded retained suggestions remain advisory, bound to current failed canonical actions, and create no replacement/selection/mutation/export/materialization semantics. Replacements return canonical before/after text for non-authoritative diff display; user answers remain claims, not Core-certified facts, and create no candidate, selection, application, persistence, source mutation, or materialization path.
 
-### `enrich`
+### Variant review and materialization
 
-This validates an explicit, already supplied source-grounded external proposal; it does not generate one or call a provider. Use only when the deterministic request is eligible and the proposal exactly matches the exported schema. Values must come from source text and target only eligible empty fields. Preserve the unchanged authoritative `baseline`; keep `assisted_document` separate and never feed it into authoritative analysis or matching.
+Review only the caller's bounded proposal. Keep Core canonical IDs/discard codes; grounding is not factual certification, and never repair discards or select for the user. Materialize only explicitly selected canonical IDs: Core revalidates the complete proposal and applies only those changes. Preserve the exact baseline and assisted/non-authoritative labels; never overwrite the original, analyze/match the result, or initiate persistence.
 
-### `analysis-suggestions-review`
+## Job operations
 
-This reruns and preserves the deterministic `baseline_analysis` while reviewing at most the schema-bounded source-targeted suggestions. Retained suggestions are assisted/non-authoritative and bound to current failed canonical actions. Copy each `source_target` verbatim from inside the declared source lines, never use a descriptive label, prefer one complete source line, and require each `source_evidence` item to occur verbatim within the same bounds. Make one review call; report discarded items and stop instead of automatically repairing or retrying them. Exact occurrence does not prove factual entailment or rewrite safety. The v1 `suggestion` is advisory text, not a replacement. Do not create selection, mutation, export, or materialization semantics.
+`normalize` accepts caller-supplied text only—never fetch a URL. Preserve required/preferred classes, spans, confidence, statuses, metadata, unclassified lines, and warnings; lexical classification is uncertain and `not_detected` unverified.
 
-### `analysis-replacements-review`
-
-This reruns and preserves `baseline_analysis` and returns canonical exact before/proposed-after values for non-authoritative diff display. Copy each `source_target` verbatim from inside the declared source lines, prefer one complete source line, and keep every `source_evidence` item inside those bounds. Make one review call; report discarded items and stop instead of automatically repairing or retrying them. Preserve action/status, evidence, discard codes, and warnings. Exact occurrence does not certify factuality or rewrite safety. User answers gathered in a prior question-led turn remain user-supplied claims, not Core-certified facts. It creates no candidate, selection, application, export, persistence, source mutation, or materialization path.
-
-### `variant-review`
-
-Review only the bounded external proposal supplied by the caller. Use Core-assigned canonical retained-change IDs and discard codes. Exact evidence occurrence is structural grounding, not factual certification. Do not repair discarded changes or select changes for the user.
-
-### `variant-materialize`
-
-Call only after the user explicitly selects canonical IDs. Core revalidates the complete proposal and applies only selected changes. Preserve the exact baseline and assisted/non-authoritative labels. Never overwrite the original automatically or pass the assisted result to `analyze` or `job match`. Do not initiate persistence; only the user may run the returned `/career-save <variant-handle>` command for separate exact local approval.
-
-## Job operation rules
-
-### `normalize`
-
-Provide caller-supplied plain text only; never fetch a vacancy URL. Preserve required/preferred classifications, source spans, confidence, statuses, metadata, unclassified lines, and warnings. Lexical classification is not semantic certainty, and `not_detected` remains unverified.
-
-### `match`
-
-Use original resume and original job inputs matching the exported schema. Matching independently reruns both deterministic baselines and cannot consume assisted documents.
-
-- Distinguish category `raw_score` from confidence-bounded `score`.
-- Keep `confirmed_match`, `partial_match`, `likely_missing`, and `unverified` distinct.
-- Cite resume/job spans when present and preserve null spans for derived signals.
-- Accept only `normalized_exact` and returned `conservative_alias` skill equivalence.
-- Never substitute adjacent technologies or repair a conservative false negative.
-- Preserve top strengths/gaps, confidence bounds, warnings, and provisional recommendation status.
-- Treat `apply_now`, `apply_after_small_edits`, and `improve_first` as bounded workflow guidance, never a hiring prediction.
-- Review `unassessed_required_qualifications`; do not infer support or absence.
+`match` accepts original resume/job schema inputs and reruns both baselines; assisted documents are forbidden. Distinguish raw from confidence-bounded scores and `confirmed_match`, `partial_match`, `likely_missing`, and `unverified`; preserve spans (including null derived spans), top strengths/gaps, confidence bounds, warnings, provisional recommendation, and `unassessed_required_qualifications` without inferring support or absence. Only returned `normalized_exact`/`conservative_alias` skill equivalence is valid; never substitute adjacent technologies or repair a conservative false negative. `apply_now`, `apply_after_small_edits`, and `improve_first` are bounded workflow guidance, not hiring predictions.
 
 ## Output discipline
 
-- Raw Career Core tool JSON is authoritative and complete. `career_run` content is a bounded adapter projection; its `result:...`, `review:...`, or `variant:...` handle refers to the complete unchanged Core result held in ephemeral memory.
-- Use every warning, evidence item, source span, basis ID, confidence value, uncertainty status, baseline boundary, discard code, limitation, and assisted/non-authoritative label without contradiction or silent repair.
-- Do not duplicate a complete unchanged `baseline_analysis` in prose each time a review embeds it. State that the baseline was preserved; reproduce every warning, discard code, and limitation exactly; and hydrate only the scores, evidence, source spans, or canonical items needed for the request. The ephemeral complete Core result remains authoritative for the current process.
-- Keep operational narration minimal. Do not print discovered schema JSON, repeat private source text beyond bounded evidence snippets, or narrate repair attempts unless the user asks.
-- Do not reorder Core-retained items, truncate tool output, silently repair, upgrade uncertainty into fact, or claim Core generated prose it only reviewed.
-- Do not modify source documents. A user-approved `/career-save` creates a new assisted artifact and sidecar; it never mutates an original.
-- Never place API keys in tool input, output, files, or logs.
+- Raw JSON is authoritative and complete; managed content is a bounded projection whose handle retains the unchanged complete result.
+- Preserve without contradiction every warning, relevant evidence/span, basis ID, confidence/uncertainty, baseline boundary, discard, limitation, order, and authority label. State that repeated review baselines were preserved instead of reproducing them; hydrate only needed detail.
+- Keep narration concise. Do not print schema JSON, duplicate private source beyond bounded evidence, narrate repair attempts unless asked, truncate/reorder output, silently repair, upgrade uncertainty, or claim Core generated prose it only reviewed.
+- Never modify originals, initiate saving, or place API keys in tool input, output, files, or logs. Only user-approved `/career-save` may create a new assisted artifact/sidecar.
 
-See [`references/cli-contract.md`](references/cli-contract.md) for external runtime selection and process details. Package installation and removal are in [`../../README.md`](../../README.md).
+Package installation/removal guidance is in [`../../README.md`](../../README.md).
