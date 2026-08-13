@@ -26,20 +26,19 @@ process.env.PATH = emptyPath;
 process.env.PI_TELEMETRY = "0";
 process.env.PI_SKIP_VERSION_CHECK = "1";
 
+assert.ok(["darwin", "linux"].includes(process.platform), "pi-career package acceptance requires macOS or Linux");
 if (process.env.EXPECTED_RUNTIME_TARGET !== undefined) {
   const glibcRuntime = process.platform === "linux"
     ? process.report.getReport()?.header?.glibcVersionRuntime
     : undefined;
   const libc = process.platform === "linux"
     ? typeof glibcRuntime === "string" && glibcRuntime.length > 0 ? "gnu" : "musl"
-    : process.platform === "win32" ? "msvc" : undefined;
+    : undefined;
   const currentTarget = process.platform === "darwin" && ["arm64", "x64"].includes(process.arch)
     ? `darwin-${process.arch}`
     : process.platform === "linux" && ["arm64", "x64"].includes(process.arch)
       ? `linux-${process.arch}-${libc}`
-      : process.platform === "win32" && ["arm64", "x64"].includes(process.arch)
-        ? `win32-${process.arch}-${libc}`
-        : undefined;
+      : undefined;
   assert.equal(currentTarget, process.env.EXPECTED_RUNTIME_TARGET, "runner does not match claimed target");
 }
 

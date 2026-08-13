@@ -60,6 +60,26 @@ function resumeRequest(value) {
   };
 }
 
+test("unsupported platforms reject injected runtimes before private stdin can open", async () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  assert.ok(platformDescriptor?.configurable);
+  Object.defineProperty(process, "platform", { ...platformDescriptor, value: "win32" });
+  try {
+    const payload = await expectAdapterError(
+      invokeCareerCli(
+        resumeRequest({ text: "SYNTHETIC_PRIVATE_INPUT_MUST_NOT_OPEN" }),
+        undefined,
+        { executable },
+      ),
+      "unsupported_platform",
+    );
+    assert.deepEqual(Object.keys(payload).sort(), ["code", "message", "schema_version"]);
+    assert.equal(payload.message, "pi-career supports only macOS and Linux.");
+  } finally {
+    Object.defineProperty(process, "platform", platformDescriptor);
+  }
+});
+
 test("uses direct argv and exact stdin without shell interpolation or payload files", async () => {
   const inputJson = ` {"schema_version":"synthetic.input.v1","text":"$(touch ${shellMarker})"} `;
   const beforeEntries = await readdir(temporaryDirectory);

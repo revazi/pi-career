@@ -66,7 +66,6 @@ interface VariantSaveOptions {
   agentDir: string;
   now: () => Date;
   uuid: () => string;
-  platform?: NodeJS.Platform;
   fs?: VariantSaveFileSystem;
 }
 
@@ -219,13 +218,11 @@ function fileNameFor(candidate: MaterializedVariantCandidate, createdAt: string,
 
 export class VariantSaveWorkflow {
   private readonly fs: VariantSaveFileSystem;
-  private readonly platform: NodeJS.Platform;
   private readonly receipts = new Map<string, PublishedReceipt>();
   private readonly rootLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly options: VariantSaveOptions) {
     this.fs = options.fs ?? DEFAULT_FS;
-    this.platform = options.platform ?? process.platform;
   }
 
   clearReceipts(): void {
@@ -237,7 +234,6 @@ export class VariantSaveWorkflow {
     ctx: ExtensionCommandContext,
     resolveCandidate: () => MaterializedVariantCandidate,
   ): Promise<VariantSaveOutcome> {
-    if (this.platform === "win32") throw careerRunError("variant_save_platform_unsupported");
     if (!ctx.isIdle()) throw careerRunError("variant_save_unavailable");
     const candidate = resolveCandidate();
     const existing = this.receipts.get(handle);

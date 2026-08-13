@@ -2,7 +2,7 @@
 name: career-core
 description: Resolves and invokes a compatible deterministic Career Core runtime for source-grounded resume evaluation/normalization/readiness analysis, reviewed external suggestions and replacements, assisted-variant review/materialization, job normalization, and conservative matching. Use for supported career-document analysis or local integration work.
 license: MIT OR Apache-2.0
-compatibility: Requires Pi with pi-career and a compatible Career Core route; reviewed @revazi/career@0.1.1 targets are ARM64/x64 macOS, GNU/musl Linux, and MSVC Windows. User-confirmed local variant saving is POSIX-only.
+compatibility: Requires Pi with pi-career on ARM64/x64 macOS or GNU/musl Linux and a compatible Career Core route. Windows is unsupported.
 metadata:
   author: revazi
   version: "0.2.0"
@@ -42,7 +42,7 @@ Users may run `/career-setup`, `/career-library`, `/career-application`, `/caree
 
 After non-PDF `variant-review`, report every retained canonical ID, discard, and warning, then stop. Tell a TUI user to run `/career-review <review-handle>`: it requires warning/discard acknowledgment, starts every change excluded, shows exact before/after/evidence before inclusion, jointly pages selected exact changes, allows reopening, and separately prepares—but never submits—only the unchanged handle and selected IDs. Materialize only after that later user submission, with exactly those IDs and cached review input. Keep output assisted/non-authoritative; never analyze or match it as original.
 
-PDF extraction exposes text, not visual layout: return reviewed manual changes and never claim styling preservation; selection/materialization reject PDF handles. `local_save_guidance` is suggestion-only. Never save or use file-writing tools for a result. After successful non-PDF materialization, you may tell the user to invoke `/career-save <variant-handle>`; only that user action revalidates state, previews the exact artifact/sidecar/marker, requires unchanged preview plus separate confirmation, no-clobber writes a new private assisted variant, and rescans it out of original eligibility. PDF and Windows saves fail closed.
+PDF extraction exposes text, not visual layout: return reviewed manual changes and never claim styling preservation; selection/materialization reject PDF handles. `local_save_guidance` is suggestion-only. Never save or use file-writing tools for a result. After successful non-PDF materialization, you may tell the user to invoke `/career-save <variant-handle>`; only that user action revalidates state, previews the exact artifact/sidecar/marker, requires unchanged preview plus separate confirmation, no-clobber writes a new private assisted variant, and rescans it out of original eligibility. PDF saves fail closed.
 
 ## Advanced raw tools and failures
 
@@ -56,6 +56,7 @@ Raw document calls pass one exact `input_json` object to compatibility-validated
 
 Treat `career.pi_error.v1` as adapter/process status, not a career result:
 
+- `unsupported_platform`: pi-career runs only on macOS/Linux; do not attempt another route.
 - `runtime_unavailable`: install exact `@revazi/career@0.1.1` or configure a reviewed compatible executable; `runtime_acquisition_failed`: do not request npm diagnostics.
 - `managed_contract_invalid`: the selected route/catalog/bundles are incompatible; an invalid `CAREER_CLI_PATH` never falls back, and raw guessed envelopes are not a bypass.
 - On `career_cli_error`, inspect only its validated bounded `career.error.v1`. Correct typed invalid input, but never retry unchanged or guess repairs.

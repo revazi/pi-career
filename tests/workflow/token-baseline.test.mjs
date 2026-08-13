@@ -13,6 +13,7 @@ import { writeJsonOutput } from "../../scripts/lib/json-output.mjs";
 import { collectTokenBenchmark } from "../../scripts/token-benchmark.mjs";
 import {
   assertMinimumReduction,
+  assertNoWorkflowRegression,
   assertOptimizationDeltas,
   verifyTokenOptimizationPhase,
 } from "../../scripts/token-benchmark-compare.mjs";
@@ -73,7 +74,7 @@ test("historical managed-adapter token evidence remains immutable", () => {
   );
 });
 
-test("token-optimization phase reproduces its frozen current snapshot", async () => {
+test("token-optimization phase verifies frozen evidence and gates the current benchmark", async () => {
   const current = collectTokenBenchmark();
   const comparison = await verifyTokenOptimizationPhase();
 
@@ -105,8 +106,9 @@ test("token-optimization phase reproduces its frozen current snapshot", async ()
   } else {
     assert.ok(comparison.aggregate_workflows.reduction_percent >= 10);
   }
-  assert.equal(comparison.gates.current_snapshot_reproduced, phaseManifest.status !== "optimizing");
   assert.equal(comparison.gates.immutable_baseline_history_verified, phaseManifest.status !== "before_frozen");
+  assert.equal(comparison.gates.frozen_after_snapshot_verified, phaseManifest.status === "after_frozen");
+  assert.equal(comparison.gates.current_head_no_regression, phaseManifest.status === "after_frozen");
   assert.equal(comparison.gates.baseline_source_trees_verified, true);
   assert.equal(comparison.gates.semantic_invariants_preserved, true);
   assert.equal(comparison.gates.context_budgets_met, true);
@@ -130,15 +132,15 @@ test("token-optimization phase reproduces its frozen current snapshot", async ()
       afterSnapshot.benchmark.surface_sha256,
       "96361b5328ddfd68d9b5ba5dc4d9cec59888f6e84f8dead80a09c4347193ad83",
     );
-    assert.deepEqual(current, afterSnapshot.benchmark);
-    assert.deepEqual(comparison.aggregate_workflows, {
+    assert.deepEqual(comparison.frozen_optimization.aggregate, {
       before: 25652,
       current: 21552,
       delta: -4100,
       reduction_percent: 15.98,
     });
     assert.deepEqual(
-      Object.fromEntries(Object.entries(comparison.workflows).map(([name, value]) => [name, value.delta])),
+      Object.fromEntries(Object.entries(comparison.frozen_optimization.workflows)
+        .map(([name, value]) => [name, value.delta])),
       {
         "managed-analysis-with-evidence": -820,
         "managed-match": -820,
@@ -147,6 +149,10 @@ test("token-optimization phase reproduces its frozen current snapshot", async ()
         "tailored-variant-materialization": -820,
       },
     );
+    assert.ok(comparison.current_vs_after.aggregate.delta <= 0);
+    assert.ok(Object.values(comparison.current_vs_after.workflows)
+      .every((workflow) => workflow.delta <= 0));
+    assert.ok(comparison.aggregate_workflows.current <= 21552);
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(beforeSnapshot.benchmark.workflows).map(([name, value]) => [
@@ -205,6 +211,21 @@ test("optimizing phase refuses a self-declared commit without immutable baseline
   }
 });
 
+function benchmarkWithMeasurementDelta(reference, name, delta) {
+  const benchmark = structuredClone(reference);
+  benchmark.surface_sha256 = delta < 0 ? "b".repeat(64) : "c".repeat(64);
+  benchmark.measurements[name] += delta;
+  assert.ok(benchmark.measurements[name] >= 0);
+  for (const workflow of Object.values(benchmark.workflows)) {
+    workflow.model_visible_tokens = 0;
+    for (const component of workflow.components) {
+      component.tokens = benchmark.measurements[component.measurement] * component.occurrences;
+      workflow.model_visible_tokens += component.tokens;
+    }
+  }
+  return benchmark;
+}
+
 function benchmarkWithScale(scale) {
   const benchmark = structuredClone(beforeSnapshot.benchmark);
   benchmark.surface_sha256 = "a".repeat(64);
@@ -220,9 +241,40 @@ function benchmarkWithScale(scale) {
   return benchmark;
 }
 
+test("post-study current source may improve but shape drift or after-snapshot regression fails closed", async () => {
+  const improved = benchmarkWithMeasurementDelta(
+    afterSnapshot.benchmark,
+    "skill-content/career-core-full",
+    -1,
+  );
+  assert.notDeepEqual(improved, afterSnapshot.benchmark);
+  const comparison = await verifyTokenOptimizationPhase({ current: improved });
+  assert.equal(comparison.gates.frozen_after_snapshot_verified, true);
+  assert.equal(comparison.gates.current_head_no_regression, true);
+  assert.ok(comparison.current_vs_after.aggregate.delta < 0);
+
+  const regressed = benchmarkWithMeasurementDelta(
+    afterSnapshot.benchmark,
+    "skill-content/career-core-full",
+    1,
+  );
+  await assert.rejects(
+    verifyTokenOptimizationPhase({ current: regressed }),
+    /exceeds the workflow regression allowance/,
+  );
+
+  const shapeDrift = structuredClone(improved);
+  shapeDrift.measurements["tool-call/unreviewed-extra"] = 0;
+  await assert.rejects(
+    verifyTokenOptimizationPhase({ current: shapeDrift }),
+    /Expected values to be strictly deep-equal/,
+  );
+});
+
 test("optimizing deltas require stable shape, exact aggregate savings, and no workflow regression", () => {
   const optimized = benchmarkWithScale(0.8);
   assert.doesNotThrow(() => assertOptimizationDeltas(beforeSnapshot.benchmark, optimized));
+  assert.doesNotThrow(() => assertNoWorkflowRegression(afterSnapshot.benchmark, afterSnapshot.benchmark));
 
   const regressed = benchmarkWithScale(0.5);
   regressed.measurements["tool-call/match"] = 3000;

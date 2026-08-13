@@ -12,7 +12,7 @@ Token usage is a product constraint for an agent tool, not an incidental impleme
 
 1. **`before_frozen`:** [`baselines/token-optimization-v1-before.json`](baselines/token-optimization-v1-before.json) remains byte-hash-pinned to the post-save-workflow production source and Agent Skill at `c7d76344ccdfd8a370c8c69467d2022d9aea5d2e`. Its exact `src/` and `skills/` Git tree IDs are part of the snapshot and phase manifest; the baseline change contains no token optimization.
 2. **`optimizing`:** `baseline_history_commit` names the reviewed baseline merge. The gate reads the before snapshot and before-phase manifest bytes back from immutable Git history, verifies that commit retained the exact `c7d7634…` source/skill trees, requires unchanged corpus/workflow shape and invariants, and enforces every reduction/regression/budget target without requiring a self-referential after snapshot.
-3. **`after_frozen` (current/final phase):** [`baselines/token-optimization-v1-after.json`](baselines/token-optimization-v1-after.json) is bound to merged optimization commit `7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990` and its exact source/Skill trees. Its SHA-256 is `637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1`. The gate reproduces it from the checked-out source and retains every immutable-history, shape, invariant, budget, reduction, and no-regression check. The finalized aggregate is 25,652 → 21,552 workflow tokens (15.98% reduction), with no workflow regression.
+3. **`after_frozen` (current/final phase):** [`baselines/token-optimization-v1-after.json`](baselines/token-optimization-v1-after.json) is bound to merged optimization commit `7ed36c434bc4e6fd4d364cb77d5bab8f8fdc7990` and its exact source/Skill trees. Its SHA-256 is `637f42dc4aa02799bd2034b03bb8ae1774bbf364e1044f7dd23f053eb6d3d8c1`. The gate verifies those frozen bytes, trees, source commit, manifest, ancestry, comparability, and exact optimization deltas from immutable Git history. Later current source may differ only while measurement/workflow shape, invariants, and budgets remain unchanged and no workflow gains tokens relative to that frozen after evidence. The finalized aggregate is 25,652 → 21,552 workflow tokens (15.98% reduction), with no workflow regression.
 
 The predeclared after-phase targets are:
 
@@ -52,7 +52,7 @@ npm run bench:tokens
 npm run bench:tokens -- --output /tmp/pi-career-token-current.json
 ```
 
-Verify the active phase, immutable snapshot hash, exact reproduction, budgets, invariants, and before/current deltas:
+Verify the active phase, immutable frozen evidence and deltas, current shape/budgets/invariants, and no-regression comparison against the frozen after snapshot:
 
 ```bash
 npm run bench:tokens:compare

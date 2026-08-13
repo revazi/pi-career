@@ -2,11 +2,16 @@
 
 ## Unreleased
 
+### Breaking
+
+- Removed Windows support. Package metadata now permits installation only on macOS/Linux, and direct local/Git extension initialization registers no command/tool and fails with stable payload-free `unsupported_platform` guidance before runtime route work, acquisition, compatibility probing, or private stdin.
+
 ### Changed
 
+- Decoupled immutable `7ed36c4…` after-study evidence from later source: frozen bytes/trees/deltas remain exact, while current measurements may improve only with unchanged shape/invariants/budgets and no workflow regression relative to that snapshot.
 - Consolidated the model-visible Career Skill while preserving safety invariants and avoiding workflow regressions; the frozen before/after evidence records an aggregate reduction from 25,652 to 21,552 workflow tokens (15.98%).
 - Added a Git-history/source-tree/hash-bound before/optimizing/after token-optimization benchmark phase with Pi Skill discovery/full-load context, actual managed serialization parity, direct tool-call/result/detail/editor surfaces, and independent workflows; semantic/privacy gates prevent savings by dropping required context.
-- Added user-only TUI/RPC `/career-save` for exact preview and separately confirmed no-clobber saving of current POSIX Markdown/text materializations with private managed-directory markers, strict assisted/non-authoritative v2 sidecars, in-memory idempotency, and immediate exclusion-verifying rescan; PDF and Windows saves fail closed.
+- Added user-only TUI/RPC `/career-save` for exact preview and separately confirmed no-clobber saving of current Markdown/text materializations on supported macOS/Linux systems, with private managed-directory markers, strict assisted/non-authoritative v2 sidecars, in-memory idempotency, and immediate exclusion-verifying rescan; PDF saves fail closed.
 - Changed assisted-sidecar scanning to quarantine malformed, missing-in-managed-root, duplicate-key, edited, or hash-mismatched artifacts instead of allowing fallback to original analysis/matching eligibility.
 - Expanded the frozen synthetic token benchmark across managed match, suggestion/replacement review, materialization, and evidence/change/document detail hydration outputs, all under explicit common-output budgets.
 - Added mocked release-automation regressions for checked-in hosted-gate invocation, bounded registry propagation, exact npm publish/SLSA attestation formats, fail-closed responses, and publication-to-release ordering.

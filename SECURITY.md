@@ -6,7 +6,7 @@ Do not open an ordinary issue with vulnerability details. Use a private Security
 
 ## External runtime boundary
 
-pi-career packages no native Career Core binary and has no runtime npm dependency or lifecycle script. Resolution order is fixed:
+pi-career packages no native Career Core binary and has no runtime npm dependency or lifecycle script. It supports only macOS and Linux. On an unsupported platform, extension initialization registers no command or tool and fails with one stable payload-free `unsupported_platform` error before explicit/PATH resolution, package validation, acquisition, compatibility probing, or private stdin. On supported platforms, resolution order is fixed:
 
 1. bounded absolute `CAREER_CLI_PATH`;
 2. `career` on PATH;
@@ -18,9 +18,9 @@ There is no sibling-checkout, Cargo, source-build, arbitrary executable download
 
 Every caller-controlled route must pass the exact managed Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens. Compatibility probes contain no private document input. An automatically selected executable that later fails before its operation emits `spawn` may advance once; cancellation, timeout, and any already-started operation never retry another route.
 
-The package-local/acquired `@revazi/career` launcher is invoked directly with the real Node executable. Pi-career requires the exact v2 launcher manifest and ordered eight-package catalog. The launcher owns native target/libc, lockstep package identity, provenance, regular-file type, Unix mode or Windows file invariant, size, format, architecture, and SHA-256 checks. The reviewed targets are ARM64/x64 macOS, GNU and musl Linux, and MSVC Windows; pi-career does not duplicate the launcher's native verification algorithms.
+The package-local/acquired `@revazi/career` launcher is invoked directly with the real Node executable. Pi-career requires the pinned launcher's exact v2 manifest and ordered eight-package catalog. Its two Windows package entries remain upstream compatibility/provenance metadata and do not imply pi-career support. The launcher owns native target/libc, lockstep package identity, provenance, regular-file type and mode, size, format, architecture, and SHA-256 checks for pi-career's six supported macOS/Linux targets; pi-career does not duplicate those native verification algorithms.
 
-Acquisition invokes the npm CLI derived from real `process.execPath`, rejects ambiguous/conflicting `npm_execpath`, sanitizes npm tree/registry/script-shell overrides, pins the canonical registry/package/version, includes optional native packages, and disables scripts. It never invokes PATH-selected npm/npx. Windows acquisition additionally derives npm from the real Windows Node layout, validates `SystemRoot`/`System32/cmd.exe`, rejects conflicting `ComSpec`, and never executes a PATH `.cmd` shim as the Career route. Acquisition receives no private stdin, has fixed timeout/stdout/stderr bounds, and uses detached process-group termination—including Windows `CTRL_BREAK`—for descendants. npm cache and `_npx` data may remain afterward; this is not secure erasure.
+Acquisition invokes the npm CLI derived from the real Unix `process.execPath` installation, rejects ambiguous/conflicting `npm_execpath`, sanitizes npm tree/registry/script-shell overrides, pins `/bin/sh` and the canonical registry/package/version, includes optional native packages, and disables scripts. It never invokes PATH-selected npm/npx. Acquisition receives no private stdin, has fixed timeout/stdout/stderr bounds, and uses detached Unix process-group termination for descendants. npm cache and `_npx` data may remain afterward; this is not secure erasure.
 
 ## Process and data boundary
 
@@ -46,7 +46,7 @@ This is not secure erasure and does not remove shell history, npm cache, backups
 
 ## Installation and supply chain
 
-Pi packages execute with the user's permissions. Install only a reviewed clean local checkout, public Git source pinned to a reviewed full commit, or public npm package pinned to an exact reviewed version. Review the tracked TypeScript bundle, external resolver, package allowlist, registry metadata, and native package CI/provenance. Normal pi-career installation has no npm lifecycle script, post-install runtime download, Cargo/Rust build, packaged native artifact, or production/optional runtime dependency. The generated PDF worker contains lockfile-pinned `unpdf` 1.8.0 and its included license notice.
+Pi packages execute with the user's permissions. Install only a reviewed clean local checkout, public Git source pinned to a reviewed full commit, or public npm package pinned to an exact reviewed version. Review the tracked TypeScript bundle, external resolver, package allowlist, registry metadata, and native package CI/provenance. Normal pi-career installation declares `os: ["darwin", "linux"]` and has no npm lifecycle script, post-install runtime download, Cargo/Rust build, packaged native artifact, or production/optional runtime dependency. The generated PDF worker contains lockfile-pinned `unpdf` 1.8.0 and its included license notice.
 
 `npm run audit:production` and `npm run audit:full` must both report zero vulnerabilities at explicit `--audit-level=low`. Audit and pack checks derive npm from real Node, verify inherited `npm_execpath`, remove tree/severity overrides, and reject duplicate decoded JSON keys. Package extraction uses verified root-owned `/usr/bin/tar`. The package check proves the tarball has no `runtime/`, native binary, `node_modules`, or Pi package contents and declares exactly four wildcard external peers. `check:publish` performs no publication.
 

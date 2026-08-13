@@ -8,6 +8,7 @@ export interface CareerCliErrorV1 {
 }
 
 export type AdapterErrorCode =
+  | "unsupported_platform"
   | "invalid_request"
   | "invalid_executable_override"
   | "managed_contract_invalid"
@@ -38,6 +39,7 @@ interface CareerPiErrorV1 {
 }
 
 const ERROR_MESSAGES: Readonly<Record<AdapterErrorCode, string>> = {
+  unsupported_platform: "pi-career supports only macOS and Linux.",
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
   managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",

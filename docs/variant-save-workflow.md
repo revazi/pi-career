@@ -32,7 +32,7 @@ The save implementation does not add:
 - application workspace manifests, vacancy files, cover letters, notes, or application-root configuration;
 - session entries containing artifact text, destination paths, save previews, or save receipts;
 - lifecycle scripts, native code, external commands, shell execution, package acquisition, or other network behavior; or
-- Windows save support until an independently reviewed private-ACL and crash-consistency design can meet the same guarantees without relying on ignored POSIX mode bits.
+- execution outside pi-career's supported macOS/Linux platforms; Windows is unsupported package-wide, not a deferred save-only feature.
 
 Saving does not make assisted text authoritative, factually certified, safe to submit, or eligible for Career Core analysis or matching.
 
@@ -100,7 +100,7 @@ Before preview, the save root must be one of:
 - an owner-controlled, non-symlink, canonical `0700` directory containing a valid matching marker; or
 - an owner-controlled, non-symlink, canonical, empty `0700` directory that the preview explicitly proposes to initialize with the marker.
 
-A non-empty unmarked directory is never adopted. Existing permissions are never changed silently. On POSIX, the directory owner must equal the current effective user and exact permission bits must be `0700`. The implementation does not rely on `umask`. Save fails closed on Windows because Node's POSIX mode arguments do not establish the required private ACL contract there.
+A non-empty unmarked directory is never adopted. Existing permissions are never changed silently. On supported macOS/Linux systems, the directory owner must equal the current effective user and exact permission bits must be `0700`. The implementation does not rely on `umask`; pi-career's package-level platform boundary excludes Windows before this workflow can run.
 
 ## Artifact naming and content
 
@@ -250,7 +250,6 @@ The implementation uses bounded workflow error codes including:
 - `variant_save_collision`
 - `variant_save_verification_failed`
 - `variant_save_status_unknown`
-- `variant_save_platform_unsupported`
 
 Errors expose no resume/vacancy/result text, sidecar content, absolute path, environment, temporary name, inode, hash, raw filesystem error, or stack. The exact approved path and hashes are shown only in the user-facing preview/confirmation/success UI. Nothing is logged at the adapter boundary.
 
@@ -275,7 +274,7 @@ The package must not claim secure erasure, filesystem immutability, malicious sa
 | Oversized memory/UI/file use | Fixed artifact, sidecar, marker, and preview byte ceilings; bounded normal scanner verification. |
 | Private data leaks through errors or logs | Stable payload-free errors and no source/result/path/hash/raw-error logging. |
 | Unexpected provider, Core, or network activity | Saving uses only current in-memory materialization and local Node filesystem APIs. |
-| POSIX permissions claimed on Windows | V1 saving fails closed on Windows pending a reviewed ACL design. |
+| Unsupported operating system reaches save code | The package `os` allowlist and adapter-level `unsupported_platform` guard exclude it before runtime or save workflow use. |
 | User edits a saved assisted file | V2 artifact hash mismatch quarantines it; pi-career never silently updates its sidecar. |
 | Cleanup is mistaken for erasure | No automatic deletion or secure-erasure claim; retention surfaces are documented. |
 
@@ -287,7 +286,7 @@ Tests use synthetic Markdown/text only and must cover:
 2. PDF, stale original, changed original, foreign session, evicted handle, malformed Unicode, empty text, and oversized text rejection;
 3. exact canonical preview-envelope bytes and TUI/RPC unchanged-preview plus separate-confirm success paths;
 4. cancellation, changed preview, false confirmation, missing UI, print mode, and JSON mode with zero filesystem mutation;
-5. exact package-derived direct-child root behavior and rejection of outside, nested, root-equal, stale, symlinked, wrong-owner, wrong-mode, non-empty unmarked, and Windows destinations;
+5. exact package-derived direct-child root behavior and rejection of outside, nested, root-equal, stale, symlinked, wrong-owner, wrong-mode, and non-empty unmarked destinations;
 6. first-use directory/marker preview and initialization with exact `0700`/`0600` modes;
 7. exact artifact bytes with no BOM/newline/format mutation and exact canonical v2 sidecar bytes;
 8. no-clobber behavior for artifact, sidecar, marker, temporary, symlink, hard-link, and concurrent collision cases;
@@ -299,6 +298,6 @@ Tests use synthetic Markdown/text only and must cover:
 14. no Core invocation, provider call, network call, child process, session entry, full-result file, raw error, or log;
 15. removal/config changes leaving user files untouched with documented no-erasure semantics;
 16. deterministic package checks proving no synthetic saved artifacts or new runtime dependencies enter the npm tarball; and
-17. Linux and macOS local filesystem acceptance, with Windows explicitly failing closed until separately authorized.
+17. Linux and macOS local filesystem acceptance under the package-wide supported-platform boundary.
 
 The normal repository verification ladder and changed-file security/architecture review remain mandatory before merge.

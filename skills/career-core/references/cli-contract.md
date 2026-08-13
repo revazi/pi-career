@@ -4,7 +4,7 @@ Use this reference only after reading the parent skill. Career Core remains auth
 
 ## Runtime selection
 
-Resolution order is fixed:
+pi-career supports only macOS and Linux. On other systems, extension initialization registers no command/tool and fails with stable `unsupported_platform` guidance before explicit/PATH resolution, package validation, acquisition, compatibility probing, or private stdin. On supported systems, resolution order is fixed:
 
 1. bounded absolute `CAREER_CLI_PATH`;
 2. `career` on PATH;
@@ -16,7 +16,7 @@ There is no sibling-checkout, Cargo, source-build, lifecycle-script, arbitrary d
 
 Every caller-controlled route must pass the exact Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens. An invalid explicit override never falls back. Compatibility probes contain no private document input. If a cached automatic executable later fails before its operation emits `spawn`, pi-career may advance once; cancellation, timeout, and any started operation never retry another route.
 
-Package-local/acquired routes invoke the reviewed package launcher directly with the real Node executable. The launcher owns native target/libc, package/provenance mapping, Unix mode or Windows file invariant, size, format, architecture, and SHA-256 verification. Its reviewed targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `win32-x64-msvc`, and `win32-arm64-msvc`.
+Package-local/acquired routes invoke the reviewed package launcher directly with the real Node executable. The launcher owns native target/libc, package/provenance mapping, Unix mode, size, format, architecture, and SHA-256 verification. Pi-career's targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`. Exact validation still requires the pinned launcher's upstream eight-package v2 manifest; its two Windows entries are contract metadata and do not imply pi-career support.
 
 ## Managed discovery
 

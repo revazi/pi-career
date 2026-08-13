@@ -26,6 +26,7 @@ const expectedPublishConfig = {
   access: "public",
   registry: "https://registry.npmjs.org/",
 };
+const expectedOs = ["darwin", "linux"];
 const allowed = new Set([
   "CHANGELOG.md",
   "LICENSE-APACHE",
@@ -71,7 +72,6 @@ function pack(args) {
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
-      windowsHide: true,
     },
   );
   assert.equal(result.error, undefined, "trusted npm pack must execute");
@@ -119,6 +119,7 @@ try {
   assert.equal(packagedManifest.version, "0.2.0");
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
+  assert.deepEqual(packagedManifest.os, expectedOs, "package must install only on macOS and Linux");
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
   assert.equal(packagedManifest.devDependencies?.unpdf, "1.8.0", "bundled PDF extractor must remain pinned");
   assert.equal(packagedManifest.peerDependenciesMeta, undefined);
@@ -153,6 +154,10 @@ try {
     bundle.includes("@revazi/career@0.1.1"),
     "extension bundle must pin exact @revazi/career@0.1.1",
   );
+  assert.ok(bundle.includes("pi-career supports only macOS and Linux."), "extension must fail unsupported platforms closed");
+  for (const windowsSupport of [
+    "career.exe", "career.com", "cmd.exe", "SystemRoot", "ComSpec", "PATHEXT", "SIGBREAK", "windowsHide",
+  ]) assert.equal(bundle.includes(windowsSupport), false, `extension must not own ${windowsSupport} support`);
   assert.equal(bundle.includes(`${root}${path.sep}node_modules`), false, "extension bundle must not contain a local package tree path");
   assert.equal(pdfWorker.includes("node_modules"), false, "PDF worker bundle must not contain a package tree path");
   assert.ok(pdfWorker.length > 0 && pdfWorker.length < 2_000_000, "PDF worker bundle must remain bounded");

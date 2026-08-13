@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { CareerInvocationError } from "../../src/errors.ts";
+import careerCoreExtension from "../../src/index.ts";
 import {
   CAREER_PACKAGE_SPEC,
   clearRuntimeResolutionCache,
   decodeAcquiredLauncherOutput,
   resolveCareerExecutable,
   resolveCareerRuntime,
-  terminateAcquisitionProcessTree,
 } from "../../src/runtime.ts";
+import { makeFakePi } from "../workflow/helpers.mjs";
 
+// This is the pinned launcher's upstream v2 manifest, not pi-career's support matrix.
 const platformPackages = [
   "@revazi/career-darwin-arm64",
   "@revazi/career-darwin-x64",
@@ -78,6 +79,76 @@ async function launcherPackage(root) {
 
 test("pins the reviewed external Career package coordinate", () => {
   assert.equal(CAREER_PACKAGE_SPEC, "@revazi/career@0.1.1");
+});
+
+test("unsupported extension initialization registers no commands or tools", () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  assert.ok(platformDescriptor?.configurable);
+  const fake = makeFakePi();
+  Object.defineProperty(process, "platform", { ...platformDescriptor, value: "win32" });
+  try {
+    assert.throws(
+      () => careerCoreExtension(fake.api),
+      (error) => {
+        assert.ok(error instanceof CareerInvocationError);
+        assert.deepEqual(JSON.parse(error.message), {
+          schema_version: "career.pi_error.v1",
+          code: "unsupported_platform",
+          message: "pi-career supports only macOS and Linux.",
+        });
+        return true;
+      },
+    );
+    assert.equal(fake.commands.size, 0);
+    assert.equal(fake.tools.size, 0);
+  } finally {
+    Object.defineProperty(process, "platform", platformDescriptor);
+  }
+});
+
+test("unsupported platforms fail before explicit, PATH, package, probe, or acquisition work", async () => {
+  clearRuntimeResolutionCache();
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  assert.ok(platformDescriptor?.configurable);
+  let packageChecks = 0;
+  let probes = 0;
+  let acquisitions = 0;
+  Object.defineProperty(process, "platform", { ...platformDescriptor, value: "win32" });
+  try {
+    assert.throws(
+      () => resolveCareerExecutable({ CAREER_CLI_PATH: "relative-career" }),
+      expectedError("unsupported_platform"),
+    );
+    await assert.rejects(
+      resolveCareerRuntime({
+        environment: {
+          CAREER_CLI_PATH: "relative-career",
+          PATH: path.join(os.tmpdir(), "must-not-be-probed"),
+          PI_OFFLINE: "0",
+        },
+        probe: async () => { probes += 1; },
+        dependencies: {
+          resolvePackageManifest: () => {
+            packageChecks += 1;
+            return undefined;
+          },
+          acquireLauncher: async () => {
+            acquisitions += 1;
+            return "unreachable";
+          },
+        },
+      }),
+      expectedError("unsupported_platform"),
+    );
+    assert.deepEqual({ packageChecks, probes, acquisitions }, {
+      packageChecks: 0,
+      probes: 0,
+      acquisitions: 0,
+    });
+  } finally {
+    Object.defineProperty(process, "platform", platformDescriptor);
+    clearRuntimeResolutionCache();
+  }
 });
 
 test("derives exactly one launcher from the controlled npm acquisition PATH", () => {
@@ -328,61 +399,4 @@ test("runtime npm acquisition rejects a conflicting npm_execpath before network 
     }),
     expectedError("runtime_acquisition_failed"),
   );
-});
-
-test("Windows acquisition cancellation reaches process-group descendants", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-career-windows-process-group-"));
-  const pidFile = path.join(root, "descendant.pid");
-  let descendantPid;
-  const parent = spawn(process.execPath, ["-e", `
-    const { spawn } = require("node:child_process");
-    const fs = require("node:fs");
-    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-      detached: false,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
-    setInterval(() => {}, 1000);
-  `], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  const parentClosed = new Promise((resolve) => parent.once("close", resolve));
-  try {
-    const deadline = Date.now() + 5_000;
-    while (descendantPid === undefined && Date.now() < deadline) {
-      try {
-        descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-    }
-    assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0, "descendant pid");
-    terminateAcquisitionProcessTree(parent, "SIGTERM");
-    await Promise.race([
-      parentClosed,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("parent did not close")), 5_000)),
-    ]);
-    const descendantDeadline = Date.now() + 5_000;
-    let descendantAlive = true;
-    while (descendantAlive && Date.now() < descendantDeadline) {
-      try {
-        process.kill(descendantPid, 0);
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      } catch {
-        descendantAlive = false;
-      }
-    }
-    assert.equal(descendantAlive, false, "CTRL_BREAK must terminate the acquisition descendant");
-  } finally {
-    try { terminateAcquisitionProcessTree(parent, "SIGKILL"); } catch {}
-    if (Number.isSafeInteger(descendantPid)) {
-      try { process.kill(descendantPid, "SIGKILL"); } catch {}
-    }
-    await rm(root, { recursive: true, force: true });
-  }
 });

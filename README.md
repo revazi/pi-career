@@ -26,8 +26,10 @@ Career Core remains authoritative for scores, evidence, warnings, uncertainty, m
 
 - Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
-- a reviewed ARM64/x64 target: macOS, GNU/Linux with glibc 2.35+, musl Linux, or MSVC Windows
+- macOS or Linux on ARM64/x64; GNU Linux requires glibc 2.35+, and musl Linux is supported
 - either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.1.1`
+
+Windows is unsupported. npm enforces the package `os` allowlist; for a local or Git registration, extension initialization fails with stable `unsupported_platform` guidance before registering any command or tool, inspecting `CAREER_CLI_PATH`, searching `PATH`, validating package routes, acquiring npm content, or opening private stdin.
 
 ## Install
 
@@ -43,13 +45,6 @@ For release-candidate testing, a clean checkout includes reproducible `dist/inde
 ```bash
 cd /absolute/path/to/pi-career
 pi install "$(pwd -P)"
-pi list
-```
-
-On Windows PowerShell, register the same clean checkout with:
-
-```powershell
-pi install (Resolve-Path .).Path
 pi list
 ```
 
@@ -360,7 +355,7 @@ Before writing anything, it:
 4. requires the preview to be returned byte-identically;
 5. asks for a separate final confirmation.
 
-It then publishes new `0600` files in a `0700` managed directory without replacing existing paths, writes a strict assisted/non-authoritative sidecar, and rescans before reporting success. Missing, malformed, edited, or hash-mismatched assisted metadata is quarantined and never falls back to original eligibility. Saving invokes no Career Core operation, provider, model, network request, or session entry. PDF handles and Windows fail closed; Windows needs a separately reviewed private-ACL design.
+It then publishes new `0600` files in a `0700` managed directory without replacing existing paths, writes a strict assisted/non-authoritative sidecar, and rescans before reporting success. Missing, malformed, edited, or hash-mismatched assisted metadata is quarantined and never falls back to original eligibility. Saving invokes no Career Core operation, provider, model, network request, or session entry. PDF handles fail closed; the save workflow is supported on pi-career's macOS/Linux platforms with its POSIX-private filesystem contract.
 
 Saved files are not securely erased by session deletion, root removal, package removal, or `PI_OFFLINE=1`. Pi-career never automatically overwrites, updates, moves, or deletes them.
 
@@ -407,9 +402,9 @@ When raw mode is explicitly enabled, discovery-first use remains mandatory: capa
 
 Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, `/career-workbench`, and `/career-review` itself do not resolve or invoke Core; `/career-review` requires a still-live review produced earlier by `career_run`. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do need Core.
 
-Before private document stdin opens, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback. On Windows, the PATH route remains direct-argv-only and selects a native `career.exe`; npm command shims are not executed through a caller-selected shell.
+Extension initialization requires macOS or Linux and fails unsupported platforms with one payload-free `unsupported_platform` error before registering any command/tool or doing route work. Before private document stdin opens on a supported platform, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback.
 
-The exact launcher target matrix is:
+The pi-career runtime target matrix is:
 
 | Operating system | Architecture | Runtime target | Requirement |
 | --- | --- | --- | --- |
@@ -419,22 +414,13 @@ The exact launcher target matrix is:
 | GNU/Linux | ARM64 | `linux-arm64-gnu` | glibc 2.35+ |
 | musl Linux | x64 | `linux-x64-musl` | detected musl runtime |
 | musl Linux | ARM64 | `linux-arm64-musl` | detected musl runtime |
-| Windows | x64 | `win32-x64-msvc` | native MSVC Windows |
-| Windows | ARM64 | `win32-arm64-msvc` | native MSVC Windows |
 
-The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.1.1`.
+The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.1.1`. Pi-career must still validate the pinned launcher's exact upstream v2 eight-package manifest, whose two Windows entries are immutable upstream contract metadata and do not imply pi-career Windows support.
 
 To prohibit acquisition:
 
 ```bash
 PI_OFFLINE=1 pi --no-session
-```
-
-On Windows PowerShell:
-
-```powershell
-$env:PI_OFFLINE = "1"
-pi --no-session
 ```
 
 Offline Core-backed use then requires a compatible `CAREER_CLI_PATH`, `career` on `PATH`, or package-local launcher. Acquisition receives no resume or vacancy input, but it may leave ordinary npm cache or `_npx` data; this is not secure erasure.
@@ -459,11 +445,11 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 
 - Supported original formats: searchable PDF, Markdown, and UTF-8 text.
 - No OCR, DOCX/Pages editing, vacancy URL fetching, or PDF layout reconstruction.
-- No automatic resume or application-workspace saving; explicit materialized-variant saving is POSIX Markdown/text only.
+- No automatic resume or application-workspace saving; explicit materialized-variant saving is private Markdown/text only on supported macOS/Linux filesystems.
 - PDF workbench output is targeted manual guidance only.
 - Assisted variants remain non-authoritative and cannot be reranked as originals.
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
-- Reviewed external native targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `win32-x64-msvc`, and `win32-arm64-msvc`.
+- Supported runtime targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`; Windows is unsupported.
 
 The future application-workspace contract is documented in [`docs/application-workspaces.md`](docs/application-workspaces.md); those filesystem-writing phases are not implemented.
 
@@ -489,7 +475,7 @@ npm run test:compat
 git diff --check
 ```
 
-`npm run bench:tokens` collects the current synthetic model-visible surfaces, including Pi's stable always-visible Skill name/description metadata and the complete on-demand `career-core` Skill for matching career tasks. Linked Skill references and machine-specific discovery paths stay outside that boundary. `npm run bench:tokens:compare` verifies the surface digest, `c7d7634…` before and `7ed36c4…` after source/Skill trees, immutable baseline bytes from Git history, exact frozen-snapshot reproduction, managed serialization parity, semantic/privacy invariants, budgets, and phase deltas described in [`docs/career-run-roadmap.md`](docs/career-run-roadmap.md). The finalized frozen evidence records 25,652 → 21,552 aggregate workflow tokens (15.98% reduction) with no workflow regression.
+`npm run bench:tokens` collects the current synthetic model-visible surfaces, including Pi's stable always-visible Skill name/description metadata and the complete on-demand `career-core` Skill for matching career tasks. Linked Skill references and machine-specific discovery paths stay outside that boundary. `npm run bench:tokens:compare` verifies the surface digest, immutable `c7d7634…` before and `7ed36c4…` after source/Skill trees and frozen bytes from Git history, exact frozen before/after deltas, managed serialization parity, semantic/privacy invariants, budgets, and no current workflow regression relative to the frozen after evidence. Later source may differ and improve without rewriting that historical snapshot. The finalized frozen evidence records 25,652 → 21,552 aggregate workflow tokens (15.98% reduction) with no workflow regression.
 
 `npm run test:career-package` is the network-capable exact-package integration test. `npm run test:compat` skips unless an explicitly reviewed fixture checkout is provided:
 
@@ -502,7 +488,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
 
 ## Security and release provenance
 
-The exact reviewed external runtime coordinate is [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1), published from Career Core commit [`0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`](https://github.com/revazi/career-core/tree/0318b3b0993ee23093c8f023757fa7e4d8b3b8e0). Its launcher owns native target/libc selection and package metadata, provenance, mode or Windows file invariant, size, format, and SHA-256 verification.
+The exact reviewed external runtime coordinate is [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1), published from Career Core commit [`0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`](https://github.com/revazi/career-core/tree/0318b3b0993ee23093c8f023757fa7e4d8b3b8e0). Its launcher owns native target/libc selection and package metadata, provenance, file invariants, size, format, and SHA-256 verification. Pi-career supports only the six macOS/Linux targets while retaining exact validation of the launcher's upstream eight-package manifest.
 
 Historical published `pi-career` v0.1.0 coordinates are retained for verification:
 
