@@ -20,7 +20,7 @@ It gives you:
 
 Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-> **Version note:** this README describes the `pi-career@0.3.0` candidate. Published `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release. Until `0.3.0` is explicitly released and visible on the npm registry, use a reviewed local checkout or pinned Git commit.
+> **Version note:** this README describes published `pi-career@0.3.0`, the current native-free release. Published `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
 ## Requirements
 
@@ -33,14 +33,14 @@ Windows is unsupported. npm enforces the package `os` allowlist; for a local or 
 
 ## Install
 
-After the registry confirms the release, install the exact version:
+Install the exact published version:
 
 ```bash
 pi install npm:pi-career@0.3.0
 pi list
 ```
 
-For release-candidate testing, a clean checkout includes reproducible `dist/index.js` and `dist/pdf-worker.js` bundles, so local installation does not require a build or npm install:
+For local-checkout testing, a clean checkout includes reproducible `dist/index.js` and `dist/pdf-worker.js` bundles, so local installation does not require a build or npm install:
 
 ```bash
 cd /absolute/path/to/pi-career
@@ -489,6 +489,16 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
 ## Security and release provenance
 
 The exact reviewed external runtime coordinate is [`@revazi/career@0.2.0`](https://www.npmjs.com/package/@revazi/career/v/0.2.0), published from Career Core commit [`536690632884c17336cc3c108f1bba0f254b862b`](https://github.com/revazi/career-core/tree/536690632884c17336cc3c108f1bba0f254b862b). Its launcher owns native target/libc selection and package metadata, provenance, file invariants, size, format, and SHA-256 verification. Registry integrity and SLSA v1 provenance were reviewed for the user-facing launcher and all six lockstep native packages. Pi-career validates that exact six-package v2 manifest and supports only its macOS/Linux targets.
+
+Published `pi-career` v0.3.0 coordinates are retained for verification:
+
+- npm: [`pi-career@0.3.0`](https://www.npmjs.com/package/pi-career/v/0.3.0)
+- Git commit: [`2c0da9ff623b50cc02a7b5bccd3cb047596d947e`](https://github.com/revazi/pi-career/tree/2c0da9ff623b50cc02a7b5bccd3cb047596d947e)
+- npm integrity: `sha512-u/odRK/KMYXhIt/lvGm93RFmQIwBQZV0qbAf1vs/GsNH8Fx/X2f+p+F1iyUYtMi5RH9++SkdhEN8CR2XBScyBw==`
+- npm shasum: `3ad37db78cb76330838fbb3efe722c1cff4d8d00`
+- same-SHA six-target compatibility: [run `31791011739`](https://github.com/revazi/pi-career/actions/runs/31791011739)
+- OIDC publication and registry verification: [run `31791158472`](https://github.com/revazi/pi-career/actions/runs/31791158472)
+- GitHub Release: [`v0.3.0`](https://github.com/revazi/pi-career/releases/tag/v0.3.0), with no custom assets
 
 Historical published `pi-career` v0.1.0 coordinates are retained for verification:
 
