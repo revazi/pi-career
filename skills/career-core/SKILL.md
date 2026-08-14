@@ -5,7 +5,7 @@ license: MIT OR Apache-2.0
 compatibility: Requires Pi with pi-career on ARM64/x64 macOS or GNU/musl Linux and a compatible Career Core route. Windows is unsupported.
 metadata:
   author: revazi
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Career Core through pi-career
@@ -52,12 +52,12 @@ For raw or runtime-integration work, first read [`references/cli-contract.md`](r
 - `career_core_resume`: `evaluate`, `analyze`, `analysis-suggestions-review`, `analysis-replacements-review`, `normalize`, `enrich`, `variant-review`, `variant-materialize`
 - `career_core_job`: `normalize`, `match`
 
-Raw document calls pass one exact `input_json` object to compatibility-validated stdin. They never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Acquisition is restricted to exact `@revazi/career@0.1.1`, completes before private stdin, and is disabled by `PI_OFFLINE=1`.
+Raw document calls pass one exact `input_json` object to compatibility-validated stdin. They never invoke Cargo, fetch vacancy URLs, call a provider/model, or write payload/result files. Acquisition is restricted to exact `@revazi/career@0.2.0`, completes before private stdin, and is disabled by `PI_OFFLINE=1`.
 
 Treat `career.pi_error.v1` as adapter/process status, not a career result:
 
 - `unsupported_platform`: pi-career runs only on macOS/Linux; do not attempt another route.
-- `runtime_unavailable`: install exact `@revazi/career@0.1.1` or configure a reviewed compatible executable; `runtime_acquisition_failed`: do not request npm diagnostics.
+- `runtime_unavailable`: install exact `@revazi/career@0.2.0` or configure a reviewed compatible executable; `runtime_acquisition_failed`: do not request npm diagnostics.
 - `managed_contract_invalid`: the selected route/catalog/bundles are incompatible; an invalid `CAREER_CLI_PATH` never falls back, and raw guessed envelopes are not a bypass.
 - On `career_cli_error`, inspect only its validated bounded `career.error.v1`. Correct typed invalid input, but never retry unchanged or guess repairs.
 - `context_required`, stale/missing handles, or session changes require fresh `context`; never reconstruct IDs.

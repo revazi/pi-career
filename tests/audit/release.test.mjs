@@ -165,8 +165,10 @@ test("release workflow is tag-only, platform-bounded, and orders publication saf
   assert.match(workflow, /JSON\.stringify\(require\('\.\/package\.json'\)\.os\)/);
   assert.match(workflow, /JSON\.stringify\(require\('\.\/package-lock\.json'\)\.packages\[''\]\.os\)/);
   assert.doesNotMatch(workflow, /shell: node \{0\}/);
-  assert.doesNotMatch(releaseCreator, /win32-(?:x64|arm64)-msvc|MSVC Windows/);
-  assert.match(releaseCreator, /do not make pi-career available on Windows/);
+  assert.doesNotMatch(releaseCreator, /win32-(?:x64|arm64)-msvc|MSVC Windows|career-(?:darwin|linux)-/);
+  assert.match(releaseCreator, /@revazi\/career@0\.2\.0/);
+  assert.match(releaseCreator, /validates its exact ordered six-package v2 manifest/);
+  assert.match(releaseCreator, /Only the launcher is a pi-career installation surface, and Windows remains unsupported/);
   assert.doesNotMatch(workflow, /secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)|--otp/);
 
   const absent = workflow.indexOf("verify-release-registry.mjs absent");

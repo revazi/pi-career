@@ -10,15 +10,15 @@ pi-career packages no native Career Core binary and has no runtime npm dependenc
 
 1. bounded absolute `CAREER_CLI_PATH`;
 2. `career` on PATH;
-3. package-local exact `@revazi/career@0.1.1`;
-4. bounded acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry;
+3. package-local exact `@revazi/career@0.2.0`;
+4. bounded acquisition of exact `@revazi/career@0.2.0` from the canonical npm registry;
 5. stable payload-free installation guidance.
 
 There is no sibling-checkout, Cargo, source-build, arbitrary executable download, or unpinned package fallback. `PI_OFFLINE=1` disables acquisition. A successful route is cached only in memory and invalidated when `CAREER_CLI_PATH` or `PATH` changes. An invalid explicit override fails without fallback.
 
-Every caller-controlled route must pass the exact managed Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens. Compatibility probes contain no private document input. An automatically selected executable that later fails before its operation emits `spawn` may advance once; cancellation, timeout, and any already-started operation never retry another route.
+Every caller-controlled route must pass the exact managed Core 0.2.0 operation catalog and required self-contained schema bundles before private stdin opens. Compatibility probes contain no private document input. An automatically selected executable that later fails before its operation emits `spawn` may advance once; cancellation, timeout, and any already-started operation never retry another route.
 
-The package-local/acquired `@revazi/career` launcher is invoked directly with the real Node executable. Pi-career requires the pinned launcher's exact v2 manifest and ordered eight-package catalog. Its two Windows package entries remain upstream compatibility/provenance metadata and do not imply pi-career support. The launcher owns native target/libc, lockstep package identity, provenance, regular-file type and mode, size, format, architecture, and SHA-256 checks for pi-career's six supported macOS/Linux targets; pi-career does not duplicate those native verification algorithms.
+The package-local/acquired `@revazi/career` launcher is invoked directly with the real Node executable. Pi-career validates its exact v2 manifest, including the ordered six-package lockstep optional-dependency map, declared file allowlist, and `career` bin. The launcher owns native target/libc, package provenance, regular-file type and mode, size, format, architecture, and SHA-256 checks for pi-career's six supported macOS/Linux targets; pi-career does not duplicate those native verification algorithms.
 
 Acquisition invokes the npm CLI derived from the real Unix `process.execPath` installation, rejects ambiguous/conflicting `npm_execpath`, sanitizes npm tree/registry/script-shell overrides, pins `/bin/sh` and the canonical registry/package/version, includes optional native packages, and disables scripts. It never invokes PATH-selected npm/npx. Acquisition receives no private stdin, has fixed timeout/stdout/stderr bounds, and uses detached Unix process-group termination for descendants. npm cache and `_npx` data may remain afterward; this is not secure erasure.
 

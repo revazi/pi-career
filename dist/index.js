@@ -16,8 +16,8 @@ var ERROR_MESSAGES = {
   invalid_request: "The Career Core tool request is invalid.",
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
   managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
-  runtime_unavailable: "No compatible Career Core runtime is available. Install @revazi/career@0.1.1 or configure a compatible local career executable.",
-  runtime_acquisition_failed: "Automatic acquisition of @revazi/career@0.1.1 failed. Install that exact package or configure a compatible local career executable.",
+  runtime_unavailable: "No compatible Career Core runtime is available. Install @revazi/career@0.2.0 or configure a compatible local career executable.",
+  runtime_acquisition_failed: "Automatic acquisition of @revazi/career@0.2.0 failed. Install that exact package or configure a compatible local career executable.",
   missing_executable: "The selected Career Core runtime was not found.",
   executable_unavailable: "The selected Career Core runtime is not available for execution.",
   cancelled: "The Career Core operation was cancelled.",
@@ -64,7 +64,7 @@ var MANAGED_INVOKE_OPTIONS = {
   toolResultMaxBytes: MANAGED_OUTPUT_MAX_BYTES,
   toolResultMaxLines: MANAGED_RESULT_MAX_LINES
 };
-var EXPECTED_CORE_VERSION = "0.1.1";
+var EXPECTED_CORE_VERSION = "0.2.0";
 var EXPECTED_OPERATIONS = {
   "core.capabilities": {
     capability: "core.capabilities",
@@ -293,21 +293,20 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 var CAREER_PACKAGE_NAME = "@revazi/career";
-var CAREER_PACKAGE_VERSION = "0.1.1";
+var CAREER_PACKAGE_VERSION = "0.2.0";
 var CAREER_LAUNCHER_SCHEMA = "career.npm_launcher.v2";
 var CAREER_TARGET_CATALOG = "targets.json";
+var CAREER_LAUNCHER_ENTRY = "bin/career.js";
 var CAREER_PLATFORM_PACKAGES = Object.freeze([
   "@revazi/career-darwin-arm64",
   "@revazi/career-darwin-x64",
   "@revazi/career-linux-x64-gnu",
   "@revazi/career-linux-arm64-gnu",
   "@revazi/career-linux-x64-musl",
-  "@revazi/career-linux-arm64-musl",
-  "@revazi/career-win32-x64-msvc",
-  "@revazi/career-win32-arm64-msvc"
+  "@revazi/career-linux-arm64-musl"
 ]);
 var CAREER_LAUNCHER_FILES = Object.freeze([
-  "bin/career.js",
+  CAREER_LAUNCHER_ENTRY,
   CAREER_TARGET_CATALOG,
   "README.md",
   "LICENSE-MIT",
@@ -393,7 +392,7 @@ function exactStringArray(value, expected) {
 function launcherManifestIsValid(manifest) {
   if (!isRecord2(manifest) || !isRecord2(manifest.bin) || !isRecord2(manifest.optionalDependencies) || !isRecord2(manifest.career_launcher)) return false;
   const optionalDependencies = manifest.optionalDependencies;
-  return manifest.name === CAREER_PACKAGE_NAME && manifest.version === CAREER_PACKAGE_VERSION && exactKeys2(manifest.bin, ["career"]) && manifest.bin.career === "bin/career.js" && exactStringArray(manifest.files, CAREER_LAUNCHER_FILES) && exactKeys2(optionalDependencies, CAREER_PLATFORM_PACKAGES) && CAREER_PLATFORM_PACKAGES.every(
+  return manifest.name === CAREER_PACKAGE_NAME && manifest.version === CAREER_PACKAGE_VERSION && exactKeys2(manifest.bin, ["career"]) && manifest.bin.career === CAREER_LAUNCHER_ENTRY && exactStringArray(manifest.files, CAREER_LAUNCHER_FILES) && exactKeys2(optionalDependencies, CAREER_PLATFORM_PACKAGES) && CAREER_PLATFORM_PACKAGES.every(
     (packageName) => optionalDependencies[packageName] === CAREER_PACKAGE_VERSION
   ) && exactKeys2(manifest.career_launcher, [
     "schema_version",
@@ -416,7 +415,7 @@ async function readLauncherRoute(manifestPath, source, execPath) {
     if (bytes.length !== manifestMetadata.size) return void 0;
     const manifest = JSON.parse(bytes.toString("utf8"));
     if (!launcherManifestIsValid(manifest)) return void 0;
-    const launcherPath = path.join(path.dirname(manifestPath), "bin", "career.js");
+    const launcherPath = path.join(path.dirname(manifestPath), CAREER_LAUNCHER_ENTRY);
     const launcherMetadata = await lstat(launcherPath);
     if (!boundedRegularFile(launcherMetadata, LAUNCHER_MAX_BYTES, true)) return void 0;
     return route(realNodePath, [launcherPath], source);

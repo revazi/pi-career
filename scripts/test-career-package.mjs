@@ -90,7 +90,7 @@ try {
 
   const operations = await execute("career_core_discover", { operation: "operations" });
   assert.equal(operations.schema_version, "career.operation_catalog.v1");
-  assert.equal(operations.core_version, "0.1.1");
+  assert.equal(operations.core_version, "0.2.0");
   assert.equal(operations.operations.length, 15);
 
   const schema = await execute("career_core_discover", {
@@ -124,12 +124,12 @@ try {
   const managed = JSON.parse(managedContext.content[0].text);
   assert.equal(managed.schema_version, "pi.career.run_result.v1");
   assert.equal(managed.command, "context");
-  assert.equal(managed.core_version, "0.1.1");
+  assert.equal(managed.core_version, "0.2.0");
   assert.equal(managed.persistence, "transient");
 
   assert.equal(process.env.CAREER_CLI_PATH, undefined);
   process.stdout.write(
-    `@revazi/career@0.1.1 passed managed contracts and representative resume/job operations on ${process.env.EXPECTED_RUNTIME_TARGET ?? "the local target"} through acquisition\n`,
+    `@revazi/career@0.2.0 passed managed contracts and representative resume/job operations on ${process.env.EXPECTED_RUNTIME_TARGET ?? "the local target"} through acquisition\n`,
   );
 } finally {
   if (previousCareerPath === undefined) delete process.env.CAREER_CLI_PATH;

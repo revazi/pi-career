@@ -10,11 +10,10 @@ import { TextDecoder } from "node:util";
 import { adapterError, CareerInvocationError } from "./errors.ts";
 
 const CAREER_PACKAGE_NAME = "@revazi/career";
-const CAREER_PACKAGE_VERSION = "0.1.1";
+const CAREER_PACKAGE_VERSION = "0.2.0";
 const CAREER_LAUNCHER_SCHEMA = "career.npm_launcher.v2";
 const CAREER_TARGET_CATALOG = "targets.json";
-// The pinned launcher's exact v2 manifest includes all eight upstream packages.
-// Its Windows entries are compatibility/provenance metadata, not pi-career support.
+const CAREER_LAUNCHER_ENTRY = "bin/career.js";
 const CAREER_PLATFORM_PACKAGES = Object.freeze([
   "@revazi/career-darwin-arm64",
   "@revazi/career-darwin-x64",
@@ -22,11 +21,9 @@ const CAREER_PLATFORM_PACKAGES = Object.freeze([
   "@revazi/career-linux-arm64-gnu",
   "@revazi/career-linux-x64-musl",
   "@revazi/career-linux-arm64-musl",
-  "@revazi/career-win32-x64-msvc",
-  "@revazi/career-win32-arm64-msvc",
 ]);
 const CAREER_LAUNCHER_FILES = Object.freeze([
-  "bin/career.js",
+  CAREER_LAUNCHER_ENTRY,
   CAREER_TARGET_CATALOG,
   "README.md",
   "LICENSE-MIT",
@@ -209,7 +206,7 @@ function launcherManifestIsValid(manifest: unknown): manifest is Record<string, 
   return manifest.name === CAREER_PACKAGE_NAME &&
     manifest.version === CAREER_PACKAGE_VERSION &&
     exactKeys(manifest.bin, ["career"]) &&
-    manifest.bin.career === "bin/career.js" &&
+    manifest.bin.career === CAREER_LAUNCHER_ENTRY &&
     exactStringArray(manifest.files, CAREER_LAUNCHER_FILES) &&
     exactKeys(optionalDependencies, CAREER_PLATFORM_PACKAGES) &&
     CAREER_PLATFORM_PACKAGES.every(
@@ -242,7 +239,7 @@ async function readLauncherRoute(
     if (bytes.length !== manifestMetadata.size) return undefined;
     const manifest: unknown = JSON.parse(bytes.toString("utf8"));
     if (!launcherManifestIsValid(manifest)) return undefined;
-    const launcherPath = path.join(path.dirname(manifestPath), "bin", "career.js");
+    const launcherPath = path.join(path.dirname(manifestPath), CAREER_LAUNCHER_ENTRY);
     const launcherMetadata = await lstat(launcherPath);
     if (!boundedRegularFile(launcherMetadata, LAUNCHER_MAX_BYTES, true)) return undefined;
     return route(realNodePath, [launcherPath], source);

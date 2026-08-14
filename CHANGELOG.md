@@ -2,12 +2,15 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-14
+
 ### Breaking
 
 - Removed Windows support. Package metadata now permits installation only on macOS/Linux, and direct local/Git extension initialization registers no command/tool and fails with stable payload-free `unsupported_platform` guidance before runtime route work, acquisition, compatibility probing, or private stdin.
 
 ### Changed
 
+- Updated the exact external runtime and managed compatibility boundary to `@revazi/career@0.2.0` / Core 0.2.0 after reviewing the six-target package, registry integrity, SLSA provenance, and unchanged v1 operation/schema semantics. Pi-career validates the exact ordered six-package v2 launcher manifest while delegating native selection and integrity algorithms to the launcher.
 - Decoupled immutable `7ed36c4…` after-study evidence from later source: frozen bytes/trees/deltas remain exact, while current measurements may improve only with unchanged shape/invariants/budgets and no workflow regression relative to that snapshot.
 - Consolidated the model-visible Career Skill while preserving safety invariants and avoiding workflow regressions; the frozen before/after evidence records an aggregate reduction from 25,652 to 21,552 workflow tokens (15.98%).
 - Added a Git-history/source-tree/hash-bound before/optimizing/after token-optimization benchmark phase with Pi Skill discovery/full-load context, actual managed serialization parity, direct tool-call/result/detail/editor surfaces, and independent workflows; semantic/privacy gates prevent savings by dropping required context.
@@ -39,8 +42,8 @@
 ### Changed
 
 - Replaced package-owned native artifacts with a local-first external resolver: bounded absolute `CAREER_CLI_PATH`, PATH `career`, package-local `@revazi/career`, then bounded acquisition of exact `@revazi/career@0.1.1` unless `PI_OFFLINE=1`.
-- Expanded the reviewed external runtime matrix to ARM64/x64 macOS, GNU and musl Linux, and MSVC Windows through the exact eight-target `@revazi/career@0.1.1` launcher. Windows acquisition derives npm and its command shell from validated real installation/system paths, executes no PATH-selected shim, and cancels the detached npm process group.
-- Exact managed Core 0.1.1 operation-catalog/schema-bundle compatibility now completes before private stdin opens. The reviewed Career package launcher owns native target/libc/provenance/mode or Windows file invariant/size/format/SHA-256 verification; pi-career caches routes only in memory and never retries an already-started operation on another route.
+- Expanded the reviewed external-runtime acquisition boundary through exact `@revazi/career@0.1.1`, deriving npm and its command shell from validated real installation/system paths, executing no PATH-selected shim, and cancelling the detached npm process group.
+- Exact managed Core 0.1.1 operation-catalog/schema-bundle compatibility now completes before private stdin opens. The reviewed Career package launcher owns native target/libc/provenance/mode/size/format/SHA-256 verification; pi-career caches routes only in memory and never retries an already-started operation on another route.
 - Removed `runtime/` from source/package artifacts and replaced bundled-runtime/package checks with runtime-resolution, exact Career package, offline failure, and native-free tarball coverage.
 - Workbench prompts now use `career_run` handles and native proposal payloads rather than model-visible schema discovery and manually reconstructed Core envelopes.
 - Setup and library flows now rescan immediately, display indexed PDFs and actionable scan notices, and explain the searchable PDF/Markdown/text success path instead of silently showing an empty library.

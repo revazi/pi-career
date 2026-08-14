@@ -8,15 +8,15 @@ pi-career supports only macOS and Linux. On other systems, extension initializat
 
 1. bounded absolute `CAREER_CLI_PATH`;
 2. `career` on PATH;
-3. package-local exact `@revazi/career@0.1.1`;
-4. acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry;
+3. package-local exact `@revazi/career@0.2.0`;
+4. acquisition of exact `@revazi/career@0.2.0` from the canonical npm registry;
 5. stable installation guidance.
 
 There is no sibling-checkout, Cargo, source-build, lifecycle-script, arbitrary download, PATH-selected npm/npx, or unpinned package fallback. `PI_OFFLINE=1` disables acquisition. A route is cached only in memory and invalidated when `CAREER_CLI_PATH` or PATH changes. npm acquisition may leave ordinary cache/`_npx` data and does not provide secure erasure.
 
-Every caller-controlled route must pass the exact Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens. An invalid explicit override never falls back. Compatibility probes contain no private document input. If a cached automatic executable later fails before its operation emits `spawn`, pi-career may advance once; cancellation, timeout, and any started operation never retry another route.
+Every caller-controlled route must pass the exact Core 0.2.0 operation catalog and required self-contained schema bundles before private stdin opens. An invalid explicit override never falls back. Compatibility probes contain no private document input. If a cached automatic executable later fails before its operation emits `spawn`, pi-career may advance once; cancellation, timeout, and any started operation never retry another route.
 
-Package-local/acquired routes invoke the reviewed package launcher directly with the real Node executable. The launcher owns native target/libc, package/provenance mapping, Unix mode, size, format, architecture, and SHA-256 verification. Pi-career's targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`. Exact validation still requires the pinned launcher's upstream eight-package v2 manifest; its two Windows entries are contract metadata and do not imply pi-career support.
+Package-local/acquired routes invoke the reviewed package launcher directly with the real Node executable. Pi-career validates the exact ordered six-package v2 launcher manifest, declared file allowlist, and `career` bin. The launcher owns native target/libc, package/provenance mapping, Unix mode, size, format, architecture, and SHA-256 verification. Pi-career's targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`. Windows is unsupported.
 
 ## Managed discovery
 
@@ -56,7 +56,7 @@ The following raw tools stay registered but are normally inactive:
 - Fatal UTF-8, multiple JSON documents, unexpected successful stderr, or capture overflow fail closed.
 - No payload/result temp file, model/provider call, vacancy URL fetch, telemetry, post-launch retry, or repair exists at this boundary.
 
-The sole network-capable behavior is bounded acquisition of exact `@revazi/career@0.1.1` after local routes fail. It derives npm from real Node, rejects conflicting `npm_execpath`, has fixed time/output bounds and process-tree cancellation, receives no private input, and finishes before document stdin opens.
+The sole network-capable behavior is bounded acquisition of exact `@revazi/career@0.2.0` after local routes fail. It derives npm from real Node, rejects conflicting `npm_execpath`, has fixed time/output bounds and process-tree cancellation, receives no private input, and finishes before document stdin opens.
 
 Raw tools retain the 50,000-byte/2,000-line model-context ceiling and fail without partial output. Managed operations use Core's 32-MiB capture ceiling internally and expose compact/hydratable results.
 

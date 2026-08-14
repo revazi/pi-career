@@ -57,7 +57,7 @@ try {
       assert.deepEqual(Object.keys(payload).sort(), ["code", "message", "schema_version"]);
       assert.equal(payload.schema_version, "career.pi_error.v1");
       assert.equal(payload.code, "runtime_unavailable");
-      assert.match(payload.message, /@revazi\/career@0\.1\.1/);
+      assert.match(payload.message, /@revazi\/career@0\.2\.0/);
       return true;
     },
   );

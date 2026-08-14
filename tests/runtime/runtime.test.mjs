@@ -17,7 +17,6 @@ import {
 } from "../../src/runtime.ts";
 import { makeFakePi } from "../workflow/helpers.mjs";
 
-// This is the pinned launcher's upstream v2 manifest, not pi-career's support matrix.
 const platformPackages = [
   "@revazi/career-darwin-arm64",
   "@revazi/career-darwin-x64",
@@ -25,8 +24,6 @@ const platformPackages = [
   "@revazi/career-linux-arm64-gnu",
   "@revazi/career-linux-x64-musl",
   "@revazi/career-linux-arm64-musl",
-  "@revazi/career-win32-x64-msvc",
-  "@revazi/career-win32-arm64-msvc",
 ];
 
 function expectedError(code) {
@@ -54,7 +51,7 @@ async function launcherPackage(root) {
   const launcherPath = path.join(binRoot, "career.js");
   await writeFile(manifestPath, `${JSON.stringify({
     name: "@revazi/career",
-    version: "0.1.1",
+    version: "0.2.0",
     bin: { career: "bin/career.js" },
     files: [
       "bin/career.js",
@@ -64,7 +61,7 @@ async function launcherPackage(root) {
       "LICENSE-APACHE",
       "THIRD_PARTY_NOTICES.md",
     ],
-    optionalDependencies: Object.fromEntries(platformPackages.map((name) => [name, "0.1.1"])),
+    optionalDependencies: Object.fromEntries(platformPackages.map((name) => [name, "0.2.0"])),
     career_launcher: {
       schema_version: "career.npm_launcher.v2",
       executable: "career",
@@ -78,7 +75,7 @@ async function launcherPackage(root) {
 }
 
 test("pins the reviewed external Career package coordinate", () => {
-  assert.equal(CAREER_PACKAGE_SPEC, "@revazi/career@0.1.1");
+  assert.equal(CAREER_PACKAGE_SPEC, "@revazi/career@0.2.0");
 });
 
 test("unsupported extension initialization registers no commands or tools", () => {
@@ -175,20 +172,34 @@ test("derives exactly one launcher from the controlled npm acquisition PATH", ()
   }
 });
 
-test("rejects altered launcher v2 metadata before compatibility probing", async (t) => {
+test("rejects altered exact six-package launcher metadata before compatibility probing", async (t) => {
   const cases = [
-    ["obsolete schema", (manifest) => {
+    ["wrong package name", (manifest) => {
+      manifest.name = "synthetic-career";
+    }],
+    ["wrong package version", (manifest) => {
+      manifest.version = "0.2.1";
+    }],
+    ["extra bin", (manifest) => {
+      manifest.bin.extra = "bin/extra.js";
+    }],
+    ["wrong launcher entry", (manifest) => {
+      manifest.bin.career = "bin/other.js";
+    }],
+    ["incomplete declared files", (manifest) => {
+      manifest.files.pop();
+    }],
+    ["obsolete launcher schema", (manifest) => {
       manifest.career_launcher.schema_version = "career.npm_launcher.v1";
-      delete manifest.career_launcher.target_catalog;
     }],
     ["reordered platform catalog", (manifest) => {
       manifest.career_launcher.platform_packages.reverse();
     }],
     ["extra optional package", (manifest) => {
-      manifest.optionalDependencies["@revazi/career-unreviewed"] = "0.1.1";
+      manifest.optionalDependencies["@revazi/career-unreviewed"] = "0.2.0";
     }],
     ["non-lockstep native version", (manifest) => {
-      manifest.optionalDependencies[platformPackages[0]] = "0.1.0";
+      manifest.optionalDependencies[platformPackages[0]] = "0.1.1";
     }],
   ];
   for (const [name, mutate] of cases) {
