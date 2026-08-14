@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded trusted-publishing process for the next explicitly authorized pi-career release and records the historical `v0.1.0` and `v0.2.0` outcomes. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
+This document defines the bounded trusted-publishing process for the next explicitly authorized pi-career release and records the historical `v0.1.0`, `v0.2.0`, and `v0.3.0` outcomes. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 
@@ -53,6 +53,25 @@ The first tag-triggered attempt, run [`31352716654`](https://github.com/revazi/p
 In run `31353182855`, every gate and the OIDC `npm publish` step succeeded. The run then failed closed before GitHub Release creation because npm's attestation endpoint propagated after the original one-minute bound and the resulting SLSA bundle used the current Sigstore v0.3 media type while npm's publish attestation remained v0.2. The version already existed authoritatively, so it was never rerun or republished. PR [#24](https://github.com/revazi/pi-career/pull/24) extended bounded propagation polling and validates both exact bundle formats. The corrected verifier subsequently proved registry metadata, tarball bytes, trusted-publisher identity, provenance workflow/tag/SHA, and latest dist-tag; exact published Pi install/load/runtime/offline/remove acceptance passed before the GitHub Release and deployment status were finalized.
 
 **Never rerun or republish after an ambiguous publish response.** Query authoritative registry state first. A post-publication recovery may finish verification and release-channel bookkeeping only; it must not create an alternate publication path, overwrite an immutable npm version, or move the published tag.
+
+## Historical `v0.3.0` outcome
+
+Release execution completed on 2026-08-14:
+
+- npm: [`pi-career@0.3.0`](https://www.npmjs.com/package/pi-career/v/0.3.0)
+- published commit: `2c0da9ff623b50cc02a7b5bccd3cb047596d947e`
+- annotated unsigned tag and asset-free GitHub Release: [`v0.3.0`](https://github.com/revazi/pi-career/releases/tag/v0.3.0)
+- npm integrity: `sha512-u/odRK/KMYXhIt/lvGm93RFmQIwBQZV0qbAf1vs/GsNH8Fx/X2f+p+F1iyUYtMi5RH9++SkdhEN8CR2XBScyBw==`
+- npm shasum: `3ad37db78cb76330838fbb3efe722c1cff4d8d00`
+- same-SHA main Adapter checks: [`31790996492`](https://github.com/revazi/pi-career/actions/runs/31790996492)
+- same-SHA six-target compatibility run: [`31791011739`](https://github.com/revazi/pi-career/actions/runs/31791011739)
+- OIDC publication, authoritative registry verification, and GitHub Release run: [`31791158472`](https://github.com/revazi/pi-career/actions/runs/31791158472)
+- npm publisher identity: GitHub Actions trusted publisher for `revazi/pi-career`, workflow `release.yml`, environment `npm`
+- SLSA provenance subject and resolved Git dependency: exact `pi-career@0.3.0` tarball and commit above
+- exact public Pi install/list/runtime acquisition with synthetic operations/offline failure/remove acceptance: passed
+- custom GitHub Release assets: none
+
+The published package is native-free, supports the six reviewed macOS/Linux targets through exact external `@revazi/career@0.2.0`, and validates its exact ordered six-package v2 launcher manifest. Production and complete development/host-Pi audits were both clean at the explicit low threshold before publication.
 
 ## Release gates
 
