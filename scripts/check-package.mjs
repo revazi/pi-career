@@ -27,6 +27,14 @@ const expectedPublishConfig = {
   registry: "https://registry.npmjs.org/",
 };
 const expectedOs = ["darwin", "linux"];
+const expectedCareerPlatformPackages = [
+  "@revazi/career-darwin-arm64",
+  "@revazi/career-darwin-x64",
+  "@revazi/career-linux-x64-gnu",
+  "@revazi/career-linux-arm64-gnu",
+  "@revazi/career-linux-x64-musl",
+  "@revazi/career-linux-arm64-musl",
+];
 const allowed = new Set([
   "CHANGELOG.md",
   "LICENSE-APACHE",
@@ -116,7 +124,7 @@ try {
     maximumBytes: 256 * 1024,
   });
   assert.equal(packagedManifest.name, "pi-career");
-  assert.equal(packagedManifest.version, "0.2.0");
+  assert.equal(packagedManifest.version, "0.3.0");
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.os, expectedOs, "package must install only on macOS and Linux");
@@ -139,22 +147,36 @@ try {
     "publish",
     "postpublish",
   ]) assert.equal(packagedManifest.scripts?.[lifecycle], undefined, `lifecycle script ${lifecycle} is forbidden`);
-  const [bundle, pdfWorker, unpdfLicense] = await Promise.all([
+  const [bundle, pdfWorker, skill, unpdfLicense] = await Promise.all([
     readFile(path.join(packageRoot, "dist", "index.js"), "utf8"),
     readFile(path.join(packageRoot, "dist", "pdf-worker.js"), "utf8"),
+    readFile(path.join(packageRoot, "skills", "career-core", "SKILL.md"), "utf8"),
     readFile(path.join(packageRoot, "docs", "unpdf-LICENSE-MIT.txt")),
   ]);
+  assert.ok(
+    skill.includes(`metadata:\n  author: revazi\n  version: "${packagedManifest.version}"\n---`),
+    "packaged Skill metadata must match the package version",
+  );
   assert.equal(unpdfLicense.length, 1_082, "unpdf license size");
   assert.equal(
     createHash("sha256").update(unpdfLicense).digest("hex"),
     "4a57080b8ecdb3a53ec678828121849ce5df877a99b1ad8d50e165d8a2aded1b",
     "unpdf license SHA-256",
   );
-  assert.ok(
-    bundle.includes("@revazi/career@0.1.1"),
-    "extension bundle must pin exact @revazi/career@0.1.1",
+  assert.deepEqual(
+    [...new Set(bundle.match(/@revazi\/career@[0-9]+\.[0-9]+\.[0-9]+/g) ?? [])],
+    ["@revazi/career@0.2.0"],
+    "extension bundle must contain only the exact reviewed Career package coordinate",
   );
   assert.ok(bundle.includes("pi-career supports only macOS and Linux."), "extension must fail unsupported platforms closed");
+  assert.deepEqual(
+    [...new Set(bundle.match(/@revazi\/career-[a-z0-9-]+/g) ?? [])],
+    expectedCareerPlatformPackages,
+    "extension must validate the exact ordered six-package launcher manifest",
+  );
+  assert.ok(bundle.includes("career.npm_launcher.v2"), "extension must validate the launcher schema");
+  assert.ok(bundle.includes("optionalDependencies"), "extension must validate lockstep optional packages");
+  assert.ok(bundle.includes("platform_packages"), "extension must validate ordered platform packages");
   for (const windowsSupport of [
     "career.exe", "career.com", "cmd.exe", "SystemRoot", "ComSpec", "PATHEXT", "SIGBREAK", "windowsHide",
   ]) assert.equal(bundle.includes(windowsSupport), false, `extension must not own ${windowsSupport} support`);

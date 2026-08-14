@@ -44,9 +44,9 @@ const ERROR_MESSAGES: Readonly<Record<AdapterErrorCode, string>> = {
   invalid_executable_override: "CAREER_CLI_PATH must be a bounded absolute executable path.",
   managed_contract_invalid: "The selected Career Core runtime has incompatible managed contracts.",
   runtime_unavailable:
-    "No compatible Career Core runtime is available. Install @revazi/career@0.1.1 or configure a compatible local career executable.",
+    "No compatible Career Core runtime is available. Install @revazi/career@0.2.0 or configure a compatible local career executable.",
   runtime_acquisition_failed:
-    "Automatic acquisition of @revazi/career@0.1.1 failed. Install that exact package or configure a compatible local career executable.",
+    "Automatic acquisition of @revazi/career@0.2.0 failed. Install that exact package or configure a compatible local career executable.",
   missing_executable: "The selected Career Core runtime was not found.",
   executable_unavailable: "The selected Career Core runtime is not available for execution.",
   cancelled: "The Career Core operation was cancelled.",

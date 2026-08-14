@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.1.1`; pi-career packages no native artifacts, supports only macOS/Linux, and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for private Markdown/text artifacts on those supported platforms. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Full application workspaces, further review UX, and further PDF generator/font coverage remain later explicitly authorized work; Windows is unsupported rather than deferred roadmap scope.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.2.0`; pi-career packages no native artifacts, supports only macOS/Linux, and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for private Markdown/text artifacts on those supported platforms. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Full application workspaces, further review UX, and further PDF generator/font coverage remain later explicitly authorized work; Windows is unsupported rather than deferred roadmap scope.
 
 Completed sequence:
 
@@ -254,7 +254,7 @@ Pi-career retains:
 
 - macOS/Linux-only package metadata and an adapter-level unsupported-platform failure before any route work or private stdin
 - no packaged native runtime artifacts or runtime dependencies
-- fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.1.1`
+- fixed resolution through explicit `CAREER_CLI_PATH`, PATH `career`, package-local exact `@revazi/career`, then acquisition of exact `@revazi/career@0.2.0`
 - no Cargo, sibling checkout, source build, arbitrary executable download, unpinned package, or lifecycle fallback
 - `PI_OFFLINE=1` disables acquisition; the only implicit network-capable behavior is bounded exact-package acquisition after local routes fail and before private stdin opens
 - exact managed compatibility for caller-controlled routes and native integrity delegated to the reviewed package launcher

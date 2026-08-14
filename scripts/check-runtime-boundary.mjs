@@ -39,7 +39,19 @@ assert.match(processSource, /spawn\(runtime\.command, \[\.\.\.runtime\.argumentP
 assert.match(processSource, /shell:\s*false/);
 assert.match(processSource, /resolveCareerRuntime/);
 assert.match(runtimeResolverSource, /@revazi\/career/);
-assert.match(runtimeResolverSource, /CAREER_PACKAGE_VERSION = "0\.1\.1"/);
+assert.match(runtimeResolverSource, /CAREER_PACKAGE_VERSION = "0\.2\.0"/);
+for (const packageName of [
+  "@revazi/career-darwin-arm64",
+  "@revazi/career-darwin-x64",
+  "@revazi/career-linux-x64-gnu",
+  "@revazi/career-linux-arm64-gnu",
+  "@revazi/career-linux-x64-musl",
+  "@revazi/career-linux-arm64-musl",
+]) assert.ok(runtimeResolverSource.includes(`"${packageName}"`));
+assert.match(runtimeResolverSource, /career\.npm_launcher\.v2/);
+assert.match(runtimeResolverSource, /optionalDependencies/);
+assert.match(runtimeResolverSource, /platform_packages/);
+assert.doesNotMatch(runtimeResolverSource, /career-win32|windows-msvc/);
 assert.match(runtimeResolverSource, /\["path", "package-local", "acquired"\]/);
 assert.match(runtimeResolverSource, /PI_OFFLINE/);
 assert.match(runtimeResolverSource, /process\.execPath/);

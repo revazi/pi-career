@@ -12,9 +12,9 @@ One coordinated release may create exactly:
 
 The npm package must be the native-free allowlisted artifact verified by `npm run check:package`. It contains the Pi extension, generated PDF worker, Agent Skill, and documentation. It must contain no `runtime/`, native executable, `node_modules`, Pi peer package contents, production dependency tree, lifecycle download/build hook, or publication script.
 
-Career Core distribution remains external. The candidate pins exact [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1); its reviewed launcher owns native target/libc, package metadata, provenance, file invariants, size, format, architecture, and SHA-256 verification. Pi-career supports only its six macOS/Linux targets and must not copy those algorithms or artifacts. Exact validation retains the launcher's upstream eight-package v2 manifest; its two Windows entries are provenance/compatibility metadata, not pi-career support.
+Career Core distribution remains external. The candidate pins exact [`@revazi/career@0.2.0`](https://www.npmjs.com/package/@revazi/career/v/0.2.0); its reviewed launcher owns native target/libc, package metadata, provenance, file invariants, size, format, architecture, and SHA-256 verification. Pi-career supports only its six macOS/Linux targets and must not copy those algorithms or artifacts. Pi-career validates the exact ordered six-package v2 launcher manifest, declared file allowlist, and `career` bin before direct execution.
 
-The reviewed external release is bound to Career Core commit/tag `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`/`v0.1.1` and successful protected publication run [`31346152236`](https://github.com/revazi/career-core/actions/runs/31346152236). The launcher registry integrity is `sha512-K2WojK0wbuMt4WWT87jrLUiRWLwlDeYR0BcSTqlaTGc0SNw4z7VWkSe7utFwH2MFhHaIE1iHWfpsj+nNlHklvQ==`; registry metadata reports SLSA v1 provenance for the launcher and all eight lockstep native packages.
+The reviewed external release is bound to Career Core commit/tag `536690632884c17336cc3c108f1bba0f254b862b`/`v0.2.0` and successful protected publication run [`31761238274`](https://github.com/revazi/career-core/actions/runs/31761238274). The launcher registry integrity is `sha512-5aksKh9S2fqPKBwlUY94XgCHjggr2Gep45zEWOMBNEfRtXvC/pYnlkI9CYrVHBFR8/gfGQog4pwV854FMzDxww==`; registry metadata reports SLSA v1 provenance for the user-facing launcher and all six lockstep launcher-owned native packages.
 
 The sole permitted automated publication path is the tag-triggered `.github/workflows/release.yml` workflow using npm Trusted Publishing through GitHub OIDC and the protected `npm` environment. It must use no `NPM_TOKEN`, `NODE_AUTH_TOKEN`, OTP, or other long-lived publication credential. Preparation, CI success, a version bump, workflow availability, or this document does **not** authorize tag creation/push, npm publication, or a GitHub Release; release execution remains a separate explicit maintainer action. Do not publish to crates.io, attach an npm tarball/native binary as a custom GitHub Release asset, add signing/notarization claims, or add lifecycle/publication scripts.
 
@@ -63,7 +63,7 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 - Start from synchronized public `main` and identify one full candidate SHA.
 - Require a clean Git tree and no divergence from `origin/main`.
 - Confirm `package.json`, the root package-lock entries, the Skill metadata, package assertions, changelog, README, and release documentation all identify the candidate version where appropriate.
-- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.1.1` unless a separate compatibility/provenance review explicitly updates them; do not confuse the adapter release version with the external runtime version.
+- Keep Career Core and `@revazi/career` compatibility coordinates at exact `0.2.0` unless a separate compatibility/provenance review explicitly updates them; do not confuse the adapter release version with the external runtime version.
 - Confirm `package.json` is explicitly public only at `https://registry.npmjs.org/`, has `os` exactly `['darwin', 'linux']`, has exactly four wildcard Pi peers, declares no production/optional/bundled dependency tree, and has no lifecycle/publication script.
 - Ensure the candidate contains no real resume, vacancy, credentials, Pi session, provider output, generated local path, npm token, or unreviewed executable.
 - Review the complete diff from the prior release tag, including authoritative `src/`, generated `dist/index.js`/`dist/pdf-worker.js`, `career_run`, all three exact raw tools, slash commands, external resolver, Skill, release automation, and package documentation.
@@ -72,11 +72,11 @@ A skipped, unknown, stale, or merely planned result is not a pass.
 ### 2. Review the external runtime boundary
 
 - Confirm unsupported local/Git extension initialization registers no command/tool and fails with stable payload-free `unsupported_platform` before explicit/PATH lookup, package validation, acquisition, compatibility probing, or private stdin; retain invocation/resolver guards as defense in depth.
-- Confirm the only acquisition coordinate remains exact `@revazi/career@0.1.1` from the canonical npm registry.
+- Confirm the only acquisition coordinate remains exact `@revazi/career@0.2.0` from the canonical npm registry.
 - Confirm runtime order remains: absolute `CAREER_CLI_PATH`, PATH `career`, package-local exact launcher, then bounded exact-package acquisition unless `PI_OFFLINE=1`.
-- Confirm every caller-controlled route must pass the exact managed Core 0.1.1 operation catalog and required self-contained schema bundles before private stdin opens.
-- Confirm package-local/acquired routes delegate native target/libc/provenance/mode/size/format/architecture/SHA-256 verification to the reviewed launcher on the six supported targets.
-- Confirm all nine exact npm packages remain version-lockstep, have canonical registry integrity and SLSA v1 provenance, and match the ordered v2 launcher catalog from reviewed Core commit `0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`. The launcher's two Windows package entries are upstream metadata only and must not reintroduce adapter support.
+- Confirm every caller-controlled route must pass the exact managed Core 0.2.0 operation catalog and required self-contained schema bundles before private stdin opens.
+- Confirm package-local/acquired routes validate the exact ordered six-package v2 launcher manifest and delegate native target/libc/provenance/mode/size/format/architecture/SHA-256 verification to the reviewed launcher on the six supported targets.
+- Confirm the external release's launcher plus six native packages remain version-lockstep, have canonical registry integrity and SLSA v1 provenance, and are bound to reviewed Core commit `536690632884c17336cc3c108f1bba0f254b862b`.
 - Run the exact-package integration test on the six hosted macOS/GNU Linux/musl Linux release targets. Updating the external package coordinate, supported native target list, launcher schema, or managed Core contract requires separate compatibility, provenance, audit, and package review before this gate can pass.
 
 ### 3. Require clean audits and strict package proof
@@ -152,7 +152,7 @@ Before release authorization:
 
 - convert `CHANGELOG.md` candidate notes to a dated candidate-version entry;
 - ensure README installation uses the exact candidate `npm:pi-career@<version>` coordinate and clearly distinguishes historical releases;
-- state that pi-career packages no native runtime, supports only the six reviewed macOS/Linux targets, and uses exact external `@revazi/career@0.1.1`; explain that its additional upstream manifest entries are not pi-career support;
+- state that pi-career packages no native runtime, supports only the six reviewed macOS/Linux targets, uses exact external `@revazi/career@0.2.0`, and validates its exact ordered six-package v2 manifest;
 - state that both production and complete development/host-Pi audits are clean at the explicit low threshold;
 - keep all full commit SHA and npm integrity placeholders out of tracked files until those values exist; record them in the GitHub Release after publication.
 
@@ -181,8 +181,8 @@ Only after every gate passes and the maintainer explicitly authorizes release ex
 6. The workflow must create the GitHub Release from the existing `<tag>` with:
    - full commit SHA;
    - npm integrity and shasum;
-   - exact external `@revazi/career@0.1.1` coordinate;
-   - all six supported macOS, GNU Linux, and musl Linux targets, plus a clear note that additional upstream launcher-manifest entries are metadata rather than pi-career support;
+   - exact external `@revazi/career@0.2.0` coordinate;
+   - all six supported macOS, GNU Linux, and musl Linux targets, plus a clear note that only the launcher is a pi-career installation surface;
    - native-free pi-career package statement;
    - clean production/full audit statement;
    - no crate publication, signing/notarization claim, or custom release asset.

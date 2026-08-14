@@ -204,7 +204,7 @@ const syntheticMaterializeHandoff = materializeEditorText(
 const syntheticManagedContext = JSON.stringify({
   schema_version: "pi.career.run_result.v1",
   command: "context",
-  core_version: "0.1.1",
+  core_version: "0.2.0",
   persistence: "transient",
   consent: "not_required",
   resume_count: 1,
@@ -454,7 +454,7 @@ function coreReviewFixture(managedText, schemaVersion, additions) {
     managedText,
     ["schema_version", "command", "review", "result_schema", "retained_change_count",
       "selected_change_count", "detail_guidance", "next_action"],
-    { schema_version: schemaVersion, core_version: "0.1.1", ...additions },
+    { schema_version: schemaVersion, core_version: "0.2.0", ...additions },
   );
 }
 
@@ -496,7 +496,7 @@ const syntheticCoreMaterialize = coreProjectionFixture(
   {
     schema_version: "career.resume_variant.v1",
     policy_version: "resume_variant_review_v1",
-    core_version: "0.1.1",
+    core_version: "0.2.0",
     baseline_resume: syntheticCoreVariantReview.baseline_resume,
     assisted_resume_text: JSON.parse(syntheticDocumentDetail).value,
     selected_changes: syntheticCoreVariantReview.changes,

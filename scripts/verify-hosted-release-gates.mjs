@@ -18,7 +18,7 @@ async function github(path) {
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${token}`,
-      "user-agent": "pi-career-release/0.2.0",
+      "user-agent": "pi-career-release/0.3.0",
       "x-github-api-version": "2022-11-28",
     },
     redirect: "error",

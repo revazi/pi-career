@@ -20,14 +20,14 @@ It gives you:
 
 Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-> **Version note:** this README describes `pi-career@0.2.0`. Published `pi-career@0.1.0` is the historical bundled-runtime release. If `0.2.0` is not yet visible on the npm registry, use a reviewed local checkout or pinned Git commit.
+> **Version note:** this README describes the `pi-career@0.3.0` candidate. Published `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release. Until `0.3.0` is explicitly released and visible on the npm registry, use a reviewed local checkout or pinned Git commit.
 
 ## Requirements
 
 - Node.js 22.19 or newer
 - Pi with 0.84.0-compatible package APIs
 - macOS or Linux on ARM64/x64; GNU Linux requires glibc 2.35+, and musl Linux is supported
-- either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.1.1`
+- either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.2.0`
 
 Windows is unsupported. npm enforces the package `os` allowlist; for a local or Git registration, extension initialization fails with stable `unsupported_platform` guidance before registering any command or tool, inspecting `CAREER_CLI_PATH`, searching `PATH`, validating package routes, acquiring npm content, or opening private stdin.
 
@@ -36,7 +36,7 @@ Windows is unsupported. npm enforces the package `os` allowlist; for a local or 
 After the registry confirms the release, install the exact version:
 
 ```bash
-pi install npm:pi-career@0.2.0
+pi install npm:pi-career@0.3.0
 pi list
 ```
 
@@ -397,12 +397,12 @@ When raw mode is explicitly enabled, discovery-first use remains mandatory: capa
 
 1. absolute `CAREER_CLI_PATH`;
 2. `career` on `PATH`;
-3. package-local exact `@revazi/career@0.1.1`;
-4. bounded acquisition of exact `@revazi/career@0.1.1` from the canonical npm registry.
+3. package-local exact `@revazi/career@0.2.0`;
+4. bounded acquisition of exact `@revazi/career@0.2.0` from the canonical npm registry.
 
 Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, `/career-workbench`, and `/career-review` itself do not resolve or invoke Core; `/career-review` requires a still-live review produced earlier by `career_run`. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do need Core.
 
-Extension initialization requires macOS or Linux and fails unsupported platforms with one payload-free `unsupported_platform` error before registering any command/tool or doing route work. Before private document stdin opens on a supported platform, the selected executable must pass the exact managed Career Core 0.1.1 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback.
+Extension initialization requires macOS or Linux and fails unsupported platforms with one payload-free `unsupported_platform` error before registering any command/tool or doing route work. Before private document stdin opens on a supported platform, the selected executable must pass the exact managed Career Core 0.2.0 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback.
 
 The pi-career runtime target matrix is:
 
@@ -415,7 +415,7 @@ The pi-career runtime target matrix is:
 | musl Linux | x64 | `linux-x64-musl` | detected musl runtime |
 | musl Linux | ARM64 | `linux-arm64-musl` | detected musl runtime |
 
-The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.1.1`. Pi-career must still validate the pinned launcher's exact upstream v2 eight-package manifest, whose two Windows entries are immutable upstream contract metadata and do not imply pi-career Windows support.
+The platform-specific optional packages are internal launcher details; install or acquire only exact `@revazi/career@0.2.0`. Pi-career validates the launcher's exact ordered six-package v2 manifest and lockstep versions before direct execution, while the launcher remains authoritative for native selection and integrity. Windows remains unsupported.
 
 To prohibit acquisition:
 
@@ -488,7 +488,7 @@ CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core \
 
 ## Security and release provenance
 
-The exact reviewed external runtime coordinate is [`@revazi/career@0.1.1`](https://www.npmjs.com/package/@revazi/career/v/0.1.1), published from Career Core commit [`0318b3b0993ee23093c8f023757fa7e4d8b3b8e0`](https://github.com/revazi/career-core/tree/0318b3b0993ee23093c8f023757fa7e4d8b3b8e0). Its launcher owns native target/libc selection and package metadata, provenance, file invariants, size, format, and SHA-256 verification. Pi-career supports only the six macOS/Linux targets while retaining exact validation of the launcher's upstream eight-package manifest.
+The exact reviewed external runtime coordinate is [`@revazi/career@0.2.0`](https://www.npmjs.com/package/@revazi/career/v/0.2.0), published from Career Core commit [`536690632884c17336cc3c108f1bba0f254b862b`](https://github.com/revazi/career-core/tree/536690632884c17336cc3c108f1bba0f254b862b). Its launcher owns native target/libc selection and package metadata, provenance, file invariants, size, format, and SHA-256 verification. Registry integrity and SLSA v1 provenance were reviewed for the user-facing launcher and all six lockstep native packages. Pi-career validates that exact six-package v2 manifest and supports only its macOS/Linux targets.
 
 Historical published `pi-career` v0.1.0 coordinates are retained for verification:
 
@@ -497,7 +497,7 @@ Historical published `pi-career` v0.1.0 coordinates are retained for verificatio
 - npm integrity: `sha512-mmbDdWDyWz77f2uLzZECJT9E6w1ZRCJjYFrUnZd3ldoS6ehEa5DrCENIfavHR5xMOFi0of6AVQ35ZTxwpeDeAQ==`
 - GitHub Release: [`v0.1.0`](https://github.com/revazi/pi-career/releases/tag/v0.1.0)
 
-That historical release bundled native artifacts; `pi-career@0.2.0` does not. Historical evidence remains in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), [`docs/releasing.md`](docs/releasing.md), and [`docs/licenses/`](docs/licenses/).
+That historical release bundled native artifacts; `pi-career@0.2.0` and later do not. Historical evidence remains in [`docs/native-dependency-inventory.md`](docs/native-dependency-inventory.md), [`docs/releasing.md`](docs/releasing.md), and [`docs/licenses/`](docs/licenses/).
 
 Use [Issues](https://github.com/revazi/pi-career/issues) only for sanitized bugs and scoped feature requests. Follow [`SECURITY.md`](SECURITY.md) for private vulnerability reports. Never attach real resumes, vacancies, credentials, provider responses, or Pi session files to a public issue.
 

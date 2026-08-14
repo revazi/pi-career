@@ -53,7 +53,7 @@ const operationSpecs = [
 function operationCatalog() {
   return {
     schema_version: "career.operation_catalog.v1",
-    core_version: "0.1.1",
+    core_version: "0.2.0",
     operations: operationSpecs.map(([operation_id, cli_path, input_schema_id, output_schema_id, maximum_input_bytes]) => ({
       operation_id,
       capability_id: operation_id.startsWith("schema.") || operation_id === "core.operations" ? null : operation_id,
@@ -352,7 +352,7 @@ test("career_run reviews advisory suggestions without exposing the repeated base
       schema_version: "career.resume_analysis_suggestion_review.v1",
       policy_version: "resume_analysis_suggestion_review_v1",
       analysis_policy_version: "resume_analysis_v1",
-      core_version: "0.1.1",
+      core_version: "0.2.0",
       authority: "assisted_non_authoritative",
       baseline_analysis: { schema_version: "career.resume_analysis.v1", checks: [] },
       suggestions: [{
@@ -415,7 +415,7 @@ test("career_run reuses the exact reviewed variant envelope and saves only after
     const variantReview = {
       schema_version: "career.resume_variant_review.v1",
       policy_version: "resume_variant_review_v1",
-      core_version: "0.1.1",
+      core_version: "0.2.0",
       authority: "assisted_non_authoritative",
       baseline_resume: { schema_version: "career.resume_input.v1", text: "baseline", metadata: { document_id: "x" } },
       proposed_preview_text: "preview",
@@ -438,7 +438,7 @@ test("career_run reuses the exact reviewed variant envelope and saves only after
     const materialized = {
       schema_version: "career.resume_variant.v1",
       policy_version: "resume_variant_review_v1",
-      core_version: "0.1.1",
+      core_version: "0.2.0",
       authority: "assisted_non_authoritative",
       baseline_resume: variantReview.baseline_resume,
       assisted_resume_text: "Built reliable TypeScript APIs.\nTypeScript, Testing, APIs",
@@ -700,7 +700,7 @@ test("PDF variant review remains manual guidance and cannot enter selection or m
     const reviewedPdf = {
       schema_version: "career.resume_variant_review.v1",
       policy_version: "resume_variant_review_v1",
-      core_version: "0.1.1",
+      core_version: "0.2.0",
       authority: "assisted_non_authoritative",
       baseline_resume: { schema_version: "career.resume_input.v1", text: "baseline", metadata: { document_id: "x" } },
       proposed_preview_text: "preview",
