@@ -6,6 +6,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    groups:
+      pi-development-suite:
+        patterns:
+          - "@earendil-works/pi-ai"
+          - "@earendil-works/pi-coding-agent"
+          - "@earendil-works/pi-tui"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
   - package-ecosystem: github-actions
     directory: /
     target-branch: main
