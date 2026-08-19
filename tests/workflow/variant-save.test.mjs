@@ -32,18 +32,19 @@ import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import {
   encodeManagedVariantsMarker,
 } from "../../src/workflow/variant-metadata.ts";
-import { makeContext, makeFakePi, uuidSequence } from "./helpers.mjs";
+import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
 
 const now = () => new Date("2026-08-11T03:04:05.123Z");
 const defaultFs = { chmod, link, lstat, mkdir, open, readFile, readdir, realpath, unlink };
 
 async function fixture() {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-save-"));
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-save-")));
   const rootInput = path.join(temp, "library");
   const agentDir = path.join(temp, "agent");
   await mkdir(rootInput);
   await writeFile(path.join(rootInput, "resume.md"), "# Synthetic Original\n\nBuilt reliable APIs.\n");
   const config = await addLibraryRoot(emptyConfig(), rootInput, "Synthetic");
+  await prepareConfigDirectory(agentDir);
   await writeConfig(agentDir, config, uuidSequence());
   const scan = await scanLibrary(config);
   const original = eligibleOriginals(scan)[0];

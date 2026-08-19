@@ -118,6 +118,7 @@ assert.match(workflowSource, /registerCommand\("career-vacancy"/);
 assert.match(workflowSource, /registerCommand\("career-match"/);
 assert.match(workflowSource, /registerCommand\("career-analyze"/);
 assert.match(workflowSource, /registerCommand\("career-workbench"/);
+assert.match(workflowSource, /registerCommand\("career-workspace"/);
 assert.doesNotMatch(deterministicWorkflowSource, /career_core_(?:discover|resume|job)/);
 assert.match(workbenchSource, /do not call raw schema tools unless I explicitly request advanced debugging/);
 assert.match(workbenchSource, /Use only career_run for normal analysis, matching, proposal review, materialization, and detail hydration/);

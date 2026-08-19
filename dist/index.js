@@ -1106,330 +1106,21 @@ import { Text as Text2 } from "@earendil-works/pi-tui";
 
 // src/workflow/config.ts
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   access as access2,
-  chmod,
+  link,
   lstat as lstat2,
   mkdir,
   open,
   readFile as readFile2,
   realpath as realpath2,
   rename,
-  rm
+  unlink
 } from "node:fs/promises";
-import { constants } from "node:fs";
 import path2 from "node:path";
 import { TextDecoder as TextDecoder3 } from "node:util";
-
-// src/workflow/types.ts
-var WORKFLOW_CUSTOM_TYPE = "career.workflow";
-var WORKFLOW_STATE_SCHEMA = "pi.career.workflow_state.v1";
-var RESULT_PROJECTION_SCHEMA = "pi.career.result_projection.v1";
-var WORKFLOW_ERROR_MESSAGES = {
-  interactive_mode_required: "This career command requires TUI or RPC mode.",
-  invalid_command_arguments: "The career command arguments are invalid.",
-  config_invalid: "The pi-career configuration is invalid.",
-  root_invalid: "The selected resume root is unavailable or invalid.",
-  library_empty: "No eligible original resumes are available.",
-  vacancy_required: "Set a vacancy with /career-vacancy first.",
-  consent_required: "Session-persistence consent was not granted.",
-  workflow_cancelled: "The career workflow was cancelled.",
-  workflow_stale: "A newer career workflow owns this session.",
-  workbench_too_large: "The combined private workbench prompt is too large for a bounded Pi handoff.",
-  core_result_invalid: "Career Core returned an unexpected result shape.",
-  workflow_failed: "The career workflow failed."
-};
-var CareerWorkflowError = class extends Error {
-  code;
-  constructor(code) {
-    super(
-      JSON.stringify({
-        schema_version: "pi.career.workflow_error.v1",
-        code,
-        message: WORKFLOW_ERROR_MESSAGES[code]
-      })
-    );
-    this.name = "CareerWorkflowError";
-    this.code = code;
-  }
-};
-function workflowError(code) {
-  return new CareerWorkflowError(code);
-}
-function workflowErrorMessage(code) {
-  return WORKFLOW_ERROR_MESSAGES[code];
-}
-
-// src/workflow/config.ts
-var CONFIG_SCHEMA = "pi.career.config.v1";
-var CONFIG_MAX_BYTES = 65536;
-var LABEL_MAX_CHARACTERS = 80;
-var PATH_MAX_BYTES2 = 4096;
-var SHA256 = /^[a-f0-9]{64}$/;
-var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function emptyConfig() {
-  return { schema_version: CONFIG_SCHEMA, library_roots: [] };
-}
-function configPath(agentDir) {
-  if (!path2.isAbsolute(agentDir)) throw workflowError("config_invalid");
-  return path2.join(agentDir, "career", "config.v1.json");
-}
-function rootId(canonicalPath) {
-  return createHash("sha256").update(canonicalPath).digest("hex");
-}
-function isPlainRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function exactKeys3(value, required, optional = []) {
-  const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
-  return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
-}
-function validLabel(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
-}
-function normalizeGeneratedVariantsRoot(value) {
-  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || !path2.isAbsolute(value) || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
-  const normalized = path2.resolve(value);
-  return path2.dirname(normalized) === normalized ? void 0 : normalized;
-}
-function parseRoot(value) {
-  if (!isPlainRecord(value) || !exactKeys3(value, ["id", "path", "label"])) return void 0;
-  if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
-  return { id: value.id, path: value.path, label: value.label };
-}
-function parseConfig(value) {
-  if (!isPlainRecord(value) || !exactKeys3(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_SCHEMA || !Array.isArray(value.library_roots)) throw workflowError("config_invalid");
-  const roots = [];
-  const ids = /* @__PURE__ */ new Set();
-  const paths = /* @__PURE__ */ new Set();
-  for (const candidate of value.library_roots) {
-    const root = parseRoot(candidate);
-    if (root === void 0 || ids.has(root.id) || paths.has(root.path)) {
-      throw workflowError("config_invalid");
-    }
-    ids.add(root.id);
-    paths.add(root.path);
-    roots.push(root);
-  }
-  const generatedVariantsRoot = value.generated_variants_root === void 0 ? void 0 : normalizeGeneratedVariantsRoot(value.generated_variants_root);
-  if (value.generated_variants_root !== void 0 && (generatedVariantsRoot === void 0 || roots.some((root) => root.path === generatedVariantsRoot))) throw workflowError("config_invalid");
-  return {
-    schema_version: CONFIG_SCHEMA,
-    library_roots: roots,
-    ...generatedVariantsRoot === void 0 ? {} : { generated_variants_root: generatedVariantsRoot }
-  };
-}
-async function loadConfig(agentDir) {
-  const file = configPath(agentDir);
-  try {
-    const metadata = await lstat2(file);
-    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > CONFIG_MAX_BYTES) {
-      throw workflowError("config_invalid");
-    }
-    if ((metadata.mode & 511) !== 384) throw workflowError("config_invalid");
-    const bytes = await readFile2(file);
-    if (bytes.length !== metadata.size) throw workflowError("config_invalid");
-    const text = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
-    return parseConfig(JSON.parse(text));
-  } catch (error) {
-    if (error?.code === "ENOENT") return emptyConfig();
-    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
-    throw workflowError("config_invalid");
-  }
-}
-async function canonicalizeRoot(inputPath) {
-  if (typeof inputPath !== "string" || inputPath.length === 0 || inputPath.includes("\0") || Buffer.byteLength(inputPath, "utf8") > 4096) throw workflowError("root_invalid");
-  try {
-    const absolute = path2.resolve(inputPath);
-    const suppliedMetadata = await lstat2(absolute);
-    if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) {
-      throw workflowError("root_invalid");
-    }
-    const canonical = await realpath2(absolute);
-    const metadata = await lstat2(canonical);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw workflowError("root_invalid");
-    await access2(canonical, constants.R_OK);
-    return canonical;
-  } catch (error) {
-    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
-    throw workflowError("root_invalid");
-  }
-}
-function defaultRootLabel(canonicalPath) {
-  const label = path2.basename(canonicalPath).trim();
-  return (label || "Resume library").slice(0, LABEL_MAX_CHARACTERS);
-}
-async function addLibraryRoot(config, inputPath, label) {
-  const canonical = await canonicalizeRoot(inputPath);
-  const chosenLabel = label?.trim() || defaultRootLabel(canonical);
-  if (!validLabel(chosenLabel)) throw workflowError("root_invalid");
-  const id = rootId(canonical);
-  const withoutExisting = config.library_roots.filter((root) => root.id !== id);
-  return {
-    ...config,
-    library_roots: [...withoutExisting, { id, path: canonical, label: chosenLabel }]
-  };
-}
-function removeLibraryRoot(config, id) {
-  return { ...config, library_roots: config.library_roots.filter((root) => root.id !== id) };
-}
-function suggestedGeneratedVariantsRoot(config, selectedRootId) {
-  if (config.generated_variants_root !== void 0) return config.generated_variants_root;
-  const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
-  return selectedRoot === void 0 ? void 0 : path2.join(selectedRoot.path, "variants");
-}
-function setGeneratedVariantsRoot(config, inputPath) {
-  const normalized = normalizeGeneratedVariantsRoot(inputPath);
-  if (normalized === void 0 || config.library_roots.some((root) => root.path === normalized)) {
-    throw workflowError("root_invalid");
-  }
-  return { ...config, generated_variants_root: normalized };
-}
-function clearGeneratedVariantsRoot(config) {
-  const { generated_variants_root: _discarded, ...remaining } = config;
-  return remaining;
-}
-async function writeConfig(agentDir, config, uuid = randomUUID) {
-  const validated = parseConfig(config);
-  const file = configPath(agentDir);
-  const directory = path2.dirname(file);
-  const temporaryId = uuid();
-  if (!UUID.test(temporaryId)) throw workflowError("config_invalid");
-  const temporary = path2.join(directory, `.config.v1.${temporaryId}.tmp`);
-  const encoded = Buffer.from(`${JSON.stringify(validated, null, 2)}
-`, "utf8");
-  if (encoded.length > CONFIG_MAX_BYTES) throw workflowError("config_invalid");
-  let handle;
-  try {
-    await mkdir(directory, { recursive: true, mode: 448 });
-    const directoryMetadata = await lstat2(directory);
-    if (!directoryMetadata.isDirectory() || directoryMetadata.isSymbolicLink()) {
-      throw workflowError("config_invalid");
-    }
-    await chmod(directory, 448);
-    handle = await open(temporary, "wx", 384);
-    await handle.writeFile(encoded);
-    await handle.sync();
-    await handle.close();
-    handle = void 0;
-    await chmod(temporary, 384);
-    await rename(temporary, file);
-    const directoryHandle = await open(directory, "r");
-    try {
-      await directoryHandle.sync();
-    } finally {
-      await directoryHandle.close();
-    }
-  } catch {
-    if (handle !== void 0) await handle.close().catch(() => void 0);
-    await rm(temporary, { force: true }).catch(() => void 0);
-    throw workflowError("config_invalid");
-  }
-}
-
-// src/workflow/core-input.ts
-function buildResumeInput(resume) {
-  return {
-    schema_version: "career.resume_input.v1",
-    text: resume.text,
-    metadata: { document_id: resume.id }
-  };
-}
-function buildJobInput(vacancy) {
-  return {
-    schema_version: "career.job_input.v1",
-    text: vacancy.vacancy_text,
-    metadata: { document_id: vacancy.state_id }
-  };
-}
-function buildJobMatchInput(resume, vacancy) {
-  return {
-    schema_version: "career.job_match_input.v1",
-    resume: buildResumeInput(resume),
-    job: buildJobInput(vacancy)
-  };
-}
-function serializeCoreInput(value) {
-  return JSON.stringify(value);
-}
-
-// src/workflow/scan.ts
-import { createHash as createHash3 } from "node:crypto";
-import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath3 } from "node:fs/promises";
-import path3 from "node:path";
-import { TextDecoder as TextDecoder4 } from "node:util";
-
-// src/workflow/pdf.ts
-import { Worker } from "node:worker_threads";
-var PDF_MAX_RAW_BYTES = 10 * 1024 * 1024;
-var PDF_MAX_PAGES = 20;
-var PDF_EXTRACTION_TIMEOUT_MS = 1e4;
-var PDF_MAX_RESULT_BYTES = 512 * 1024;
-function workerUrl() {
-  return import.meta.url.endsWith("/dist/index.js") ? new URL("./pdf-worker.js", import.meta.url) : new URL("./pdf-worker.ts", import.meta.url);
-}
-function validWorkerResult(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const result = value;
-  if (result.ok === false) return Object.keys(result).length === 1;
-  return result.ok === true && Object.keys(result).sort().join(",") === "ok,pageCount,text" && typeof result.text === "string" && Buffer.byteLength(result.text, "utf8") <= PDF_MAX_RESULT_BYTES && Number.isSafeInteger(result.pageCount) && result.pageCount > 0 && result.pageCount <= PDF_MAX_PAGES;
-}
-async function extractPdfText(bytes) {
-  if (bytes.byteLength === 0 || bytes.byteLength > PDF_MAX_RAW_BYTES) return { ok: false };
-  let worker;
-  try {
-    worker = new Worker(workerUrl(), {
-      env: {},
-      resourceLimits: {
-        maxOldGenerationSizeMb: 128,
-        maxYoungGenerationSizeMb: 32,
-        stackSizeMb: 4
-      }
-    });
-  } catch {
-    return { ok: false };
-  }
-  return await new Promise((resolve) => {
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      void worker.terminate();
-      resolve(result);
-    };
-    const timer = setTimeout(() => finish({ ok: false }), PDF_EXTRACTION_TIMEOUT_MS);
-    worker.once("message", (value) => {
-      if (!validWorkerResult(value) || value.ok === false || value.text.trim().length === 0) {
-        finish({ ok: false });
-        return;
-      }
-      finish({ ok: true, text: value.text, pageCount: value.pageCount });
-    });
-    worker.once("error", () => finish({ ok: false }));
-    worker.once("exit", () => finish({ ok: false }));
-    const transferable = Uint8Array.from(bytes);
-    try {
-      worker.postMessage(transferable, [transferable.buffer]);
-    } catch {
-      finish({ ok: false });
-    }
-  });
-}
-
-// src/workflow/text-limit.ts
-var CORE_MAX_CHARACTERS = 5e4;
-function isWithinCoreCharacterLimit(value) {
-  let codePoints = 0;
-  for (const _codePoint of value) {
-    codePoints += 1;
-    if (codePoints > CORE_MAX_CHARACTERS) return false;
-  }
-  return true;
-}
-
-// src/workflow/variant-metadata.ts
-import { createHash as createHash2 } from "node:crypto";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
 // src/workflow/strict-json.ts
 var MAX_DEPTH = 32;
@@ -1556,7 +1247,874 @@ function parseStrictJson(text) {
   }
 }
 
+// src/workflow/types.ts
+var WORKFLOW_CUSTOM_TYPE = "career.workflow";
+var WORKFLOW_STATE_SCHEMA = "pi.career.workflow_state.v1";
+var RESULT_PROJECTION_SCHEMA = "pi.career.result_projection.v1";
+var WORKFLOW_ERROR_MESSAGES = {
+  interactive_mode_required: "This career command requires TUI or RPC mode.",
+  invalid_command_arguments: "The career command arguments are invalid.",
+  config_invalid: "The pi-career configuration is invalid.",
+  root_invalid: "The selected resume root is unavailable or invalid.",
+  library_empty: "No eligible original resumes are available.",
+  vacancy_required: "Set a vacancy with /career-vacancy first.",
+  consent_required: "Session-persistence consent was not granted.",
+  workflow_cancelled: "The career workflow was cancelled.",
+  workflow_stale: "A newer career workflow owns this session.",
+  workbench_too_large: "The combined private workbench prompt is too large for a bounded Pi handoff.",
+  core_result_invalid: "Career Core returned an unexpected result shape.",
+  workflow_failed: "The career workflow failed.",
+  workspace_config_invalid: "The pi-career workspace configuration is invalid.",
+  workspace_root_invalid: "The application workspace root does not meet the private-root contract.",
+  workspace_root_overlap: "The application workspace must remain disjoint from resume and variation roots.",
+  workspace_unavailable: "The current application workspace is unavailable.",
+  workspace_identity_conflict: "The session and application workspace identities conflict.",
+  workspace_limit_reached: "The application workspace has reached a bounded v1 limit.",
+  workspace_busy: "Another workspace mutation is active or a prior lock requires inspection.",
+  workspace_collision: "A workspace target already exists; no existing file was replaced.",
+  workspace_drift: "The application workspace changed or contains inconsistent package state.",
+  workspace_preview_changed: "The exact workspace preview changed; no mutation was performed.",
+  workspace_verification_failed: "The workspace mutation could not be safely verified.",
+  workspace_status_unknown: "The workspace reached an indeterminate filesystem state; reconcile before retrying."
+};
+var CareerWorkflowError = class extends Error {
+  code;
+  constructor(code) {
+    super(
+      JSON.stringify({
+        schema_version: "pi.career.workflow_error.v1",
+        code,
+        message: WORKFLOW_ERROR_MESSAGES[code]
+      })
+    );
+    this.name = "CareerWorkflowError";
+    this.code = code;
+  }
+};
+function workflowError(code) {
+  return new CareerWorkflowError(code);
+}
+function workflowErrorMessage(code) {
+  return WORKFLOW_ERROR_MESSAGES[code];
+}
+
+// src/workflow/config.ts
+var CONFIG_V1_SCHEMA = "pi.career.config.v1";
+var CONFIG_V2_SCHEMA = "pi.career.config.v2";
+var CONFIG_MAX_BYTES = 65536;
+var LABEL_MAX_CHARACTERS = 80;
+var PATH_MAX_BYTES2 = 4096;
+var SHA256 = /^[a-f0-9]{64}$/;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var CONFIG_LOCK_SCHEMA = "pi.career.workspace_lock.v1";
+var SNAPSHOTS = /* @__PURE__ */ new WeakMap();
+function hashBytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+function identity(metadata) {
+  return {
+    dev: metadata.dev,
+    ino: metadata.ino,
+    size: metadata.size,
+    uid: metadata.uid,
+    mode: metadata.mode,
+    nlink: metadata.nlink
+  };
+}
+function sameIdentity(metadata, expected) {
+  return metadata.dev === expected.dev && metadata.ino === expected.ino && metadata.size === expected.size && metadata.uid === expected.uid && metadata.mode === expected.mode && metadata.nlink === expected.nlink;
+}
+function effectiveUserId() {
+  const value = process.geteuid?.() ?? process.getuid?.();
+  if (value === void 0) throw workflowError("config_invalid");
+  return value;
+}
+function exactPrivateMode(metadata, expected) {
+  return metadata.uid === effectiveUserId() && (metadata.mode & 4095) === expected;
+}
+function isPlainRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys3(value, required, optional = []) {
+  const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
+}
+function validLabel(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function canonicalBoundedAbsolutePath(value) {
+  return typeof value === "string" && value.length > 0 && path2.isAbsolute(value) && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES2 && !/[\u0000-\u001f\u007f]/.test(value) && path2.resolve(value) === value && path2.parse(value).root !== value && !value.endsWith(path2.sep);
+}
+function normalizeLegacyGeneratedVariantsRoot(value) {
+  if (typeof value !== "string" || value.length === 0 || !path2.isAbsolute(value) || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
+  const normalized = path2.resolve(value);
+  return path2.dirname(normalized) === normalized ? void 0 : normalized;
+}
+function rootId(canonicalPath) {
+  return createHash("sha256").update(canonicalPath).digest("hex");
+}
+function parseRoot(value) {
+  if (!isPlainRecord(value) || !exactKeys3(value, ["id", "path", "label"])) return void 0;
+  if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || !canonicalBoundedAbsolutePath(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
+  return { id: value.id, path: value.path, label: value.label };
+}
+function parseRoots(value) {
+  if (!Array.isArray(value)) throw workflowError("config_invalid");
+  const roots = [];
+  const ids = /* @__PURE__ */ new Set();
+  const paths = /* @__PURE__ */ new Set();
+  for (const candidate of value) {
+    const root = parseRoot(candidate);
+    if (root === void 0 || ids.has(root.id) || paths.has(root.path)) throw workflowError("config_invalid");
+    ids.add(root.id);
+    paths.add(root.path);
+    roots.push(root);
+  }
+  return roots;
+}
+function componentOverlap(left, right) {
+  if (left === right) return true;
+  const relativeLeft = path2.relative(left, right);
+  if (relativeLeft !== "" && relativeLeft !== ".." && !relativeLeft.startsWith(`..${path2.sep}`) && !path2.isAbsolute(relativeLeft)) return true;
+  const relativeRight = path2.relative(right, left);
+  return relativeRight !== "" && relativeRight !== ".." && !relativeRight.startsWith(`..${path2.sep}`) && !path2.isAbsolute(relativeRight);
+}
+function parseApplicationWorkspace(value) {
+  if (value === null) return null;
+  if (!isPlainRecord(value) || !exactKeys3(value, ["root_id", "root_path"]) || typeof value.root_id !== "string" || !UUID.test(value.root_id) || !canonicalBoundedAbsolutePath(value.root_path)) throw workflowError("config_invalid");
+  return { root_id: value.root_id, root_path: value.root_path };
+}
+function canonicalConfig(value) {
+  return {
+    schema_version: CONFIG_V2_SCHEMA,
+    library_roots: value.library_roots.map((root) => ({ id: root.id, path: root.path, label: root.label })),
+    generated_variants_root: value.generated_variants_root,
+    application_workspace: value.application_workspace === null ? null : {
+      root_id: value.application_workspace.root_id,
+      root_path: value.application_workspace.root_path
+    }
+  };
+}
+function parseV1(value) {
+  if (!exactKeys3(value, ["schema_version", "library_roots"], ["generated_variants_root"]) || value.schema_version !== CONFIG_V1_SCHEMA) throw workflowError("config_invalid");
+  const roots = parseRoots(value.library_roots);
+  const generated = value.generated_variants_root === void 0 ? void 0 : normalizeLegacyGeneratedVariantsRoot(value.generated_variants_root);
+  if (value.generated_variants_root !== void 0 && (generated === void 0 || generated !== value.generated_variants_root || roots.some((root) => root.path === generated))) throw workflowError("config_invalid");
+  return {
+    schema_version: CONFIG_V2_SCHEMA,
+    library_roots: roots,
+    generated_variants_root: generated ?? null,
+    application_workspace: null
+  };
+}
+function parseV2(value) {
+  if (!exactKeys3(value, ["schema_version", "library_roots", "generated_variants_root", "application_workspace"]) || value.schema_version !== CONFIG_V2_SCHEMA) throw workflowError("config_invalid");
+  const roots = parseRoots(value.library_roots);
+  const generated = value.generated_variants_root === null ? null : canonicalBoundedAbsolutePath(value.generated_variants_root) ? value.generated_variants_root : void 0;
+  if (generated === void 0 || generated !== null && roots.some((root) => root.path === generated)) {
+    throw workflowError("config_invalid");
+  }
+  const applicationWorkspace = parseApplicationWorkspace(value.application_workspace);
+  if (applicationWorkspace !== null && [
+    ...roots.map((root) => root.path),
+    ...generated === null ? [] : [generated]
+  ].some((candidate) => componentOverlap(applicationWorkspace.root_path, candidate))) {
+    throw workflowError("config_invalid");
+  }
+  return canonicalConfig({
+    schema_version: CONFIG_V2_SCHEMA,
+    library_roots: roots,
+    generated_variants_root: generated,
+    application_workspace: applicationWorkspace
+  });
+}
+function boundedConfigBytes(value) {
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+  if (bytes.length > CONFIG_MAX_BYTES) throw workflowError("config_invalid");
+  return bytes;
+}
+function encodeConfigV1(config) {
+  if (config.application_workspace !== null) throw workflowError("config_invalid");
+  const value = {
+    schema_version: CONFIG_V1_SCHEMA,
+    library_roots: config.library_roots.map((root) => ({ id: root.id, path: root.path, label: root.label })),
+    ...config.generated_variants_root === null ? {} : { generated_variants_root: config.generated_variants_root }
+  };
+  parseV1(value);
+  return boundedConfigBytes(value);
+}
+function encodeConfigV2(config) {
+  const validated = parseV2(canonicalConfig(config));
+  return boundedConfigBytes(validated);
+}
+function encodeConfig(config) {
+  return encodeConfigV2(config);
+}
+function encodeConfigForFormat(config, format) {
+  return format === "v1" ? encodeConfigV1(config) : encodeConfigV2(config);
+}
+function decodeConfig(bytes) {
+  if (bytes.length === 0 || bytes.length > CONFIG_MAX_BYTES || bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
+    throw workflowError("config_invalid");
+  }
+  let text;
+  try {
+    text = new TextDecoder3("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw workflowError("config_invalid");
+  }
+  let value;
+  try {
+    value = parseStrictJson(text);
+  } catch {
+    throw workflowError("config_invalid");
+  }
+  if (!isPlainRecord(value)) throw workflowError("config_invalid");
+  if (value.schema_version === CONFIG_V1_SCHEMA) return { config: parseV1(value), sourceFormat: "v1" };
+  const config = parseV2(value);
+  if (!bytes.equals(encodeConfigV2(config))) throw workflowError("config_invalid");
+  return { config, sourceFormat: "v2" };
+}
+function emptyConfig() {
+  const config = {
+    schema_version: CONFIG_V2_SCHEMA,
+    library_roots: [],
+    generated_variants_root: null,
+    application_workspace: null
+  };
+  SNAPSHOTS.set(config, {
+    config,
+    filePath: "",
+    directoryPath: "",
+    bytes: null,
+    sha256: null,
+    identity: null,
+    sourceFormat: "absent"
+  });
+  return config;
+}
+function configPath(agentDir) {
+  if (!path2.isAbsolute(agentDir)) throw workflowError("config_invalid");
+  return path2.join(agentDir, "career", "config.v1.json");
+}
+function attachSnapshot(config, snapshot) {
+  const complete = { ...snapshot, config };
+  SNAPSHOTS.set(config, complete);
+  return complete;
+}
+function inheritSnapshot(source, target) {
+  const snapshot = SNAPSHOTS.get(source);
+  if (snapshot !== void 0) attachSnapshot(target, {
+    filePath: snapshot.filePath,
+    directoryPath: snapshot.directoryPath,
+    bytes: snapshot.bytes,
+    sha256: snapshot.sha256,
+    identity: snapshot.identity,
+    sourceFormat: snapshot.sourceFormat
+  });
+  return target;
+}
+async function noSymlinkComponentWalk(value, errorCode) {
+  const parsed = path2.parse(value);
+  let current = parsed.root;
+  try {
+    for (const component of value.slice(parsed.root.length).split(path2.sep).filter(Boolean)) {
+      current = path2.join(current, component);
+      const metadata = await lstat2(current);
+      if (metadata.isSymbolicLink()) throw workflowError(errorCode);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError(errorCode);
+  }
+}
+async function configDirectoryMetadata(directory, allowMissing) {
+  try {
+    return await lstat2(directory);
+  } catch (error) {
+    if (allowMissing && error?.code === "ENOENT") return void 0;
+    throw workflowError("config_invalid");
+  }
+}
+async function validatePresentConfigDirectory(directory, metadata) {
+  try {
+    await noSymlinkComponentWalk(directory, "config_invalid");
+    const canonical = await realpath2(directory);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== directory || !exactPrivateMode(metadata, 448)) throw workflowError("config_invalid");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+async function validateConfigDirectory(directory, allowMissing = false) {
+  if (!canonicalBoundedAbsolutePath(directory)) throw workflowError("config_invalid");
+  const metadata = await configDirectoryMetadata(directory, allowMissing);
+  if (metadata === void 0) return false;
+  await validatePresentConfigDirectory(directory, metadata);
+  return true;
+}
+async function readPresentSnapshot(file, directory) {
+  try {
+    const metadata = await lstat2(file);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > CONFIG_MAX_BYTES || metadata.nlink !== 1 || !exactPrivateMode(metadata, 384)) {
+      throw workflowError("config_invalid");
+    }
+    const bytes = await readFile2(file);
+    if (bytes.length !== metadata.size) throw workflowError("config_invalid");
+    const decoded = decodeConfig(bytes);
+    return attachSnapshot(decoded.config, {
+      filePath: file,
+      directoryPath: directory,
+      bytes,
+      sha256: hashBytes(bytes),
+      identity: identity(metadata),
+      sourceFormat: decoded.sourceFormat
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+async function loadConfigSnapshotInternal(agentDir, allowMissingDirectory) {
+  const file = configPath(agentDir);
+  const directory = path2.dirname(file);
+  const directoryExists = await validateConfigDirectory(directory, allowMissingDirectory);
+  const absent = () => {
+    const config = emptyConfig();
+    return attachSnapshot(config, {
+      filePath: file,
+      directoryPath: directory,
+      bytes: null,
+      sha256: null,
+      identity: null,
+      sourceFormat: "absent"
+    });
+  };
+  if (!directoryExists) return absent();
+  try {
+    await lstat2(file);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw workflowError("config_invalid");
+    return absent();
+  }
+  return readPresentSnapshot(file, directory);
+}
+async function loadConfigSnapshot(agentDir) {
+  return loadConfigSnapshotInternal(agentDir, false);
+}
+async function loadConfig(agentDir) {
+  return (await loadConfigSnapshotInternal(agentDir, true)).config;
+}
+async function canonicalizeRoot(inputPath) {
+  if (typeof inputPath !== "string" || inputPath.length === 0 || inputPath.includes("\0") || Buffer.byteLength(inputPath, "utf8") > PATH_MAX_BYTES2) throw workflowError("root_invalid");
+  try {
+    const absolute = path2.resolve(inputPath);
+    const suppliedMetadata = await lstat2(absolute);
+    if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) throw workflowError("root_invalid");
+    const canonical = await realpath2(absolute);
+    const metadata = await lstat2(canonical);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw workflowError("root_invalid");
+    await access2(canonical, constants.R_OK);
+    return canonical;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("root_invalid");
+  }
+}
+function defaultRootLabel(canonicalPath) {
+  const label = path2.basename(canonicalPath).trim();
+  return (label || "Resume library").slice(0, LABEL_MAX_CHARACTERS);
+}
+async function addLibraryRoot(config, inputPath, label) {
+  const canonical = await canonicalizeRoot(inputPath);
+  const chosenLabel = label?.trim() || defaultRootLabel(canonical);
+  if (!validLabel(chosenLabel)) throw workflowError("root_invalid");
+  const id = rootId(canonical);
+  const withoutExisting = config.library_roots.filter((root) => root.id !== id);
+  return inheritSnapshot(config, canonicalConfig({
+    ...config,
+    library_roots: [...withoutExisting, { id, path: canonical, label: chosenLabel }]
+  }));
+}
+function removeLibraryRoot(config, id) {
+  return inheritSnapshot(config, canonicalConfig({
+    ...config,
+    library_roots: config.library_roots.filter((root) => root.id !== id)
+  }));
+}
+function suggestedGeneratedVariantsRoot(config, selectedRootId) {
+  if (config.generated_variants_root !== null) return config.generated_variants_root;
+  const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
+  return selectedRoot === void 0 ? void 0 : path2.join(selectedRoot.path, "variants");
+}
+function setGeneratedVariantsRoot(config, inputPath) {
+  const normalized = normalizeLegacyGeneratedVariantsRoot(inputPath);
+  if (normalized === void 0 || config.library_roots.some((root) => root.path === normalized)) {
+    throw workflowError("root_invalid");
+  }
+  return inheritSnapshot(config, canonicalConfig({ ...config, generated_variants_root: normalized }));
+}
+function clearGeneratedVariantsRoot(config) {
+  return inheritSnapshot(config, canonicalConfig({ ...config, generated_variants_root: null }));
+}
+function setApplicationWorkspace(config, applicationWorkspace) {
+  return inheritSnapshot(config, canonicalConfig({ ...config, application_workspace: applicationWorkspace }));
+}
+async function validateApplicationRootPath(value) {
+  if (!canonicalBoundedAbsolutePath(value) || Buffer.byteLength(path2.join(value, "x".repeat(180)), "utf8") > PATH_MAX_BYTES2) {
+    throw workflowError("workspace_root_invalid");
+  }
+  try {
+    await noSymlinkComponentWalk(value, "workspace_root_invalid");
+    const metadata = await lstat2(value);
+    const canonical = await realpath2(value);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== value || !exactPrivateMode(metadata, 448)) throw workflowError("workspace_root_invalid");
+    await access2(value, constants.R_OK | constants.W_OK | constants.X_OK);
+    return metadata;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_root_invalid");
+  }
+}
+async function currentDirectoryIdentity(value, application = false) {
+  try {
+    const metadata = application ? await validateApplicationRootPath(value) : await lstat2(value);
+    const canonical = await realpath2(value);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== value) {
+      throw workflowError(application ? "workspace_root_invalid" : "workspace_root_overlap");
+    }
+    return metadata;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError(application ? "workspace_root_invalid" : "workspace_root_overlap");
+  }
+}
+async function assertApplicationWorkspaceDisjoint(config) {
+  const application = config.application_workspace;
+  if (application === null) return;
+  const applicationMetadata = await currentDirectoryIdentity(application.root_path, true);
+  for (const candidate of config.library_roots.map((root) => root.path)) {
+    if (componentOverlap(application.root_path, candidate)) throw workflowError("workspace_root_overlap");
+    const metadata = await currentDirectoryIdentity(candidate);
+    if (metadata.dev === applicationMetadata.dev && metadata.ino === applicationMetadata.ino) {
+      throw workflowError("workspace_root_overlap");
+    }
+  }
+  const generated = config.generated_variants_root;
+  if (generated !== null) {
+    if (componentOverlap(application.root_path, generated)) throw workflowError("workspace_root_overlap");
+    try {
+      const metadata = await lstat2(generated);
+      const canonical = await realpath2(generated);
+      if (metadata.isSymbolicLink() || canonical !== generated || metadata.dev === applicationMetadata.dev && metadata.ino === applicationMetadata.ino) {
+        throw workflowError("workspace_root_overlap");
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+        throw workflowError("workspace_root_overlap");
+      }
+    }
+  }
+}
+function lockBytes(kind, mutationId, createdAt) {
+  return Buffer.from(`${JSON.stringify({
+    schema_version: CONFIG_LOCK_SCHEMA,
+    kind,
+    mutation_id: mutationId,
+    created_at: createdAt
+  }, null, 2)}
+`, "utf8");
+}
+async function syncDirectory(directory) {
+  let handle;
+  try {
+    handle = await open(directory, constants.O_RDONLY);
+    await handle.sync();
+    await handle.close();
+  } catch {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    throw workflowError("workspace_status_unknown");
+  }
+}
+async function validateConfigBootstrapParent(agentDir) {
+  if (!canonicalBoundedAbsolutePath(agentDir)) throw workflowError("config_invalid");
+  try {
+    await noSymlinkComponentWalk(agentDir, "config_invalid");
+    const metadata = await lstat2(agentDir);
+    const canonical = await realpath2(agentDir);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== agentDir || metadata.uid !== effectiveUserId()) throw workflowError("config_invalid");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+function assertCreatedDirectoryIdentity(created, opened) {
+  if (!created.isDirectory() || created.isSymbolicLink() || created.uid !== effectiveUserId() || created.dev !== opened.dev || created.ino !== opened.ino) throw workflowError("config_invalid");
+}
+function assertPrivateDirectoryIdentity(expected, current) {
+  if (current.dev !== expected.dev || current.ino !== expected.ino || !exactPrivateMode(current, 448)) throw workflowError("config_invalid");
+}
+async function createPrivateConfigDirectory(agentDir, directory) {
+  await mkdir(directory, { recursive: false, mode: 448 });
+  const created = await lstat2(directory);
+  let handle;
+  try {
+    handle = await open(directory, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY);
+    assertCreatedDirectoryIdentity(created, await handle.stat());
+    await handle.chmod(448);
+    const privateCreated = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    assertPrivateDirectoryIdentity(privateCreated, await lstat2(directory));
+    await validateConfigDirectory(directory);
+    await syncDirectory(agentDir);
+  } finally {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+  }
+}
+async function ensureConfigDirectoryForOrdinaryWrite(agentDir, directory) {
+  if (await validateConfigDirectory(directory, true)) return;
+  await validateConfigBootstrapParent(agentDir);
+  try {
+    await createPrivateConfigDirectory(agentDir, directory);
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      await validateConfigDirectory(directory);
+      return;
+    }
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+function configLockPath(agentDir) {
+  return path2.join(path2.dirname(configPath(agentDir)), ".pi-career-config.lock");
+}
+function workspaceLockPath(rootPath) {
+  return path2.join(rootPath, ".pi-career-workspace.lock");
+}
+async function acquireMutationLock(lockPath, kind, mutationId, createdAt) {
+  if (!UUID.test(mutationId) || !ISO_UTC.test(createdAt) || new Date(createdAt).toISOString() !== createdAt) {
+    throw workflowError("workspace_verification_failed");
+  }
+  const bytes = lockBytes(kind, mutationId, createdAt);
+  let handle;
+  let createdIdentity;
+  try {
+    handle = await open(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 384);
+    const created = await handle.stat();
+    createdIdentity = { dev: created.dev, ino: created.ino };
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.chmod(384);
+    const metadata = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size !== bytes.length || !exactPrivateMode(metadata, 384) || !(await readFile2(lockPath)).equals(bytes)) {
+      throw workflowError("workspace_verification_failed");
+    }
+    await syncDirectory(path2.dirname(lockPath));
+    return { path: lockPath, identity: identity(metadata) };
+  } catch (error) {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    if (createdIdentity !== void 0) {
+      try {
+        const current = await lstat2(lockPath);
+        if (current.dev === createdIdentity.dev && current.ino === createdIdentity.ino) {
+          await unlink(lockPath);
+          await syncDirectory(path2.dirname(lockPath));
+        }
+      } catch {
+      }
+    }
+    if (error?.code === "EEXIST") throw workflowError("workspace_busy");
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_verification_failed");
+  }
+}
+async function releaseMutationLock(lock) {
+  try {
+    const metadata = await lstat2(lock.path);
+    if (!sameIdentity(metadata, lock.identity)) throw workflowError("workspace_status_unknown");
+    await unlink(lock.path);
+    await syncDirectory(path2.dirname(lock.path));
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_status_unknown");
+  }
+}
+async function assertConfigSnapshotCurrent(snapshot) {
+  try {
+    await validateConfigDirectory(snapshot.directoryPath);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (snapshot.bytes === null || snapshot.identity === null) {
+    try {
+      await lstat2(snapshot.filePath);
+      throw workflowError("workspace_drift");
+    } catch (error) {
+      if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+      if (error?.code !== "ENOENT") throw workflowError("workspace_drift");
+      return;
+    }
+  }
+  try {
+    const metadata = await lstat2(snapshot.filePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !sameIdentity(metadata, snapshot.identity) || !exactPrivateMode(metadata, 384) || metadata.nlink !== 1) throw workflowError("workspace_drift");
+    const bytes = await readFile2(snapshot.filePath);
+    if (!bytes.equals(snapshot.bytes) || hashBytes(bytes) !== snapshot.sha256) throw workflowError("workspace_drift");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
+}
+async function verifyConfigFinal(file, expected, format) {
+  try {
+    const metadata = await lstat2(file);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size !== expected.length || !exactPrivateMode(metadata, 384)) {
+      throw workflowError("workspace_status_unknown");
+    }
+    const bytes = await readFile2(file);
+    if (!bytes.equals(expected)) throw workflowError("workspace_status_unknown");
+    if (decodeConfig(bytes).sourceFormat !== format) throw workflowError("workspace_status_unknown");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_status_unknown");
+  }
+}
+async function commitConfigUnderLock(snapshot, next, temporaryPath, targetFormat) {
+  const bytes = encodeConfigForFormat(next, targetFormat);
+  await assertConfigSnapshotCurrent(snapshot);
+  let handle;
+  let temporaryIdentity;
+  let published = false;
+  try {
+    handle = await open(temporaryPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 384);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.chmod(384);
+    const metadata = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size !== bytes.length || !exactPrivateMode(metadata, 384) || !(await readFile2(temporaryPath)).equals(bytes)) {
+      throw workflowError("workspace_verification_failed");
+    }
+    temporaryIdentity = identity(metadata);
+    await assertConfigSnapshotCurrent(snapshot);
+    if (snapshot.bytes === null) {
+      await link(temporaryPath, snapshot.filePath);
+      published = true;
+      const linked = await lstat2(snapshot.filePath);
+      if (linked.dev !== metadata.dev || linked.ino !== metadata.ino) throw workflowError("workspace_status_unknown");
+      await unlink(temporaryPath);
+    } else {
+      await rename(temporaryPath, snapshot.filePath);
+      published = true;
+    }
+    await syncDirectory(snapshot.directoryPath);
+    await verifyConfigFinal(snapshot.filePath, bytes, targetFormat);
+  } catch (error) {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    if (published) {
+      try {
+        if (temporaryIdentity !== void 0) {
+          const temporary = await lstat2(temporaryPath).catch(() => void 0);
+          if (temporary !== void 0 && temporary.dev === temporaryIdentity.dev && temporary.ino === temporaryIdentity.ino) {
+            await unlink(temporaryPath);
+          }
+        }
+        await syncDirectory(snapshot.directoryPath);
+        await verifyConfigFinal(snapshot.filePath, bytes, targetFormat);
+        return;
+      } catch {
+        if (temporaryIdentity !== void 0) {
+          try {
+            const temporary = await lstat2(temporaryPath);
+            if (temporary.dev === temporaryIdentity.dev && temporary.ino === temporaryIdentity.ino) {
+              await unlink(temporaryPath);
+              await syncDirectory(snapshot.directoryPath);
+            }
+          } catch {
+          }
+        }
+        throw workflowError("workspace_status_unknown");
+      }
+    }
+    if (temporaryIdentity !== void 0) {
+      try {
+        const metadata = await lstat2(temporaryPath);
+        if (metadata.dev === temporaryIdentity.dev && metadata.ino === temporaryIdentity.ino) {
+          await unlink(temporaryPath);
+          await syncDirectory(snapshot.directoryPath);
+        }
+      } catch {
+      }
+    }
+    if (error?.code === "EEXIST") throw workflowError("workspace_collision");
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_status_unknown");
+  }
+}
+function configTemporaryPath(agentDir, mutationId) {
+  if (!UUID.test(mutationId)) throw workflowError("config_invalid");
+  return path2.join(path2.dirname(configPath(agentDir)), `.config.v1.${mutationId}.tmp`);
+}
+async function withQueues(keys, operation) {
+  const unique = [...new Set(keys)].sort();
+  const run = (index) => index >= unique.length ? operation() : withFileMutationQueue(unique[index], () => run(index + 1));
+  return run(0);
+}
+async function writeConfig(agentDir, config, uuid = randomUUID, options = {}) {
+  const mutationId = uuid().toLowerCase();
+  const createdAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
+  if (!UUID.test(mutationId)) throw workflowError("config_invalid");
+  const file = configPath(agentDir);
+  const directory = path2.dirname(file);
+  const inherited = SNAPSHOTS.get(config);
+  const snapshot = inherited?.filePath === file ? inherited : await loadConfigSnapshotInternal(agentDir, true);
+  const targetFormat = snapshot.sourceFormat === "v2" ? "v2" : "v1";
+  await assertApplicationWorkspaceDisjoint(config);
+  const queueKeys = [file, ...config.application_workspace === null ? [] : [config.application_workspace.root_path]];
+  await withQueues(queueKeys, async () => {
+    await ensureConfigDirectoryForOrdinaryWrite(agentDir, directory);
+    const configLock = await acquireMutationLock(configLockPath(agentDir), "config_mutation_lock", mutationId, createdAt);
+    let rootLock;
+    try {
+      if (config.application_workspace !== null) {
+        rootLock = await acquireMutationLock(
+          workspaceLockPath(config.application_workspace.root_path),
+          "workspace_mutation_lock",
+          mutationId,
+          createdAt
+        );
+        await assertApplicationWorkspaceDisjoint(config);
+      }
+      await commitConfigUnderLock(snapshot, config, configTemporaryPath(agentDir, mutationId), targetFormat);
+    } finally {
+      try {
+        if (rootLock !== void 0) await releaseMutationLock(rootLock);
+      } finally {
+        await releaseMutationLock(configLock);
+      }
+    }
+  });
+  const committed = await loadConfigSnapshot(agentDir);
+  attachSnapshot(config, {
+    filePath: committed.filePath,
+    directoryPath: committed.directoryPath,
+    bytes: committed.bytes,
+    sha256: committed.sha256,
+    identity: committed.identity,
+    sourceFormat: committed.sourceFormat
+  });
+}
+
+// src/workflow/core-input.ts
+function buildResumeInput(resume) {
+  return {
+    schema_version: "career.resume_input.v1",
+    text: resume.text,
+    metadata: { document_id: resume.id }
+  };
+}
+function buildJobInput(vacancy) {
+  return {
+    schema_version: "career.job_input.v1",
+    text: vacancy.vacancy_text,
+    metadata: { document_id: vacancy.state_id }
+  };
+}
+function buildJobMatchInput(resume, vacancy) {
+  return {
+    schema_version: "career.job_match_input.v1",
+    resume: buildResumeInput(resume),
+    job: buildJobInput(vacancy)
+  };
+}
+function serializeCoreInput(value) {
+  return JSON.stringify(value);
+}
+
+// src/workflow/scan.ts
+import { createHash as createHash3 } from "node:crypto";
+import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath3 } from "node:fs/promises";
+import path3 from "node:path";
+import { TextDecoder as TextDecoder4 } from "node:util";
+
+// src/workflow/pdf.ts
+import { Worker } from "node:worker_threads";
+var PDF_MAX_RAW_BYTES = 10 * 1024 * 1024;
+var PDF_MAX_PAGES = 20;
+var PDF_EXTRACTION_TIMEOUT_MS = 1e4;
+var PDF_MAX_RESULT_BYTES = 512 * 1024;
+function workerUrl() {
+  return import.meta.url.endsWith("/dist/index.js") ? new URL("./pdf-worker.js", import.meta.url) : new URL("./pdf-worker.ts", import.meta.url);
+}
+function validWorkerResult(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value;
+  if (result.ok === false) return Object.keys(result).length === 1;
+  return result.ok === true && Object.keys(result).sort().join(",") === "ok,pageCount,text" && typeof result.text === "string" && Buffer.byteLength(result.text, "utf8") <= PDF_MAX_RESULT_BYTES && Number.isSafeInteger(result.pageCount) && result.pageCount > 0 && result.pageCount <= PDF_MAX_PAGES;
+}
+async function extractPdfText(bytes) {
+  if (bytes.byteLength === 0 || bytes.byteLength > PDF_MAX_RAW_BYTES) return { ok: false };
+  let worker;
+  try {
+    worker = new Worker(workerUrl(), {
+      env: {},
+      resourceLimits: {
+        maxOldGenerationSizeMb: 128,
+        maxYoungGenerationSizeMb: 32,
+        stackSizeMb: 4
+      }
+    });
+  } catch {
+    return { ok: false };
+  }
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ ok: false }), PDF_EXTRACTION_TIMEOUT_MS);
+    worker.once("message", (value) => {
+      if (!validWorkerResult(value) || value.ok === false || value.text.trim().length === 0) {
+        finish({ ok: false });
+        return;
+      }
+      finish({ ok: true, text: value.text, pageCount: value.pageCount });
+    });
+    worker.once("error", () => finish({ ok: false }));
+    worker.once("exit", () => finish({ ok: false }));
+    const transferable = Uint8Array.from(bytes);
+    try {
+      worker.postMessage(transferable, [transferable.buffer]);
+    } catch {
+      finish({ ok: false });
+    }
+  });
+}
+
+// src/workflow/text-limit.ts
+var CORE_MAX_CHARACTERS = 5e4;
+function isWithinCoreCharacterLimit(value) {
+  let codePoints = 0;
+  for (const _codePoint of value) {
+    codePoints += 1;
+    if (codePoints > CORE_MAX_CHARACTERS) return false;
+  }
+  return true;
+}
+
 // src/workflow/variant-metadata.ts
+import { createHash as createHash2 } from "node:crypto";
 var ASSISTED_SIDECAR_MAX_BYTES = 16384;
 var MANAGED_VARIANTS_MARKER_NAME = ".pi-career-variants.json";
 var MANAGED_VARIANTS_MARKER_SCHEMA = "pi.career.variants_directory.v1";
@@ -1725,7 +2283,7 @@ async function readSidecar(file, artifactBytes, required) {
   }
 }
 function managedVariantsPath(config, root) {
-  const configured = config.generated_variants_root === void 0 ? void 0 : path3.resolve(config.generated_variants_root);
+  const configured = config.generated_variants_root === null ? void 0 : path3.resolve(config.generated_variants_root);
   return configured !== void 0 && path3.dirname(configured) === root.path ? configured : path3.join(root.path, "variants");
 }
 async function managedVariantsDirectory(config, root) {
@@ -2129,7 +2687,7 @@ function rankMatches(values) {
 // src/workflow/session-state.ts
 var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var SHA2563 = /^[a-f0-9]{64}$/;
-var ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var ISO_UTC2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 var CARD_MAX_BYTES = 16384;
 function isRecord5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -2145,7 +2703,7 @@ function boundedLabel(value) {
   return typeof value === "string" && value.length > 0 && [...value].length <= 120 && !/[\u0000-\u001f\u007f]/.test(value);
 }
 function validBase(value) {
-  return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
+  return value.schema_version === WORKFLOW_STATE_SCHEMA && typeof value.state_id === "string" && UUID2.test(value.state_id) && typeof value.created_at === "string" && ISO_UTC2.test(value.created_at) && Number.isFinite(Date.parse(value.created_at));
 }
 function validFlags(value) {
   if (!isRecord5(value) || !exactKeys5(value, ["adjusted", "provisional", "close_cluster", "stale"])) {
@@ -2279,6 +2837,48 @@ function workflowResultCards(entries) {
   return workflowDataFromEntries(entries).filter(
     (data) => data.kind === "result_card"
   );
+}
+function workspaceApplicationIdentity(entries) {
+  let identity2;
+  let current;
+  let contextCleared = false;
+  const stateIds = /* @__PURE__ */ new Set();
+  for (const data of workflowDataFromEntries(entries)) {
+    if (data.kind === "application") {
+      let canonicalTimestamp = false;
+      try {
+        canonicalTimestamp = new Date(data.created_at).toISOString() === data.created_at;
+      } catch {
+      }
+      if (contextCleared || stateIds.has(data.state_id) || data.application_id !== data.application_id.toLowerCase() || !canonicalTimestamp) {
+        throw workflowError("workspace_identity_conflict");
+      }
+      stateIds.add(data.state_id);
+      if (identity2 === void 0) {
+        identity2 = data;
+        current = data;
+        continue;
+      }
+      if (current === void 0 || data.application_id !== identity2.application_id || data.company_label !== identity2.company_label || data.role_label !== identity2.role_label || Date.parse(data.created_at) <= Date.parse(current.created_at)) {
+        throw workflowError("workspace_identity_conflict");
+      }
+      current = data;
+    } else if (data.kind === "application_clear" && current?.state_id === data.clears_state_id) {
+      identity2 = void 0;
+      current = void 0;
+      contextCleared = true;
+    }
+  }
+  if (identity2 === void 0 || current === void 0) return void 0;
+  const reconstructed = reconstructWorkflowState(entries);
+  if (reconstructed.application?.state_id !== current.state_id) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return {
+    identity: identity2,
+    current,
+    ...reconstructed.vacancy === void 0 ? {} : { vacancy: reconstructed.vacancy }
+  };
 }
 function reconstructWorkflowState(entries) {
   let application;
@@ -3425,7 +4025,7 @@ function setupSummary(config, scan, persisted3) {
   const roots = config.library_roots.length;
   const notices = scan.warnings.length;
   const variantsRoot = suggestedGeneratedVariantsRoot(config);
-  const variants = variantsRoot === void 0 ? "Resume variation suggestion: unavailable until a resume root is configured" : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === void 0 ? "default under the first configured root" : "configured"})`;
+  const variants = variantsRoot === void 0 ? "Resume variation suggestion: unavailable until a resume root is configured" : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === null ? "default under the first configured root" : "configured"})`;
   return [
     `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted3 ? "persisted" : "transient"}`,
     variants
@@ -3466,7 +4066,7 @@ function scanWarningMessage(code, isPdf) {
     case "invalid_utf8":
       return "text file is not valid UTF-8";
     case "invalid_assisted_sidecar":
-      return "assisted-variant sidecar is invalid; the document is treated as original";
+      return "assisted-variant sidecar is invalid; the document is quarantined from original eligibility";
     case "scan_entry_unavailable":
       return "file or directory could not be read";
   }
@@ -4000,20 +4600,20 @@ function materializeEditorText(reviewHandle, selectedChangeIds) {
 import { createHash as createHash4 } from "node:crypto";
 import { constants as constants2 } from "node:fs";
 import {
-  chmod as chmod2,
-  link,
+  chmod,
+  link as link2,
   lstat as lstat4,
   mkdir as mkdir2,
   open as open2,
   readFile as readFile4,
   readdir,
   realpath as realpath4,
-  unlink
+  unlink as unlink2
 } from "node:fs/promises";
 import path5 from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
 import {
-  withFileMutationQueue
+  withFileMutationQueue as withFileMutationQueue2
 } from "@earendil-works/pi-coding-agent";
 var ARTIFACT_MAX_BYTES = 262144;
 var PREVIEW_MAX_BYTES = 524288;
@@ -4024,15 +4624,15 @@ var VARIANT_HANDLE = /^variant:[a-f0-9-]{8,64}$/;
 var SHA2564 = /^[a-f0-9]{64}$/;
 var CHANGE_ID = /^change-[0-9]{4}$/;
 var DEFAULT_FS = {
-  chmod: chmod2,
-  link,
+  chmod,
+  link: link2,
   lstat: lstat4,
   mkdir: mkdir2,
   open: open2,
   readFile: readFile4,
   readdir,
   realpath: realpath4,
-  unlink
+  unlink: unlink2
 };
 function isNodeError(error, code) {
   return error !== null && typeof error === "object" && error.code === code;
@@ -4072,15 +4672,15 @@ function validateCandidate(candidate) {
   }
   return bytes;
 }
-function effectiveUserId() {
+function effectiveUserId2() {
   return process.geteuid?.() ?? process.getuid?.();
 }
 function privateMetadata(metadata, mode) {
-  const userId = effectiveUserId();
+  const userId = effectiveUserId2();
   return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === mode;
 }
 function directManagedRoot(config, root) {
-  const configured = config.generated_variants_root === void 0 ? void 0 : path5.resolve(config.generated_variants_root);
+  const configured = config.generated_variants_root === null ? void 0 : path5.resolve(config.generated_variants_root);
   return configured !== void 0 && path5.dirname(configured) === root.path ? configured : path5.join(root.path, "variants");
 }
 function validBoundedPath(value) {
@@ -4403,10 +5003,10 @@ var VariantSaveWorkflow = class {
   async publishTemp(temporary, finalPath) {
     await this.fs.link(temporary.path, finalPath);
   }
-  async verifyExactFile(file, expected, identity) {
+  async verifyExactFile(file, expected, identity2) {
     try {
       const metadata = await this.fs.lstat(file);
-      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== expected.length || identity !== void 0 && (metadata.dev !== identity.dev || metadata.ino !== identity.ino)) return false;
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== expected.length || identity2 !== void 0 && (metadata.dev !== identity2.dev || metadata.ino !== identity2.ino)) return false;
       const bytes = await this.fs.readFile(file);
       return bytes.equals(expected);
     } catch {
@@ -4433,10 +5033,10 @@ var VariantSaveWorkflow = class {
     const eligible = eligibleOriginals(scan).some((record) => record.path === plan.artifactPath);
     if (root === void 0 || configuredRoot === void 0 || relativePath === void 0 || root.stale || root.capped || scan.total_capped || records.length !== 1 || records[0].format !== plan.candidate.source.format || records[0].text !== plan.candidate.assistedText || records[0].kind !== "assisted_variant" || records[0].variant_group_id !== plan.candidate.source.resumeId || eligible || scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar" && warning.root_id === plan.candidate.source.rootId && warning.relative_path === relativePath)) throw careerRunError("variant_save_verification_failed");
   }
-  async unlinkIfIdentity(file, identity) {
+  async unlinkIfIdentity(file, identity2) {
     try {
       const metadata = await this.fs.lstat(file);
-      if (metadata.dev === identity.dev && metadata.ino === identity.ino) await this.fs.unlink(file);
+      if (metadata.dev === identity2.dev && metadata.ino === identity2.ino) await this.fs.unlink(file);
     } catch {
     }
   }
@@ -4455,7 +5055,7 @@ var VariantSaveWorkflow = class {
     }
   }
   async withMutationQueues(paths, operation) {
-    const run = (index) => index >= paths.length ? operation() : withFileMutationQueue(paths[index], () => run(index + 1));
+    const run = (index) => index >= paths.length ? operation() : withFileMutationQueue2(paths[index], () => run(index + 1));
     return run(0);
   }
   async withRootLock(root, operation) {
@@ -4654,6 +5254,1482 @@ import {
   BorderedLoader,
   getAgentDir as getAgentDir2
 } from "@earendil-works/pi-coding-agent";
+
+// src/workflow/application-workspace.ts
+import { createHash as createHash5 } from "node:crypto";
+import { constants as constants3 } from "node:fs";
+import {
+  chmod as chmod2,
+  link as link3,
+  lstat as lstat5,
+  mkdir as mkdir3,
+  open as open3,
+  opendir as opendir2,
+  readFile as readFile5,
+  realpath as realpath5,
+  rmdir,
+  unlink as unlink3
+} from "node:fs/promises";
+import path6 from "node:path";
+import { TextDecoder as TextDecoder6 } from "node:util";
+import {
+  withFileMutationQueue as withFileMutationQueue3
+} from "@earendil-works/pi-coding-agent";
+var ROOT_MARKER_NAME = ".pi-career-applications.json";
+var MANIFEST_NAME = "application.json";
+var ROOT_MARKER_SCHEMA = "pi.career.application_root.v1";
+var MANIFEST_SCHEMA = "pi.career.application_manifest.v1";
+var STATE_SCHEMA = "pi.career.application_state.v1";
+var PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1";
+var METADATA_MAX_BYTES = 16384;
+var CONFIG_MAX_BYTES2 = 65536;
+var PREVIEW_MAX_BYTES2 = 5242880;
+var VACANCY_MAX_BYTES = 262144;
+var ROOT_MAX_ENTRIES = 1024;
+var APPLICATION_MAX_ENTRIES = 160;
+var APPLICATION_MAX_MANAGED_BYTES = 2097152;
+var STATE_MAX_REVISIONS = 64;
+var PATH_MAX_BYTES4 = 4096;
+var BASENAME_MAX_BYTES = 180;
+var CONFIRM_TIMEOUT_MS2 = 10 * 60 * 1e3;
+var UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var SHA2565 = /^[a-f0-9]{64}$/;
+var ISO_UTC3 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+var STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/;
+var VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/;
+var APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
+var APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
+function hashBytes2(bytes) {
+  return createHash5("sha256").update(bytes).digest("hex");
+}
+function isRecord8(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function exactKeys6(value, keys) {
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+function validTimestamp(value) {
+  if (typeof value !== "string" || !ISO_UTC3.test(value)) return false;
+  try {
+    return new Date(value).toISOString() === value;
+  } catch {
+    return false;
+  }
+}
+function validUuid(value) {
+  return typeof value === "string" && UUID4.test(value);
+}
+function validSessionUuid(value) {
+  return typeof value === "string" && SESSION_UUID.test(value);
+}
+function validHash(value) {
+  return typeof value === "string" && SHA2565.test(value);
+}
+function validRelativeBasename(value) {
+  return typeof value === "string" && value.length > 0 && value !== "." && value !== ".." && path6.basename(value) === value && !path6.isAbsolute(value) && Buffer.byteLength(value, "utf8") <= BASENAME_MAX_BYTES && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function canonicalJson2(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}
+`, "utf8");
+}
+function effectiveUserId3() {
+  const value = process.geteuid?.() ?? process.getuid?.();
+  if (value === void 0) throw workflowError("workspace_verification_failed");
+  return value;
+}
+function privateMetadata2(metadata, mode, kind) {
+  const correctType = kind === "file" ? metadata.isFile() : metadata.isDirectory();
+  return correctType && !metadata.isSymbolicLink() && metadata.uid === effectiveUserId3() && (metadata.mode & 4095) === mode && (kind === "directory" || metadata.nlink === 1);
+}
+function sameInode(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+function persistentRootEntries(root) {
+  const lockName = path6.basename(workspaceLockPath(path6.dirname(root.markerFile.path)));
+  return root.entries.filter((entry) => entry !== lockName);
+}
+function assertRootPlanCurrent(expected, current) {
+  if (!sameInode(expected.metadata, current.metadata) || !sameInode(expected.markerFile.metadata, current.markerFile.metadata) || JSON.stringify(persistentRootEntries(expected)) !== JSON.stringify(persistentRootEntries(current)) || expected.applications.length !== current.applications.length) {
+    throw workflowError("workspace_drift");
+  }
+  const currentApplications = new Map(current.applications.map((application) => [application.directoryPath, application]));
+  for (const application of expected.applications) {
+    const replacement = currentApplications.get(application.directoryPath);
+    if (replacement === void 0 || !sameInode(application.metadata, replacement.metadata) || !sameInode(application.manifestFile.metadata, replacement.manifestFile.metadata) || application.manifestFile.sha256 !== replacement.manifestFile.sha256) {
+      throw workflowError("workspace_drift");
+    }
+  }
+  if (expected.currentApplication !== void 0) {
+    const application = current.currentApplication;
+    if (application === void 0 || !sameInode(expected.currentApplication.headFile.metadata, application.headFile.metadata)) {
+      throw workflowError("workspace_drift");
+    }
+  }
+}
+function parseMarker(value) {
+  if (!isRecord8(value) || !exactKeys6(value, ["schema_version", "kind", "root_id", "created_at"]) || value.schema_version !== ROOT_MARKER_SCHEMA || value.kind !== "application_workspace_root" || !validUuid(value.root_id) || !validTimestamp(value.created_at)) return void 0;
+  return {
+    schema_version: ROOT_MARKER_SCHEMA,
+    kind: "application_workspace_root",
+    root_id: value.root_id,
+    created_at: value.created_at
+  };
+}
+function parseManifest(value) {
+  if (!isRecord8(value) || !exactKeys6(value, [
+    "schema_version",
+    "kind",
+    "application_id",
+    "root_id",
+    "application_created_at",
+    "workspace_created_at"
+  ]) || value.schema_version !== MANIFEST_SCHEMA || value.kind !== "career_application" || !validUuid(value.application_id) || !validUuid(value.root_id) || !validTimestamp(value.application_created_at) || !validTimestamp(value.workspace_created_at) || Date.parse(value.workspace_created_at) < Date.parse(value.application_created_at)) return void 0;
+  return {
+    schema_version: MANIFEST_SCHEMA,
+    kind: "career_application",
+    application_id: value.application_id,
+    root_id: value.root_id,
+    application_created_at: value.application_created_at,
+    workspace_created_at: value.workspace_created_at
+  };
+}
+function parseVacancyBinding(value) {
+  if (value === null) return null;
+  if (!isRecord8(value) || !exactKeys6(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) || !validRelativeBasename(value.relative_path) || !VACANCY_BASENAME.test(value.relative_path) || !validHash(value.content_sha256) || !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 1 || value.utf8_bytes > VACANCY_MAX_BYTES || !validSessionUuid(value.source_state_id)) return void 0;
+  return {
+    relative_path: value.relative_path,
+    content_sha256: value.content_sha256,
+    utf8_bytes: value.utf8_bytes,
+    source_state_id: value.source_state_id
+  };
+}
+function parseSelectedOriginal(value) {
+  if (value === null) return null;
+  if (!isRecord8(value) || !exactKeys6(value, ["document_id", "library_root_id", "text_sha256", "format"]) || !validHash(value.document_id) || !validHash(value.library_root_id) || !validHash(value.text_sha256) || !["markdown", "text", "pdf"].includes(value.format)) return void 0;
+  return {
+    document_id: value.document_id,
+    library_root_id: value.library_root_id,
+    text_sha256: value.text_sha256,
+    format: value.format
+  };
+}
+function parseResumeArtifact(value) {
+  if (value === null) return null;
+  if (!isRecord8(value) || !exactKeys6(value, [
+    "relative_path",
+    "artifact_sha256",
+    "sidecar_relative_path",
+    "sidecar_sha256"
+  ]) || !validRelativeBasename(value.relative_path) || !["resume.md", "resume.txt"].includes(value.relative_path) || !validHash(value.artifact_sha256) || value.sidecar_relative_path !== "resume.pi-career.json" || !validHash(value.sidecar_sha256)) return void 0;
+  return {
+    relative_path: value.relative_path,
+    artifact_sha256: value.artifact_sha256,
+    sidecar_relative_path: "resume.pi-career.json",
+    sidecar_sha256: value.sidecar_sha256
+  };
+}
+function parseState(value) {
+  if (!isRecord8(value) || !exactKeys6(value, [
+    "schema_version",
+    "kind",
+    "application_id",
+    "sequence",
+    "parent_sha256",
+    "status",
+    "vacancy",
+    "selected_original",
+    "resume_artifact",
+    "updated_at"
+  ]) || value.schema_version !== STATE_SCHEMA || value.kind !== "application_state_revision" || !validUuid(value.application_id) || !Number.isSafeInteger(value.sequence) || value.sequence < 1 || value.sequence > STATE_MAX_REVISIONS || !validHash(value.parent_sha256) || typeof value.status !== "string" || !APPLICATION_STATUSES2.has(value.status) || !validTimestamp(value.updated_at)) return void 0;
+  const vacancy = parseVacancyBinding(value.vacancy);
+  const selected = parseSelectedOriginal(value.selected_original);
+  const artifact = parseResumeArtifact(value.resume_artifact);
+  if (vacancy === void 0 || selected === void 0 || artifact === void 0) return void 0;
+  return {
+    schema_version: STATE_SCHEMA,
+    kind: "application_state_revision",
+    application_id: value.application_id,
+    sequence: value.sequence,
+    parent_sha256: value.parent_sha256,
+    status: value.status,
+    vacancy,
+    selected_original: selected,
+    resume_artifact: artifact,
+    updated_at: value.updated_at
+  };
+}
+function decodeCanonical(bytes, parser) {
+  if (bytes.length === 0 || bytes.length > METADATA_MAX_BYTES || bytes.length >= 3 && bytes[0] === 239 && bytes[1] === 187 && bytes[2] === 191) {
+    throw workflowError("workspace_drift");
+  }
+  let text;
+  let value;
+  try {
+    text = new TextDecoder6("utf-8", { fatal: true }).decode(bytes);
+    value = parseStrictJson(text);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  const parsed = parser(value);
+  if (parsed === void 0 || !canonicalJson2(parsed).equals(bytes)) throw workflowError("workspace_drift");
+  return parsed;
+}
+async function readExactFile(file, parser) {
+  try {
+    const metadata = await lstat5(file);
+    if (!privateMetadata2(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
+      throw workflowError("workspace_drift");
+    }
+    const bytes = await readFile5(file);
+    if (bytes.length !== metadata.size) throw workflowError("workspace_drift");
+    return {
+      file: { path: file, bytes, metadata, sha256: hashBytes2(bytes) },
+      value: decodeCanonical(bytes, parser)
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
+}
+async function boundedEntries(directory, maximum) {
+  try {
+    const entries = [];
+    const handle = await opendir2(directory);
+    try {
+      for await (const entry of handle) {
+        entries.push(entry.name);
+        if (entries.length > maximum) throw workflowError("workspace_limit_reached");
+      }
+    } finally {
+      await handle.close().catch(() => void 0);
+    }
+    return entries.sort();
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
+}
+async function readContentFile(file, expectedSize, expectedHash) {
+  try {
+    const metadata = await lstat5(file);
+    if (!privateMetadata2(metadata, 384, "file") || metadata.size !== expectedSize || metadata.size > VACANCY_MAX_BYTES) {
+      throw workflowError("workspace_drift");
+    }
+    const bytes = await readFile5(file);
+    if (bytes.length !== metadata.size || hashBytes2(bytes) !== expectedHash) throw workflowError("workspace_drift");
+    return { path: file, bytes, metadata, sha256: expectedHash };
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
+}
+async function inspectPrivateApplicationDirectory(directoryPath, expectedBasename) {
+  try {
+    const metadata = await lstat5(directoryPath);
+    const canonical = await realpath5(directoryPath);
+    if (!privateMetadata2(metadata, 448, "directory") || canonical !== directoryPath || expectedBasename !== void 0 && path6.basename(directoryPath) !== expectedBasename) {
+      throw workflowError("workspace_drift");
+    }
+    return metadata;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
+}
+function assertManifestDirectoryBinding(directoryPath, rootId2, manifest) {
+  const basenameMatch = path6.basename(directoryPath).match(APPLICATION_BASENAME);
+  if (manifest.root_id !== rootId2 || basenameMatch === null || basenameMatch[3] !== manifest.application_id) {
+    throw workflowError("workspace_drift");
+  }
+}
+async function inspectApplicationManifest(directoryPath, rootId2, expectedBasename) {
+  const metadata = await inspectPrivateApplicationDirectory(directoryPath, expectedBasename);
+  const manifestRead = await readExactFile(path6.join(directoryPath, MANIFEST_NAME), parseManifest);
+  assertManifestDirectoryBinding(directoryPath, rootId2, manifestRead.value);
+  return {
+    directoryPath,
+    metadata,
+    manifestFile: manifestRead.file,
+    manifest: manifestRead.value
+  };
+}
+function orderedStateNames(entries) {
+  const states = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(".pi-career-state-")) continue;
+    const match = entry.match(STATE_BASENAME);
+    if (match === null) throw workflowError("workspace_drift");
+    states.push({ name: entry, sequence: Number(match[1]) });
+  }
+  states.sort((left, right) => left.sequence - right.sequence);
+  if (states.length === 0 || states.length > STATE_MAX_REVISIONS) throw workflowError("workspace_drift");
+  return states;
+}
+function sameVacancyBinding(left, right) {
+  return left === null || right === null ? left === right : left.relative_path === right.relative_path && left.content_sha256 === right.content_sha256 && left.utf8_bytes === right.utf8_bytes && left.source_state_id === right.source_state_id;
+}
+async function inspectVacancyReference(directoryPath, state, previous, referencedFiles) {
+  const binding = state.vacancy;
+  if (binding === null) return;
+  const existing = referencedFiles.get(binding.relative_path);
+  if (sameVacancyBinding(previous?.vacancy ?? null, binding)) {
+    if (existing === void 0 || existing.sha256 !== binding.content_sha256 || existing.bytes.length !== binding.utf8_bytes) throw workflowError("workspace_drift");
+    return;
+  }
+  const expectedName = state.sequence === 1 ? "vacancy.md" : `vacancy-${String(state.sequence).padStart(6, "0")}.md`;
+  if (binding.relative_path !== expectedName || existing !== void 0) throw workflowError("workspace_drift");
+  referencedFiles.set(binding.relative_path, await readContentFile(
+    path6.join(directoryPath, binding.relative_path),
+    binding.utf8_bytes,
+    binding.content_sha256
+  ));
+}
+async function inspectArtifactFile(directoryPath, relativePath, expectedHash, maximumBytes) {
+  const file = path6.join(directoryPath, relativePath);
+  const metadata = await lstat5(file).catch(() => void 0);
+  if (metadata === void 0 || metadata.size > maximumBytes) throw workflowError("workspace_drift");
+  return readContentFile(file, metadata.size, expectedHash);
+}
+async function inspectArtifactReferences(directoryPath, state, referencedFiles) {
+  const artifact = state.resume_artifact;
+  if (artifact === null) return;
+  const existingArtifact = referencedFiles.get(artifact.relative_path);
+  if (existingArtifact === void 0) {
+    referencedFiles.set(artifact.relative_path, await inspectArtifactFile(
+      directoryPath,
+      artifact.relative_path,
+      artifact.artifact_sha256,
+      VACANCY_MAX_BYTES
+    ));
+  } else if (existingArtifact.sha256 !== artifact.artifact_sha256) {
+    throw workflowError("workspace_drift");
+  }
+  const existingSidecar = referencedFiles.get(artifact.sidecar_relative_path);
+  if (existingSidecar === void 0) {
+    referencedFiles.set(artifact.sidecar_relative_path, await inspectArtifactFile(
+      directoryPath,
+      artifact.sidecar_relative_path,
+      artifact.sidecar_sha256,
+      METADATA_MAX_BYTES
+    ));
+  } else if (existingSidecar.sha256 !== artifact.sidecar_sha256) {
+    throw workflowError("workspace_drift");
+  }
+}
+async function inspectStateChain(application, stateNames) {
+  const revisions = [];
+  const referencedFiles = /* @__PURE__ */ new Map();
+  let parentHash = application.manifestFile.sha256;
+  let priorTimestamp = application.manifest.workspace_created_at;
+  for (let index = 0; index < stateNames.length; index += 1) {
+    const expectedSequence = index + 1;
+    const stateName2 = stateNames[index];
+    if (stateName2.sequence !== expectedSequence) throw workflowError("workspace_drift");
+    const read = await readExactFile(path6.join(application.directoryPath, stateName2.name), parseState);
+    const timestampInvalid = expectedSequence === 1 ? Date.parse(read.value.updated_at) < Date.parse(priorTimestamp) : Date.parse(read.value.updated_at) <= Date.parse(priorTimestamp);
+    if (read.value.sequence !== expectedSequence || read.value.application_id !== application.manifest.application_id || read.value.parent_sha256 !== parentHash || timestampInvalid) throw workflowError("workspace_drift");
+    await inspectVacancyReference(application.directoryPath, read.value, revisions.at(-1)?.state, referencedFiles);
+    await inspectArtifactReferences(application.directoryPath, read.value, referencedFiles);
+    revisions.push({ file: read.file, state: read.value });
+    parentHash = read.file.sha256;
+    priorTimestamp = read.value.updated_at;
+  }
+  return { revisions, referencedFiles };
+}
+function assertNoOrphanManagedFiles(entries, referencedFiles) {
+  for (const entry of entries) {
+    if (VACANCY_BASENAME.test(entry) && !referencedFiles.has(entry)) throw workflowError("workspace_drift");
+    if (["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry) && !referencedFiles.has(entry)) {
+      throw workflowError("workspace_drift");
+    }
+  }
+}
+async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename) {
+  const application = await inspectApplicationManifest(directoryPath, rootId2, expectedBasename);
+  const entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
+  if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry))) {
+    throw workflowError("workspace_drift");
+  }
+  const { revisions, referencedFiles } = await inspectStateChain(application, orderedStateNames(entries));
+  assertNoOrphanManagedFiles(entries, referencedFiles);
+  const managedBytes = application.manifestFile.bytes.length + revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) + [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
+  if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
+  const head = revisions.at(-1);
+  return {
+    ...application,
+    revisions,
+    head: head.state,
+    headFile: head.file,
+    entries,
+    managedBytes
+  };
+}
+async function inspectRootEntries(rootPath, ownedLock) {
+  const allowedLockName = ownedLock === void 0 ? void 0 : path6.basename(ownedLock);
+  const entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES + (allowedLockName === void 0 ? 0 : 1));
+  if (entries.length > ROOT_MAX_ENTRIES && (allowedLockName === void 0 || !entries.includes(allowedLockName))) throw workflowError("workspace_limit_reached");
+  if (entries.includes(path6.basename(workspaceLockPath(rootPath))) && ownedLock === void 0) {
+    throw workflowError("workspace_busy");
+  }
+  return { entries, ...allowedLockName === void 0 ? {} : { allowedLockName } };
+}
+async function inspectBoundRootMarker(rootPath, expectedRootId) {
+  const markerRead = await readExactFile(path6.join(rootPath, ROOT_MARKER_NAME), parseMarker);
+  if (expectedRootId !== void 0 && markerRead.value.root_id !== expectedRootId) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return { markerFile: markerRead.file, marker: markerRead.value };
+}
+async function inspectRootEnvelope(rootPath, options) {
+  const metadata = await validateApplicationRootPath(rootPath);
+  const entries = await inspectRootEntries(rootPath, options.ownedLock);
+  const marker = await inspectBoundRootMarker(rootPath, options.expectedRootId);
+  return { metadata, ...entries, ...marker };
+}
+async function inspectInactiveApplications(rootPath, rootId2, entries, allowedLockName) {
+  const applications = [];
+  const applicationIds = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (entry === ROOT_MARKER_NAME || entry === allowedLockName) continue;
+    if (!APPLICATION_BASENAME.test(entry)) throw workflowError("workspace_drift");
+    const application = await inspectApplicationManifest(path6.join(rootPath, entry), rootId2);
+    if (applicationIds.has(application.manifest.application_id)) throw workflowError("workspace_identity_conflict");
+    applicationIds.add(application.manifest.application_id);
+    applications.push(application);
+  }
+  return applications;
+}
+async function inspectCurrentApplication(applications, target, rootId2) {
+  if (target === void 0) return void 0;
+  const matching = applications.find((application) => application.manifest.application_id === target.applicationId);
+  if (matching === void 0) return void 0;
+  if (matching.directoryPath !== target.directoryPath || matching.manifest.application_created_at !== target.applicationCreatedAt) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return inspectApplicationDirectory(matching.directoryPath, rootId2, path6.basename(target.directoryPath));
+}
+async function inspectRoot(rootPath, options = {}) {
+  const envelope = await inspectRootEnvelope(rootPath, options);
+  const applications = await inspectInactiveApplications(
+    rootPath,
+    envelope.marker.root_id,
+    envelope.entries,
+    envelope.allowedLockName
+  );
+  const currentApplication = await inspectCurrentApplication(
+    applications,
+    options.currentApplication,
+    envelope.marker.root_id
+  );
+  return {
+    metadata: envelope.metadata,
+    markerFile: envelope.markerFile,
+    marker: envelope.marker,
+    entries: envelope.entries,
+    applications,
+    ...currentApplication === void 0 ? {} : { currentApplication }
+  };
+}
+function slug(value, fallback) {
+  const normalized = value.normalize("NFKD").replace(new RegExp("\\p{M}", "gu"), "").replace(/[A-Z]/g, (letter) => letter.toLowerCase()).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32).replace(/-+$/g, "");
+  return normalized || fallback;
+}
+function applicationDirectoryBasename(identity2) {
+  return `${slug(identity2.identity.company_label, "company")}--${slug(identity2.identity.role_label, "role")}--${identity2.identity.application_id}`;
+}
+function sessionIdentity(ctx) {
+  return workspaceApplicationIdentity(ctx.sessionManager.getBranch());
+}
+function expectedApplicationPath(rootPath, identity2) {
+  const basename = applicationDirectoryBasename(identity2);
+  const result = path6.join(rootPath, basename);
+  if (Buffer.byteLength(basename, "utf8") > BASENAME_MAX_BYTES || Buffer.byteLength(result, "utf8") > PATH_MAX_BYTES4) throw workflowError("workspace_root_invalid");
+  return result;
+}
+function currentApplicationTarget(rootPath, identity2) {
+  return identity2 === void 0 ? void 0 : {
+    directoryPath: expectedApplicationPath(rootPath, identity2),
+    applicationId: identity2.identity.application_id,
+    applicationCreatedAt: identity2.identity.created_at
+  };
+}
+async function attachmentFor(agentDir, identity2) {
+  let snapshot;
+  try {
+    snapshot = await loadConfigSnapshot(agentDir);
+  } catch {
+    throw workflowError("workspace_config_invalid");
+  }
+  if (snapshot.config.application_workspace === null) {
+    return { snapshot, root: void 0 };
+  }
+  await assertApplicationWorkspaceDisjoint(snapshot.config);
+  const configured = snapshot.config.application_workspace;
+  const target = currentApplicationTarget(configured.root_path, identity2);
+  const root = await inspectRoot(configured.root_path, {
+    expectedRootId: configured.root_id,
+    ...target === void 0 ? {} : { currentApplication: target }
+  });
+  if (identity2 === void 0 || target === void 0) return { snapshot, root };
+  const application = root.currentApplication;
+  if (application !== void 0 && application.manifest.application_created_at !== identity2.identity.created_at) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return {
+    snapshot,
+    root,
+    ...application === void 0 ? {} : { application },
+    expectedDirectoryPath: target.directoryPath
+  };
+}
+function vacancyBytes(vacancy, applicationId) {
+  if (vacancy === void 0) return void 0;
+  if (vacancy.application_id !== applicationId || vacancy.vacancy_text.length === 0 || vacancy.vacancy_text.includes("\r") || hasUnpairedSurrogate2(vacancy.vacancy_text) || !isWithinCoreCharacterLimit(vacancy.vacancy_text)) throw workflowError("workspace_identity_conflict");
+  const bytes = Buffer.from(vacancy.vacancy_text, "utf8");
+  if (bytes.length === 0 || bytes.length > VACANCY_MAX_BYTES || hashBytes2(bytes) !== vacancy.vacancy_text_sha256) {
+    throw workflowError("workspace_drift");
+  }
+  return bytes;
+}
+function hasUnpairedSurrogate2(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 55296 && code <= 56319) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 56320 && next <= 57343)) return true;
+      index += 1;
+    } else if (code >= 56320 && code <= 57343) return true;
+  }
+  return false;
+}
+function createPreview(file, bytes) {
+  return {
+    path: file,
+    object_type: "file",
+    mode: "0600",
+    utf8_bytes: bytes.length,
+    sha256: hashBytes2(bytes),
+    text: bytes.toString("utf8")
+  };
+}
+function createDirectoryPreview(directory) {
+  return { path: directory, object_type: "directory", mode: "0700", utf8_bytes: null, sha256: null, text: null };
+}
+function bytePreview(bytes) {
+  return { utf8_bytes: bytes.length, sha256: hashBytes2(bytes), text: bytes.toString("utf8") };
+}
+function configPreview(snapshot, nextBytes) {
+  if (snapshot.bytes === null) return { creates: [createPreview(snapshot.filePath, nextBytes)], replaces: [] };
+  return {
+    creates: [],
+    replaces: [{
+      path: snapshot.filePath,
+      object_type: "file",
+      mode: "0600",
+      expected: bytePreview(snapshot.bytes),
+      replacement: bytePreview(nextBytes)
+    }]
+  };
+}
+function buildPlan(options, ctx, operation, applicationId, identity2, expectedConfigSha, expectedStateSha, creates, replaces, temporaryPaths, warnings2, mutationId, createdAt) {
+  const id = (mutationId ?? options.uuid()).toLowerCase();
+  const timestamp = createdAt ?? options.now().toISOString();
+  if (!validUuid(id) || !validTimestamp(timestamp)) throw workflowError("workspace_verification_failed");
+  const envelope = {
+    schema_version: PREVIEW_SCHEMA,
+    mutation_id: id,
+    mutation_class: "workspace_file",
+    operation,
+    application_id: applicationId,
+    expected_config_sha256: expectedConfigSha,
+    expected_state_sha256: expectedStateSha,
+    creates,
+    replaces,
+    deletes: [],
+    temporary_paths: temporaryPaths,
+    warnings: warnings2
+  };
+  const previewText = canonicalJson2(envelope).toString("utf8");
+  if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES2) throw workflowError("workspace_limit_reached");
+  return {
+    envelope,
+    previewText,
+    sessionId: ctx.sessionManager.getSessionId(),
+    identityStateId: identity2?.identity.state_id ?? null,
+    currentStateId: identity2?.current.state_id ?? null,
+    vacancyStateId: operation === "initialize_application" || operation === "record_state" ? identity2?.vacancy?.state_id ?? null : null,
+    vacancySha256: operation === "initialize_application" || operation === "record_state" ? identity2?.vacancy?.vacancy_text_sha256 ?? null : null,
+    createdAt: timestamp
+  };
+}
+function assertSessionPlan(plan, ctx) {
+  if (ctx.sessionManager.getSessionId() !== plan.sessionId || !ctx.isIdle()) throw workflowError("workspace_unavailable");
+  const identity2 = sessionIdentity(ctx);
+  if ((identity2?.identity.state_id ?? null) !== plan.identityStateId || (identity2?.current.state_id ?? null) !== plan.currentStateId || (plan.envelope.operation === "initialize_application" || plan.envelope.operation === "record_state") && ((identity2?.vacancy?.state_id ?? null) !== plan.vacancyStateId || (identity2?.vacancy?.vacancy_text_sha256 ?? null) !== plan.vacancySha256)) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return identity2;
+}
+async function approve(plan, ctx) {
+  if (ctx.mode === "rpc") {
+    ctx.ui.notify(
+      "RPC retention warning: the RPC client may retain the complete private workspace preview and UI responses independently of Pi session settings.",
+      "warning"
+    );
+  }
+  const reviewed = await ctx.ui.editor("Review exact application workspace mutation", plan.previewText);
+  if (reviewed === void 0) return false;
+  if (reviewed !== plan.previewText) throw workflowError("workspace_preview_changed");
+  const finalBasenames = [
+    ...plan.envelope.creates.map((item) => path6.basename(item.path)),
+    ...plan.envelope.replaces.map((item) => path6.basename(item.path))
+  ];
+  const objectDetails = [
+    ...plan.envelope.creates.map((item) => item.object_type === "directory" ? `${path6.basename(item.path)}: directory mode ${item.mode}` : `${path6.basename(item.path)}: ${item.utf8_bytes} bytes, ${item.sha256}`),
+    ...plan.envelope.replaces.map((item) => `${path6.basename(item.path)}: ${item.replacement.utf8_bytes} bytes, ${item.replacement.sha256}`)
+  ];
+  const confirmed = await ctx.ui.confirm(
+    "Apply application workspace mutation?",
+    [
+      `Mutation ID: ${plan.envelope.mutation_id}`,
+      `Class: ${plan.envelope.mutation_class}`,
+      `Operation: ${plan.envelope.operation}`,
+      ...plan.envelope.application_id === null ? [] : [`Application: ${plan.envelope.application_id}`],
+      `Creates: ${plan.envelope.creates.length}; replaces: ${plan.envelope.replaces.length}; deletes: 0`,
+      `Final basenames: ${finalBasenames.join(", ") || "none"}`,
+      ...objectDetails,
+      "Workspace-file authorization applies only to this exact mutation and is separate from session, provider, artifact-file, and deletion consent.",
+      "The approved exact files persist until you remove them. Existing workspace files are never overwritten."
+    ].join("\n"),
+    { timeout: CONFIRM_TIMEOUT_MS2 }
+  );
+  return confirmed === true && ctx.signal?.aborted !== true;
+}
+async function syncDirectory2(directory) {
+  let handle;
+  try {
+    handle = await open3(directory, constants3.O_RDONLY);
+    await handle.sync();
+    await handle.close();
+  } catch {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    throw workflowError("workspace_status_unknown");
+  }
+}
+async function requireAbsent(target) {
+  try {
+    await lstat5(target);
+    throw workflowError("workspace_collision");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    if (error?.code !== "ENOENT") throw workflowError("workspace_drift");
+  }
+}
+async function publishFile(finalPath, temporaryPath, bytes) {
+  let handle;
+  let tempMetadata;
+  let linkedFinal = false;
+  try {
+    handle = await open3(temporaryPath, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, 384);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.chmod(384);
+    tempMetadata = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    if (!privateMetadata2(tempMetadata, 384, "file") || tempMetadata.size !== bytes.length || !(await readFile5(temporaryPath)).equals(bytes)) throw workflowError("workspace_verification_failed");
+    await link3(temporaryPath, finalPath);
+    linkedFinal = true;
+    const linked = await lstat5(finalPath);
+    if (linked.dev !== tempMetadata.dev || linked.ino !== tempMetadata.ino) throw workflowError("workspace_status_unknown");
+    await unlink3(temporaryPath);
+    await syncDirectory2(path6.dirname(finalPath));
+    const finalMetadata = await lstat5(finalPath);
+    if (!privateMetadata2(finalMetadata, 384, "file") || finalMetadata.dev !== tempMetadata.dev || finalMetadata.ino !== tempMetadata.ino || finalMetadata.size !== bytes.length || !(await readFile5(finalPath)).equals(bytes)) throw workflowError("workspace_status_unknown");
+    return { finalPath, metadata: finalMetadata, bytes };
+  } catch (error) {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    if (linkedFinal && tempMetadata !== void 0) {
+      try {
+        const temporary = await lstat5(temporaryPath).catch(() => void 0);
+        if (temporary !== void 0 && sameInode(temporary, tempMetadata)) await unlink3(temporaryPath);
+        await syncDirectory2(path6.dirname(finalPath));
+        const finalMetadata = await lstat5(finalPath);
+        if (privateMetadata2(finalMetadata, 384, "file") && sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile5(finalPath)).equals(bytes)) {
+          return { finalPath, metadata: finalMetadata, bytes };
+        }
+      } catch {
+      }
+      try {
+        const finalMetadata = await lstat5(finalPath);
+        if (sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile5(finalPath)).equals(bytes)) await unlink3(finalPath);
+      } catch {
+      }
+    }
+    if (tempMetadata !== void 0) {
+      try {
+        const current = await lstat5(temporaryPath);
+        if (sameInode(current, tempMetadata)) await unlink3(temporaryPath);
+      } catch {
+      }
+      await syncDirectory2(path6.dirname(finalPath)).catch(() => void 0);
+    }
+    if (error?.code === "EEXIST") throw workflowError("workspace_collision");
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_status_unknown");
+  }
+}
+async function unlinkOwned(published) {
+  try {
+    const metadata = await lstat5(published.finalPath);
+    if (metadata.dev === published.metadata.dev && metadata.ino === published.metadata.ino) await unlink3(published.finalPath);
+  } catch {
+  }
+}
+async function withQueues2(paths, operation) {
+  const sorted = [...new Set(paths)].sort();
+  const run = (index) => index >= sorted.length ? operation() : withFileMutationQueue3(sorted[index], () => run(index + 1));
+  return run(0);
+}
+function sameSessionVacancy(state, vacancy) {
+  if (vacancy === void 0) return state.vacancy === null;
+  return state.vacancy !== null && state.vacancy.source_state_id === vacancy.state_id && state.vacancy.content_sha256 === vacancy.vacancy_text_sha256 && state.vacancy.utf8_bytes === Buffer.byteLength(vacancy.vacancy_text, "utf8");
+}
+async function reconciliationClassification(rootPath) {
+  try {
+    await validateApplicationRootPath(rootPath);
+    const entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
+    if (entries.includes(path6.basename(workspaceLockPath(rootPath)))) {
+      return "Crash-left workspace lock detected. Mutations are blocked; reconciliation made no change.";
+    }
+    if (entries.some((entry) => entry.includes(".tmp") || entry.startsWith(".pi-career-") && entry !== ROOT_MARKER_NAME)) {
+      return "Crash-left workspace temporary entry detected. Mutations are blocked; reconciliation made no change.";
+    }
+    for (const entry of entries) {
+      if (entry === ROOT_MARKER_NAME) continue;
+      const applicationPath = path6.join(rootPath, entry);
+      const metadata = await lstat5(applicationPath).catch(() => void 0);
+      if (metadata === void 0) {
+        return "Application directory became unavailable during bounded reconciliation; no path was repaired or followed.";
+      }
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) continue;
+      let children;
+      try {
+        children = await boundedEntries(applicationPath, APPLICATION_MAX_ENTRIES);
+      } catch (error) {
+        return error instanceof CareerWorkflowError && error.code === "workspace_limit_reached" ? "Application entry limit reached during reconciliation. Mutations are blocked; reconciliation made no change." : "Application directory could not be boundedly read. Mutations are blocked; reconciliation made no change.";
+      }
+      if (children.length === 0) {
+        return "Interrupted initialization: an empty application directory is quarantined. Reconciliation made no change.";
+      }
+      if (children.some((name) => name.includes(".tmp") || name.startsWith(".pi-career-") && !STATE_BASENAME.test(name))) {
+        return "Crash-left application temporary entry detected. Mutations are blocked; reconciliation made no change.";
+      }
+      const hasManifest = children.includes(MANIFEST_NAME);
+      const states = children.filter((name) => STATE_BASENAME.test(name));
+      if (hasManifest && states.length === 0) {
+        return "Interrupted initialization: a manifest has no committed first state. Reconciliation made no change.";
+      }
+      if (children.some((name) => VACANCY_BASENAME.test(name)) && states.length === 0) {
+        return "Orphan vacancy file detected without a committed state. Reconciliation made no change.";
+      }
+      if (children.includes("resume.pi-career.json") && !children.some((name) => name === "resume.md" || name === "resume.txt")) {
+        return "Assisted sidecar orphan detected. It is not attached or authoritative; reconciliation made no change.";
+      }
+      if (children.includes("resume.pi-career.json") && children.some((name) => name === "resume.md" || name === "resume.txt") && states.length === 0) {
+        return "Uncommitted assisted pair orphan detected. It is not attached after restart; reconciliation made no change.";
+      }
+    }
+    return "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
+  } catch (error) {
+    if (error instanceof CareerWorkflowError) {
+      if (error.code === "workspace_root_invalid") {
+        return "Workspace root validation failed before reconciliation access. Package mutations are blocked; no path was followed or changed.";
+      }
+      if (error.code === "workspace_limit_reached") {
+        return "Workspace root entry limit reached during reconciliation. Package mutations are blocked; reconciliation made no change.";
+      }
+    }
+    return "Workspace drift was detected before bounded reconciliation completed. Package mutations are blocked; reconciliation made no change.";
+  }
+}
+async function validateSelectedBinding(config, binding) {
+  if (binding === null) return;
+  const scan = await scanLibrary(config);
+  const root = scan.roots.find((item) => item.root_id === binding.library_root_id);
+  const matches = eligibleOriginals(scan).filter((record) => record.id === binding.document_id && record.root_id === binding.library_root_id && record.text_sha256 === binding.text_sha256 && record.format === binding.format);
+  if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
+    throw workflowError("workspace_drift");
+  }
+}
+function stateBytes(state) {
+  const bytes = canonicalJson2(state);
+  if (bytes.length > METADATA_MAX_BYTES) throw workflowError("workspace_limit_reached");
+  return bytes;
+}
+function stateName(sequence) {
+  return `.pi-career-state-${String(sequence).padStart(6, "0")}.json`;
+}
+function vacancyBinding(fileName, bytes, vacancy) {
+  return {
+    relative_path: fileName,
+    content_sha256: hashBytes2(bytes),
+    utf8_bytes: bytes.length,
+    source_state_id: vacancy.state_id
+  };
+}
+function assertApplicationCapacity(application, additions) {
+  const entryCount = application.entries.length + additions.length;
+  const byteCount = application.managedBytes + additions.reduce((total, item) => total + (item.bytes?.length ?? 0), 0);
+  if (entryCount > APPLICATION_MAX_ENTRIES || byteCount > APPLICATION_MAX_MANAGED_BYTES || application.revisions.length >= STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+}
+function freshRecord(scan, record) {
+  const root = scan.roots.find((item) => item.root_id === record.root_id);
+  const matches = eligibleOriginals(scan).filter((candidate) => candidate.id === record.id && candidate.root_id === record.root_id && candidate.format === record.format && candidate.text_sha256 === record.text_sha256);
+  if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
+    throw workflowError("workspace_drift");
+  }
+  return matches[0];
+}
+function compareText3(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function selectedOriginalOptions(records) {
+  const ordered = [...records].sort((left, right) => compareText3(left.relative_path, right.relative_path) || compareText3(left.id, right.id) || compareText3(left.root_id, right.root_id));
+  const options = ordered.map((record) => ({
+    option: `${record.label} — ${record.format} — ${record.relative_path.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 240)} — ${record.id} — ${record.root_id}`,
+    record
+  }));
+  if (new Set(options.map(({ option }) => option)).size !== options.length) throw workflowError("workspace_drift");
+  return options;
+}
+var ApplicationWorkspaceWorkflow = class {
+  constructor(options) {
+    this.options = options;
+  }
+  options;
+  async run(args, ctx) {
+    if (args.trim() !== "") throw workflowError("invalid_command_arguments");
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
+    if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
+    const identity2 = sessionIdentity(ctx);
+    const menuState = await this.menuState(identity2);
+    const action = await ctx.ui.select("Career application workspace", [
+      "Status and reconcile",
+      ...menuState.canInitialize ? ["Initialize current application"] : [],
+      ...menuState.canRecord ? ["Record current status and vacancy"] : [],
+      "Select original resume",
+      "Configure application root",
+      "Detach application root from config",
+      "Close"
+    ]);
+    if (action === void 0 || action === "Close") return;
+    if (action === "Status and reconcile") return this.status(ctx);
+    if (action === "Configure application root") return this.configureRoot(ctx);
+    if (action === "Detach application root from config") return this.detachRoot(ctx);
+    if (action === "Initialize current application") return this.initialize(ctx);
+    if (action === "Record current status and vacancy") return this.record(ctx);
+    if (action === "Select original resume") return this.selectOriginal(ctx);
+  }
+  async menuState(identity2) {
+    if (identity2 === void 0) return { canInitialize: false, canRecord: false };
+    try {
+      const attachment = await attachmentFor(this.options.agentDir, identity2);
+      if (attachment.snapshot.config.application_workspace === null) return { canInitialize: false, canRecord: false };
+      if (attachment.application === void 0) return { canInitialize: true, canRecord: false };
+      return {
+        canInitialize: false,
+        canRecord: attachment.application.head.status !== identity2.current.status || !sameSessionVacancy(attachment.application.head, identity2.vacancy)
+      };
+    } catch {
+      return { canInitialize: false, canRecord: false };
+    }
+  }
+  async status(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    let snapshot;
+    try {
+      snapshot = await loadConfigSnapshot(this.options.agentDir);
+    } catch {
+      throw workflowError("workspace_config_invalid");
+    }
+    try {
+      await lstat5(configLockPath(this.options.agentDir));
+      ctx.ui.notify("Crash-left config lock detected. Workspace mutations are blocked; reconciliation made no change.", "warning");
+      return;
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        ctx.ui.notify("Workspace config drift detected. Mutations are blocked; reconciliation made no change.", "warning");
+        return;
+      }
+    }
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) {
+      ctx.ui.notify("Application workspace root: detached. No file was changed.", "info");
+      return;
+    }
+    let attachment;
+    try {
+      attachment = await attachmentFor(this.options.agentDir, identity2);
+    } catch {
+      const classification = await reconciliationClassification(configured.root_path);
+      ctx.ui.notify(`${privacyDisplayPath(configured.root_path)} • ${classification}`, "warning");
+      return;
+    }
+    if (identity2 === void 0) {
+      ctx.ui.notify(`Application workspace root: attached (${privacyDisplayPath(configured.root_path)}). No active application on this branch.`, "info");
+      return;
+    }
+    const application = attachment.application;
+    if (application === void 0) {
+      ctx.ui.notify(`Application workspace root: attached (${privacyDisplayPath(configured.root_path)}). Current application is not initialized.`, "info");
+      return;
+    }
+    try {
+      await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    } catch {
+      ctx.ui.notify("Selected-original binding drift detected. Mutations are blocked; reconciliation made no change.", "warning");
+      return;
+    }
+    const drift = application.head.status !== identity2.current.status || !sameSessionVacancy(application.head, identity2.vacancy);
+    ctx.ui.notify([
+      `Application workspace: attached • ${privacyDisplayPath(application.directoryPath)}`,
+      `Workspace status: ${application.head.status} • session status: ${identity2.current.status}`,
+      `State revisions: ${application.revisions.length} • selected original: ${application.head.selected_original === null ? "none" : "bound"}`,
+      drift ? "Session and workspace differ. Use Record current status and vacancy for an explicit direction-specific write." : "Session and workspace status are reconciled."
+    ].join("\n"), "info");
+  }
+  async configureRoot(ctx) {
+    const rootInput = await ctx.ui.input("Application workspace root", "Canonical absolute existing 0700 directory");
+    if (rootInput === void 0) return;
+    const session = sessionIdentity(ctx);
+    let snapshot;
+    try {
+      snapshot = await loadConfigSnapshot(this.options.agentDir);
+    } catch {
+      throw workflowError("workspace_config_invalid");
+    }
+    const rootPath = rootInput;
+    const configuredRoot = snapshot.config.application_workspace;
+    if (configuredRoot !== null && configuredRoot.root_path !== rootPath) {
+      throw workflowError("workspace_unavailable");
+    }
+    const initialRootMetadata = await validateApplicationRootPath(rootPath);
+    const mutationId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    if (!validUuid(mutationId) || !validTimestamp(createdAt)) throw workflowError("workspace_verification_failed");
+    await assertApplicationWorkspaceDisjoint(setApplicationWorkspace(snapshot.config, {
+      root_id: mutationId,
+      root_path: rootPath
+    }));
+    const entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
+    let marker;
+    let markerBytes;
+    let initialAudit;
+    let marked = false;
+    if (entries.length === 0) {
+      if (configuredRoot !== null) throw workflowError("workspace_drift");
+      marker = { schema_version: ROOT_MARKER_SCHEMA, kind: "application_workspace_root", root_id: this.options.uuid().toLowerCase(), created_at: createdAt };
+      if (!validUuid(marker.root_id)) throw workflowError("workspace_verification_failed");
+      markerBytes = canonicalJson2(marker);
+    } else {
+      const target = currentApplicationTarget(rootPath, session);
+      initialAudit = await inspectRoot(rootPath, {
+        ...configuredRoot === null ? {} : { expectedRootId: configuredRoot.root_id },
+        ...target === void 0 ? {} : { currentApplication: target }
+      });
+      marker = initialAudit.marker;
+      marked = true;
+    }
+    const nextConfig = setApplicationWorkspace(snapshot.config, { root_id: marker.root_id, root_path: rootPath });
+    await assertApplicationWorkspaceDisjoint(nextConfig);
+    const nextBytes = encodeConfig(nextConfig);
+    if (nextBytes.length > CONFIG_MAX_BYTES2) throw workflowError("workspace_config_invalid");
+    const configObjects = configPreview(snapshot, nextBytes);
+    const markerPath = path6.join(rootPath, ROOT_MARKER_NAME);
+    const markerTemp = path6.join(rootPath, `.pi-career-${mutationId}-root-marker.tmp`);
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "configure_root",
+      session?.identity.application_id ?? null,
+      session,
+      snapshot.sha256,
+      null,
+      [...markerBytes === void 0 ? [] : [createPreview(markerPath, markerBytes)], ...configObjects.creates],
+      configObjects.replaces,
+      [
+        configLockPath(this.options.agentDir),
+        ...marked ? [workspaceLockPath(rootPath)] : [],
+        ...markerBytes === void 0 ? [] : [markerTemp],
+        configTemporaryPath(this.options.agentDir, mutationId)
+      ],
+      [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    assertSessionPlan(plan, ctx);
+    const queuePaths = [snapshot.filePath, ...markerBytes === void 0 ? [] : [markerPath]];
+    await withQueues2(queuePaths, async () => {
+      const configLock = await acquireMutationLock(configLockPath(this.options.agentDir), "config_mutation_lock", mutationId, createdAt);
+      let rootLock;
+      let publishedMarker;
+      let configCommitStarted = false;
+      try {
+        assertSessionPlan(plan, ctx);
+        await assertConfigSnapshotCurrent(snapshot);
+        const currentRootMetadata = await validateApplicationRootPath(rootPath);
+        if (!sameInode(initialRootMetadata, currentRootMetadata)) throw workflowError("workspace_drift");
+        if (marked) {
+          rootLock = await acquireMutationLock(workspaceLockPath(rootPath), "workspace_mutation_lock", mutationId, createdAt);
+          const target = currentApplicationTarget(rootPath, session);
+          const audit = await inspectRoot(rootPath, {
+            expectedRootId: marker.root_id,
+            ownedLock: rootLock.path,
+            ...target === void 0 ? {} : { currentApplication: target }
+          });
+          if (initialAudit === void 0) throw workflowError("workspace_drift");
+          assertRootPlanCurrent(initialAudit, audit);
+          if (audit.markerFile.sha256 !== hashBytes2(canonicalJson2(marker))) throw workflowError("workspace_drift");
+        } else {
+          const lockedEntries = await boundedEntries(rootPath, 1);
+          if (lockedEntries.length !== 0 || markerBytes === void 0) throw workflowError("workspace_drift");
+          if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+          publishedMarker = await publishFile(markerPath, markerTemp, markerBytes);
+          const verifiedMarker = await readExactFile(markerPath, parseMarker);
+          if (verifiedMarker.value.root_id !== marker.root_id) throw workflowError("workspace_status_unknown");
+        }
+        await assertApplicationWorkspaceDisjoint(nextConfig);
+        if (ctx.signal?.aborted && publishedMarker === void 0) throw workflowError("workflow_cancelled");
+        configCommitStarted = true;
+        await commitConfigUnderLock(snapshot, nextConfig, configTemporaryPath(this.options.agentDir, mutationId), "v2");
+      } catch (error) {
+        if (publishedMarker !== void 0) {
+          let configIsUnchanged = !configCommitStarted;
+          if (configCommitStarted) {
+            try {
+              await assertConfigSnapshotCurrent(snapshot);
+              configIsUnchanged = true;
+            } catch {
+            }
+          }
+          if (configIsUnchanged) {
+            try {
+              const currentEntries = await boundedEntries(rootPath, 1);
+              if (currentEntries.length === 1 && currentEntries[0] === ROOT_MARKER_NAME) {
+                await unlinkOwned(publishedMarker);
+                await syncDirectory2(rootPath);
+              }
+            } catch {
+            }
+          }
+        }
+        throw error;
+      } finally {
+        try {
+          if (rootLock !== void 0) await releaseMutationLock(rootLock);
+        } finally {
+          await releaseMutationLock(configLock);
+        }
+      }
+    });
+    ctx.ui.notify(`Application workspace root attached: ${privacyDisplayPath(rootPath)}. Existing workspace files remain unchanged.`, "info");
+  }
+  async detachRoot(ctx) {
+    const session = sessionIdentity(ctx);
+    let snapshot;
+    try {
+      snapshot = await loadConfigSnapshot(this.options.agentDir);
+    } catch {
+      throw workflowError("workspace_config_invalid");
+    }
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("workspace_unavailable");
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const target = currentApplicationTarget(configured.root_path, session);
+    const initialRoot = await inspectRoot(configured.root_path, {
+      expectedRootId: configured.root_id,
+      ...target === void 0 ? {} : { currentApplication: target }
+    });
+    const nextConfig = setApplicationWorkspace(snapshot.config, null);
+    const nextBytes = encodeConfig(nextConfig);
+    const configObjects = configPreview(snapshot, nextBytes);
+    const mutationId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "detach_root",
+      session?.identity.application_id ?? null,
+      session,
+      snapshot.sha256,
+      null,
+      configObjects.creates,
+      configObjects.replaces,
+      [
+        configLockPath(this.options.agentDir),
+        workspaceLockPath(configured.root_path),
+        configTemporaryPath(this.options.agentDir, mutationId)
+      ],
+      ["Detaching changes config only. The root marker and every application file remain."],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    assertSessionPlan(plan, ctx);
+    await withQueues2([snapshot.filePath], async () => {
+      const configLock = await acquireMutationLock(configLockPath(this.options.agentDir), "config_mutation_lock", mutationId, createdAt);
+      let rootLock;
+      try {
+        rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
+        assertSessionPlan(plan, ctx);
+        await assertConfigSnapshotCurrent(snapshot);
+        const currentRoot = await inspectRoot(configured.root_path, {
+          expectedRootId: configured.root_id,
+          ownedLock: rootLock.path,
+          ...target === void 0 ? {} : { currentApplication: target }
+        });
+        assertRootPlanCurrent(initialRoot, currentRoot);
+        if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+        await commitConfigUnderLock(snapshot, nextConfig, configTemporaryPath(this.options.agentDir, mutationId), "v2");
+      } finally {
+        try {
+          if (rootLock !== void 0) await releaseMutationLock(rootLock);
+        } finally {
+          await releaseMutationLock(configLock);
+        }
+      }
+    });
+    ctx.ui.notify("Application workspace root detached from config. No workspace file was changed or deleted.", "info");
+  }
+  async initialize(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 === void 0) throw workflowError("workspace_unavailable");
+    const attachment = await attachmentFor(this.options.agentDir, identity2);
+    const configured = attachment.snapshot.config.application_workspace;
+    if (configured === null || attachment.expectedDirectoryPath === void 0) throw workflowError("workspace_unavailable");
+    if (attachment.application !== void 0) {
+      ctx.ui.notify("The current application workspace is already initialized and valid.", "info");
+      return;
+    }
+    if (attachment.root.entries.length + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
+    const directoryPath = attachment.expectedDirectoryPath;
+    await requireAbsent(directoryPath);
+    const mutationId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) < Date.parse(identity2.identity.created_at)) throw workflowError("workspace_unavailable");
+    const manifest = {
+      schema_version: MANIFEST_SCHEMA,
+      kind: "career_application",
+      application_id: identity2.identity.application_id,
+      root_id: configured.root_id,
+      application_created_at: identity2.identity.created_at,
+      workspace_created_at: createdAt
+    };
+    const manifestBytes = canonicalJson2(manifest);
+    const currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id);
+    const vacancyName = "vacancy.md";
+    const state = {
+      schema_version: STATE_SCHEMA,
+      kind: "application_state_revision",
+      application_id: identity2.identity.application_id,
+      sequence: 1,
+      parent_sha256: hashBytes2(manifestBytes),
+      status: identity2.current.status,
+      vacancy: currentVacancyBytes === void 0 || identity2.vacancy === void 0 ? null : vacancyBinding(vacancyName, currentVacancyBytes, identity2.vacancy),
+      selected_original: null,
+      resume_artifact: null,
+      updated_at: createdAt
+    };
+    const stateFile = path6.join(directoryPath, stateName(1));
+    const manifestFile = path6.join(directoryPath, MANIFEST_NAME);
+    const vacancyFile = path6.join(directoryPath, vacancyName);
+    const stateBuffer = stateBytes(state);
+    const persistentCount = 2 + (currentVacancyBytes === void 0 ? 0 : 1);
+    const managedBytes = manifestBytes.length + stateBuffer.length + (currentVacancyBytes?.length ?? 0);
+    if (persistentCount > APPLICATION_MAX_ENTRIES || managedBytes > APPLICATION_MAX_MANAGED_BYTES) {
+      throw workflowError("workspace_limit_reached");
+    }
+    const files = [
+      { final: manifestFile, temp: path6.join(directoryPath, `.pi-career-${mutationId}-manifest.tmp`), bytes: manifestBytes },
+      ...currentVacancyBytes === void 0 ? [] : [{ final: vacancyFile, temp: path6.join(directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }],
+      { final: stateFile, temp: path6.join(directoryPath, `.pi-career-${mutationId}-state.tmp`), bytes: stateBuffer }
+    ];
+    if (ctx.sessionManager.getSessionFile() === void 0) {
+      ctx.ui.notify("Transient session warning: approved workspace files outlive this Pi process and cannot recreate session identity after shutdown.", "warning");
+    }
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "initialize_application",
+      identity2.identity.application_id,
+      identity2,
+      attachment.snapshot.sha256,
+      null,
+      [createDirectoryPreview(directoryPath), ...files.map((file) => createPreview(file.final, file.bytes))],
+      [],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      ctx.sessionManager.getSessionFile() === void 0 ? ["Transient session: workspace files outlive this process and do not recreate session identity."] : [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    assertSessionPlan(plan, ctx);
+    await withQueues2([directoryPath, ...files.map((file) => file.final)], async () => {
+      const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
+      const published = [];
+      let createdDirectory;
+      try {
+        const currentIdentity = assertSessionPlan(plan, ctx);
+        if (currentIdentity === void 0) throw workflowError("workspace_identity_conflict");
+        await assertConfigSnapshotCurrent(attachment.snapshot);
+        await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
+        const root = await inspectRoot(configured.root_path, {
+          expectedRootId: configured.root_id,
+          ownedLock: rootLock.path,
+          currentApplication: {
+            directoryPath,
+            applicationId: identity2.identity.application_id,
+            applicationCreatedAt: identity2.identity.created_at
+          }
+        });
+        assertRootPlanCurrent(attachment.root, root);
+        if (root.currentApplication !== void 0) {
+          throw workflowError("workspace_identity_conflict");
+        }
+        const persistentRootEntries2 = root.entries.filter((entry) => entry !== path6.basename(rootLock.path)).length;
+        if (persistentRootEntries2 + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
+        await requireAbsent(directoryPath);
+        vacancyBytes(currentIdentity.vacancy, currentIdentity.identity.application_id);
+        if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+        await mkdir3(directoryPath, { recursive: false, mode: 448 });
+        createdDirectory = await lstat5(directoryPath);
+        await chmod2(directoryPath, 448);
+        createdDirectory = await lstat5(directoryPath);
+        if (!privateMetadata2(createdDirectory, 448, "directory") || await realpath5(directoryPath) !== directoryPath) {
+          throw workflowError("workspace_verification_failed");
+        }
+        await syncDirectory2(configured.root_path);
+        for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        await syncDirectory2(directoryPath);
+        await syncDirectory2(configured.root_path);
+        const verified = await inspectApplicationDirectory(directoryPath, configured.root_id, path6.basename(directoryPath));
+        if (verified.headFile.sha256 !== hashBytes2(stateBuffer)) throw workflowError("workspace_status_unknown");
+      } catch (error) {
+        const committed = await inspectApplicationDirectory(directoryPath, configured.root_id, path6.basename(directoryPath)).then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false);
+        if (committed) return;
+        for (const item of [...published].reverse()) await unlinkOwned(item);
+        if (createdDirectory !== void 0) {
+          try {
+            const current = await lstat5(directoryPath);
+            if (current.dev === createdDirectory.dev && current.ino === createdDirectory.ino && (await boundedEntries(directoryPath, 0)).length === 0) await rmdir(directoryPath);
+          } catch {
+          }
+        }
+        if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+        throw workflowError(createdDirectory !== void 0 || published.length > 0 ? "workspace_status_unknown" : "workspace_verification_failed");
+      } finally {
+        await releaseMutationLock(rootLock);
+      }
+    });
+    ctx.ui.notify(`Initialized application workspace: ${privacyDisplayPath(directoryPath)}. No resume artifact was saved.`, "info");
+  }
+  async record(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 === void 0) throw workflowError("workspace_unavailable");
+    const attachment = await attachmentFor(this.options.agentDir, identity2);
+    const application = attachment.application;
+    const configured = attachment.snapshot.config.application_workspace;
+    if (configured === null || application === void 0) throw workflowError("workspace_unavailable");
+    await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    if (application.head.status === identity2.current.status && sameSessionVacancy(application.head, identity2.vacancy)) {
+      ctx.ui.notify("Workspace status and vacancy already match this session; no revision was added.", "info");
+      return;
+    }
+    const sequence = application.head.sequence + 1;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id);
+    const vacancyChanged = !sameSessionVacancy(application.head, identity2.vacancy);
+    const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
+    const vacancyFile = path6.join(application.directoryPath, vacancyName);
+    const nextVacancy = identity2.vacancy === void 0 ? null : vacancyChanged && currentVacancyBytes !== void 0 ? vacancyBinding(vacancyName, currentVacancyBytes, identity2.vacancy) : application.head.vacancy;
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
+    const state = {
+      schema_version: STATE_SCHEMA,
+      kind: "application_state_revision",
+      application_id: identity2.identity.application_id,
+      sequence,
+      parent_sha256: application.headFile.sha256,
+      status: identity2.current.status,
+      vacancy: nextVacancy,
+      selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact,
+      updated_at: createdAt
+    };
+    const stateBuffer = stateBytes(state);
+    const mutationId = this.options.uuid().toLowerCase();
+    const stateFile = path6.join(application.directoryPath, stateName(sequence));
+    const files = [
+      ...vacancyChanged && currentVacancyBytes !== void 0 ? [{ final: vacancyFile, temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }] : [],
+      { final: stateFile, temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`), bytes: stateBuffer }
+    ];
+    for (const file of files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, files);
+    if (ctx.sessionManager.getSessionFile() === void 0) {
+      ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
+    }
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "record_state",
+      identity2.identity.application_id,
+      identity2,
+      attachment.snapshot.sha256,
+      application.headFile.sha256,
+      files.map((file) => createPreview(file.final, file.bytes)),
+      [],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      ctx.sessionManager.getSessionFile() === void 0 ? ["Transient session: the revision outlives this process."] : [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    await this.commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, async (current) => {
+      if (current.current.status !== identity2.current.status || (current.vacancy?.state_id ?? null) !== (identity2.vacancy?.state_id ?? null)) {
+        throw workflowError("workspace_identity_conflict");
+      }
+      await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    });
+    ctx.ui.notify(`Recorded immutable workspace state revision ${sequence}. Earlier vacancy files remain unchanged.`, "info");
+  }
+  async selectOriginal(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 === void 0) throw workflowError("workspace_unavailable");
+    const attachment = await attachmentFor(this.options.agentDir, identity2);
+    const application = attachment.application;
+    const configured = attachment.snapshot.config.application_workspace;
+    if (configured === null || application === void 0 || application.head.resume_artifact !== null) {
+      throw workflowError("workspace_unavailable");
+    }
+    await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    const scan = await scanLibrary(attachment.snapshot.config);
+    if (scan.total_capped) throw workflowError("workspace_limit_reached");
+    const eligibleRootIds = new Set(scan.roots.filter((root) => !root.capped && !root.stale).map((root) => root.root_id));
+    const originals = eligibleOriginals(scan).filter((record) => eligibleRootIds.has(record.root_id));
+    if (originals.length === 0) throw workflowError("workspace_unavailable");
+    const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+    const selectedOption = await ctx.ui.select("Select original resume binding", [...byOption.keys()]);
+    const selected = selectedOption === void 0 ? void 0 : byOption.get(selectedOption);
+    if (selected === void 0) return;
+    const binding = {
+      document_id: selected.id,
+      library_root_id: selected.root_id,
+      text_sha256: selected.text_sha256,
+      format: selected.format
+    };
+    if (JSON.stringify(binding) === JSON.stringify(application.head.selected_original)) {
+      ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
+      return;
+    }
+    const sequence = application.head.sequence + 1;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
+    const state = {
+      schema_version: STATE_SCHEMA,
+      kind: "application_state_revision",
+      application_id: identity2.identity.application_id,
+      sequence,
+      parent_sha256: application.headFile.sha256,
+      status: application.head.status,
+      vacancy: application.head.vacancy,
+      selected_original: binding,
+      resume_artifact: null,
+      updated_at: createdAt
+    };
+    const bytes = stateBytes(state);
+    const mutationId = this.options.uuid().toLowerCase();
+    const final = path6.join(application.directoryPath, stateName(sequence));
+    const temporary = path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`);
+    await requireAbsent(final);
+    assertApplicationCapacity(application, [{ bytes }]);
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "select_original",
+      identity2.identity.application_id,
+      identity2,
+      attachment.snapshot.sha256,
+      application.headFile.sha256,
+      [createPreview(final, bytes)],
+      [],
+      [workspaceLockPath(configured.root_path), temporary],
+      [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    await this.commitRevision(plan, ctx, attachment, identity2, [{ final, temp: temporary, bytes }], bytes, async () => {
+      const freshScan = await scanLibrary(attachment.snapshot.config);
+      freshRecord(freshScan, selected);
+    });
+    ctx.ui.notify(`Recorded selected-original binding in immutable revision ${sequence}; no original bytes were copied or changed.`, "info");
+  }
+  async commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, sourceValidation) {
+    const configured = attachment.snapshot.config.application_workspace;
+    const application = attachment.application;
+    if (configured === null || application === void 0) throw workflowError("workspace_unavailable");
+    await withQueues2(files.map((file) => file.final), async () => {
+      const rootLock = await acquireMutationLock(
+        workspaceLockPath(configured.root_path),
+        "workspace_mutation_lock",
+        plan.envelope.mutation_id,
+        plan.createdAt
+      );
+      const published = [];
+      try {
+        const current = assertSessionPlan(plan, ctx);
+        if (current === void 0 || current.identity.application_id !== identity2.identity.application_id) {
+          throw workflowError("workspace_identity_conflict");
+        }
+        await assertConfigSnapshotCurrent(attachment.snapshot);
+        await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
+        const root = await inspectRoot(configured.root_path, {
+          expectedRootId: configured.root_id,
+          ownedLock: rootLock.path,
+          currentApplication: {
+            directoryPath: application.directoryPath,
+            applicationId: identity2.identity.application_id,
+            applicationCreatedAt: identity2.identity.created_at
+          }
+        });
+        assertRootPlanCurrent(attachment.root, root);
+        const currentApplication = root.currentApplication;
+        if (currentApplication === void 0 || currentApplication.headFile.sha256 !== application.headFile.sha256) {
+          throw workflowError("workspace_drift");
+        }
+        await sourceValidation(current);
+        for (const file of files) await requireAbsent(file.final);
+        assertApplicationCapacity(currentApplication, files);
+        if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+        for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        const verified = await inspectApplicationDirectory(application.directoryPath, configured.root_id, path6.basename(application.directoryPath));
+        if (verified.headFile.sha256 !== hashBytes2(stateBuffer)) throw workflowError("workspace_status_unknown");
+      } catch (error) {
+        const committed = await inspectApplicationDirectory(application.directoryPath, configured.root_id, path6.basename(application.directoryPath)).then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false);
+        if (committed) return;
+        for (const item of [...published].reverse()) await unlinkOwned(item);
+        if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+        throw workflowError(published.length > 0 ? "workspace_status_unknown" : "workspace_verification_failed");
+      } finally {
+        await releaseMutationLock(rootLock);
+      }
+    });
+  }
+};
 
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;
@@ -4998,6 +7074,11 @@ function registerCareerCommands(pi, options = {}) {
     uuid: options.uuid ?? randomUUID3
   };
   const owner = new RunOwner(dependencies.uuid);
+  const applicationWorkspace = new ApplicationWorkspaceWorkflow({
+    agentDir: dependencies.agentDir,
+    now: dependencies.now,
+    uuid: dependencies.uuid
+  });
   let transientNoticeSession;
   const renderedData = /* @__PURE__ */ new Map();
   const renderedTieStateIds = /* @__PURE__ */ new Set();
@@ -5109,6 +7190,10 @@ function registerCareerCommands(pi, options = {}) {
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
     }
   };
+  pi.registerCommand("career-workspace", {
+    description: "Inspect and explicitly mutate the current application workspace",
+    handler: async (args, ctx) => handle(ctx, () => applicationWorkspace.run(args, ctx))
+  });
   pi.registerCommand("career-setup", {
     description: "Configure deterministic resume-library roots",
     getArgumentCompletions: (prefix) => "status".startsWith(prefix) ? [{ value: "status", label: "status" }] : null,
@@ -5130,7 +7215,7 @@ function registerCareerCommands(pi, options = {}) {
       const action = await ctx.ui.select("Career setup", [
         "Add root",
         "Set resume variations directory",
-        ...config.generated_variants_root === void 0 ? [] : ["Clear resume variations directory"],
+        ...config.generated_variants_root === null ? [] : ["Clear resume variations directory"],
         "Rescan",
         "Status",
         "Close"

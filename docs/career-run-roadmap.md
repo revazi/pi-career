@@ -2,7 +2,7 @@
 
 ## Status
 
-Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.2.0`; pi-career packages no native artifacts, supports only macOS/Linux, and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for private Markdown/text artifacts on those supported platforms. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Full application workspaces, further review UX, and further PDF generator/font coverage remain later explicitly authorized work; Windows is unsupported rather than deferred roadmap scope.
+Career Core Phase 8 was merged as `f6d1783` through PR #21. The compact `career_run` implementation, ephemeral handles, complete bounded in-memory results, detail hydration, raw-tool activation control, synthetic token benchmark, and bounded non-PDF reviewed-change selector are implemented here. Runtime distribution now belongs to reviewed exact `@revazi/career@0.2.0`; pi-career packages no native artifacts, supports only macOS/Linux, and resolves compatible external routes before managed execution. Synthetic PDF compatibility covers reviewed Chromium-generated tagged and untagged documents, a reproducible ReportLab-generated two-page document, an embedded open-licensed font, a CSS multi-column layout, and fail-closed image-only/malformed/oversized inputs. The package-owned user-confirmed materialized-variant save workflow is implemented for private Markdown/text artifacts on those supported platforms. Application-workspace Gate 1 is also implemented for explicit config-v2 migration, one disjoint private root, immutable application status/vacancy/selected-original revisions, and read-only reconciliation. The dedicated token-optimization benchmark study now has frozen before/after evidence bound to the reviewed production commits and exact source/Skill trees. Application-workspace assisted artifacts, deletion, repair/adoption/archive/sync and broader files, further review UX, and further PDF generator/font coverage remain later explicitly authorized work; Windows is unsupported rather than deferred roadmap scope.
 
 Completed sequence:
 
@@ -15,6 +15,7 @@ Completed sequence:
 7. Turn-terminating variant review plus bounded TUI warning/discard review, exact change inspection, explicit selection, and later editor handoff without automatic materialization.
 8. User-only TUI/RPC exact preview and confirmed no-clobber saving of current POSIX Markdown/text materializations with fail-closed assisted sidecars and rescanning.
 9. Versioned pre-optimization token benchmark with immutable Git source/Skill-tree and snapshot provenance, actual contracts and managed serialization parity, Skill discovery/full-load context, call/result/detail/editor surfaces, independent workflow rollups, semantic-retention invariants, and explicit before/optimizing/after gates.
+10. User-only application-workspace Gate 1 with strict config v2/CAS, one existing private disjoint root, immutable application state/vacancy/original bindings, and read-only reconciliation without Core/provider/model/network/session-append behavior.
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
@@ -217,7 +218,7 @@ The implemented design and threat model are recorded in [`variant-save-workflow.
 6. immutable originals and overwrite rejection
 7. immediate library rescan with variants excluded from authoritative analysis/matching
 
-Destination configuration remains suggestion-only until one exact `/career-save` plan is previewed unchanged and separately confirmed. Full-result export and application-workspace persistence remain outside this narrower materialized-variant save workflow.
+Destination configuration remains suggestion-only until one exact `/career-save` plan is previewed unchanged and separately confirmed. Full-result export and `/career-workspace` remain outside this narrower materialized-variant save workflow; Gate 1 application state persistence is a separate user-only consent surface, while assisted workspace artifacts and deletion remain later gates.
 
 ### Document ingestion
 

@@ -4,7 +4,7 @@
 
 This document defines the implemented package-owned local save workflow for one successfully materialized, non-PDF assisted resume variant. The design was reviewed before implementation; implementation does not authorize publication, release, full-result export, or application-workspace persistence.
 
-The design is intentionally narrower than the future application workspace in [`application-workspaces.md`](application-workspaces.md). It saves only one materialized Markdown or text resume plus integrity metadata under the selected original's configured library root. It does not create `application.json`, persist a vacancy, save review input or Core JSON, generate a cover letter, or establish an application workspace root.
+The design is intentionally narrower than the separate application workspace in [`application-workspaces.md`](application-workspaces.md); Gate 1 state/vacancy persistence is implemented, while workspace-assisted artifacts remain a later gate. It saves only one materialized Markdown or text resume plus integrity metadata under the selected original's configured library root. It does not create `application.json`, persist a vacancy, save review input or Core JSON, generate a cover letter, or establish an application workspace root.
 
 ## Goals
 

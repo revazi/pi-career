@@ -20,7 +20,7 @@ import {
 } from "../../src/workflow/renderers.ts";
 import { createResultCard, projectJobMatch } from "../../src/workflow/result-projection.ts";
 import { sha256 } from "../../src/workflow/scan.ts";
-import { makeContext, makeFakePi, matchResult, resumeResult, uuidSequence } from "./helpers.mjs";
+import { makeContext, makeFakePi, matchResult, prepareConfigDirectory, resumeResult, uuidSequence } from "./helpers.mjs";
 
 const now = () => new Date("2026-08-04T17:56:06.000Z");
 const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
@@ -28,12 +28,13 @@ setKeybindings(keybindings);
 initTheme("dark", false);
 
 async function fixture() {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-"));
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-")));
   const root = path.join(temp, "library");
   const agentDir = path.join(temp, "agent");
   await mkdir(root);
   const resumePath = path.join(root, "resume.md");
   await writeFile(resumePath, "# Synthetic Resume\nDeterministic content\n");
+  await prepareConfigDirectory(agentDir);
   await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root), uuidSequence());
   const option = `Synthetic Resume — ${sha256(await realpath(resumePath)).slice(0, 12)}`;
   return { temp, agentDir, option };

@@ -12,10 +12,16 @@ export interface LibraryRoot {
   label: string;
 }
 
+export interface ApplicationWorkspaceConfig {
+  root_id: string;
+  root_path: string;
+}
+
 export interface CareerConfig {
-  schema_version: "pi.career.config.v1";
+  schema_version: "pi.career.config.v2";
   library_roots: LibraryRoot[];
-  generated_variants_root?: string;
+  generated_variants_root: string | null;
+  application_workspace: ApplicationWorkspaceConfig | null;
 }
 
 export type ResumeKind = "original" | "assisted_variant";
@@ -186,7 +192,19 @@ export type WorkflowErrorCode =
   | "workflow_stale"
   | "workbench_too_large"
   | "core_result_invalid"
-  | "workflow_failed";
+  | "workflow_failed"
+  | "workspace_config_invalid"
+  | "workspace_root_invalid"
+  | "workspace_root_overlap"
+  | "workspace_unavailable"
+  | "workspace_identity_conflict"
+  | "workspace_limit_reached"
+  | "workspace_busy"
+  | "workspace_collision"
+  | "workspace_drift"
+  | "workspace_preview_changed"
+  | "workspace_verification_failed"
+  | "workspace_status_unknown";
 
 const WORKFLOW_ERROR_MESSAGES: Readonly<Record<WorkflowErrorCode, string>> = {
   interactive_mode_required: "This career command requires TUI or RPC mode.",
@@ -201,6 +219,18 @@ const WORKFLOW_ERROR_MESSAGES: Readonly<Record<WorkflowErrorCode, string>> = {
   workbench_too_large: "The combined private workbench prompt is too large for a bounded Pi handoff.",
   core_result_invalid: "Career Core returned an unexpected result shape.",
   workflow_failed: "The career workflow failed.",
+  workspace_config_invalid: "The pi-career workspace configuration is invalid.",
+  workspace_root_invalid: "The application workspace root does not meet the private-root contract.",
+  workspace_root_overlap: "The application workspace must remain disjoint from resume and variation roots.",
+  workspace_unavailable: "The current application workspace is unavailable.",
+  workspace_identity_conflict: "The session and application workspace identities conflict.",
+  workspace_limit_reached: "The application workspace has reached a bounded v1 limit.",
+  workspace_busy: "Another workspace mutation is active or a prior lock requires inspection.",
+  workspace_collision: "A workspace target already exists; no existing file was replaced.",
+  workspace_drift: "The application workspace changed or contains inconsistent package state.",
+  workspace_preview_changed: "The exact workspace preview changed; no mutation was performed.",
+  workspace_verification_failed: "The workspace mutation could not be safely verified.",
+  workspace_status_unknown: "The workspace reached an indeterminate filesystem state; reconcile before retrying.",
 };
 
 export class CareerWorkflowError extends Error {

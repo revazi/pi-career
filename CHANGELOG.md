@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- Implemented application-workspace Gate 1 behind user-only no-argument TUI/RPC `/career-workspace`: explicit strict config-v1-to-v2 migration, one existing owner-only disjoint application root, marker attach/detach, immutable application manifest and append-only status/workflow-original-vacancy/selected-original revisions, and read-only crash/drift reconciliation.
+- Added canonical complete editor previews plus separate confirmation, config/inode compare-and-swap, exact config/root locks, no-clobber hard-link publication, bounded limits, private modes, sync/settlement, idempotency, payload-free failures, and synthetic macOS/Linux filesystem coverage for Gate 1.
+
+### Changed
+
+- Preserved first-run and v1 compatibility: ordinary setup may safely bootstrap only private `career/`, absent/v1 ordinary mutations continue writing canonical v1, only confirmed workspace-root configuration migrates to v2, and every later writer preserves v2 plus its optional application-root binding while freshly rejecting root overlap.
+- Documented that Gate 1 performs no Core/runtime/provider/model/network/child/session-append action and does not implement assisted workspace artifacts, deletion, broader application files, repair, adoption, archive, or sync. The separate `/career-save` workflow is unchanged.
+
 ## 0.3.0 - 2026-08-14
 
 ### Breaking

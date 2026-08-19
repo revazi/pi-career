@@ -182,7 +182,7 @@ function privateMetadata(metadata: Stats, mode: number): boolean {
 }
 
 function directManagedRoot(config: CareerConfig, root: LibraryRoot): string {
-  const configured = config.generated_variants_root === undefined
+  const configured = config.generated_variants_root === null
     ? undefined
     : path.resolve(config.generated_variants_root);
   return configured !== undefined && path.dirname(configured) === root.path
