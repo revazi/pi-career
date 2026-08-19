@@ -142,6 +142,7 @@ test("explicit unchanged preview migrates strict v1 and bootstraps an empty priv
   try {
     const oldBytes = await readFile(value.configFile);
     let cancelledPreview;
+    let confirmationText;
     const cancelled = await runWorkspace(value.fake, {
       selects: ["Configure application root"],
       inputs: [value.root],
@@ -149,11 +150,16 @@ test("explicit unchanged preview migrates strict v1 and bootstraps an empty priv
         cancelledPreview = JSON.parse(preview);
         return preview;
       }],
-      confirms: [false],
+      confirms: [(_title, message) => {
+        confirmationText = message;
+        return false;
+      }],
     });
     assert.deepEqual(await readFile(value.configFile), oldBytes);
     assert.deepEqual(await readdir(value.root), []);
-    assert.ok(cancelled.notifications.length === 0 || cancelled.notifications.every(({ message }) => !message.includes("Synthetic vacancy bytes")));
+    assert.ok(cancelled.notifications.some(({ message }) => message.startsWith("RPC retention warning:")));
+    assert.ok(cancelled.notifications.every(({ message }) => !message.includes("Synthetic vacancy bytes")));
+    assert.match(confirmationText, /Workspace-file authorization applies only to this exact mutation/);
     assert.equal(cancelledPreview.operation, "configure_root");
     assert.equal(cancelledPreview.replaces[0].expected.text, oldBytes.toString("utf8"));
     assert.equal(cancelledPreview.creates[0].path, path.join(value.root, ".pi-career-applications.json"));
@@ -422,6 +428,8 @@ test("application entry limits block append-only mutation without deleting unkno
     assert.equal((await readdir(applicationDirectory)).filter((entry) => entry.startsWith(".pi-career-state-")).length, 1);
 
     await writeFile(path.join(applicationDirectory, "user-overflow.txt"), "synthetic overflow\n");
+    const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
+    assert.ok(status.notifications.some(({ message }) => message.includes("Application entry limit reached")));
     const overflowContext = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: ["Record current status and vacancy"],
@@ -630,6 +638,27 @@ test("unmarked nonempty roots and changed previews fail with zero mutation", asy
     assert.deepEqual(await readdir(movedRoot), []);
     assert.equal((await loadConfig(value.agentDir)).application_workspace, null);
   } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("status validates a replaced root before fallback reconciliation access", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  const movedRoot = `${value.root}-moved`;
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await rename(value.root, movedRoot);
+    await symlink(movedRoot, value.root);
+    const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
+    assert.ok(status.notifications.some(({ message }) =>
+      message.includes("Workspace root validation failed before reconciliation access")));
+    assert.equal((await lstat(value.root)).isSymbolicLink(), true);
+  } finally {
+    await rm(value.root, { force: true });
+    await rm(movedRoot, { recursive: true, force: true });
     await rm(value.temp, { recursive: true, force: true });
   }
 });

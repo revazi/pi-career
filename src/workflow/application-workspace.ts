@@ -49,6 +49,7 @@ import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
   type ApplicationStatus,
   type CareerConfig,
+  CareerWorkflowError,
   type ResumeFormat,
   type ResumeRecord,
   type VacancyEntry,
@@ -972,6 +973,12 @@ function assertSessionPlan(plan: WorkspacePlan, ctx: ExtensionCommandContext): W
 }
 
 async function approve(plan: WorkspacePlan, ctx: ExtensionCommandContext): Promise<boolean> {
+  if (ctx.mode === "rpc") {
+    ctx.ui.notify(
+      "RPC retention warning: the RPC client may retain the complete private workspace preview and UI responses independently of Pi session settings.",
+      "warning",
+    );
+  }
   const reviewed = await ctx.ui.editor("Review exact application workspace mutation", plan.previewText);
   if (reviewed === undefined) return false;
   if (reviewed !== plan.previewText) throw workflowError("workspace_preview_changed");
@@ -996,6 +1003,7 @@ async function approve(plan: WorkspacePlan, ctx: ExtensionCommandContext): Promi
       `Creates: ${plan.envelope.creates.length}; replaces: ${plan.envelope.replaces.length}; deletes: 0`,
       `Final basenames: ${finalBasenames.join(", ") || "none"}`,
       ...objectDetails,
+      "Workspace-file authorization applies only to this exact mutation and is separate from session, provider, artifact-file, and deletion consent.",
       "The approved exact files persist until you remove them. Existing workspace files are never overwritten.",
     ].join("\n"),
     { timeout: CONFIRM_TIMEOUT_MS },
@@ -1114,6 +1122,7 @@ function sameSessionVacancy(state: ApplicationStateRevision, vacancy: VacancyEnt
 
 async function reconciliationClassification(rootPath: string): Promise<string> {
   try {
+    await validateApplicationRootPath(rootPath);
     const entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
     if (entries.includes(path.basename(workspaceLockPath(rootPath)))) {
       return "Crash-left workspace lock detected. Mutations are blocked; reconciliation made no change.";
@@ -1125,8 +1134,18 @@ async function reconciliationClassification(rootPath: string): Promise<string> {
       if (entry === ROOT_MARKER_NAME) continue;
       const applicationPath = path.join(rootPath, entry);
       const metadata = await lstat(applicationPath).catch(() => undefined);
-      if (metadata === undefined || !metadata.isDirectory() || metadata.isSymbolicLink()) continue;
-      const children: string[] = await boundedEntries(applicationPath, APPLICATION_MAX_ENTRIES).catch(() => []);
+      if (metadata === undefined) {
+        return "Application directory became unavailable during bounded reconciliation; no path was repaired or followed.";
+      }
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) continue;
+      let children: string[];
+      try {
+        children = await boundedEntries(applicationPath, APPLICATION_MAX_ENTRIES);
+      } catch (error) {
+        return error instanceof CareerWorkflowError && error.code === "workspace_limit_reached"
+          ? "Application entry limit reached during reconciliation. Mutations are blocked; reconciliation made no change."
+          : "Application directory could not be boundedly read. Mutations are blocked; reconciliation made no change.";
+      }
       if (children.length === 0) {
         return "Interrupted initialization: an empty application directory is quarantined. Reconciliation made no change.";
       }
@@ -1150,8 +1169,16 @@ async function reconciliationClassification(rootPath: string): Promise<string> {
       }
     }
     return "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
-  } catch {
-    return "Workspace drift or a bounded workspace limit was detected. Package mutations are blocked; reconciliation made no change.";
+  } catch (error) {
+    if (error instanceof CareerWorkflowError) {
+      if (error.code === "workspace_root_invalid") {
+        return "Workspace root validation failed before reconciliation access. Package mutations are blocked; no path was followed or changed.";
+      }
+      if (error.code === "workspace_limit_reached") {
+        return "Workspace root entry limit reached during reconciliation. Package mutations are blocked; reconciliation made no change.";
+      }
+    }
+    return "Workspace drift was detected before bounded reconciliation completed. Package mutations are blocked; reconciliation made no change.";
   }
 }
 
