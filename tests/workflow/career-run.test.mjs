@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import {
   makeContext,
   makeFakePi,
   matchResult,
+  prepareConfigDirectory,
   resumeResult,
   syntheticTextPdf,
   uuidSequence,
@@ -84,11 +85,13 @@ async function configuredAgent(temp, fileName = "resume.md", content = [
   "Morgan Lee", "SUMMARY", "Backend engineer.", "EXPERIENCE",
   "Engineer at Example", "Built reliable APIs.", "SKILLS", "TypeScript, Testing",
 ].join("\n")) {
+  temp = await realpath(temp);
   const root = path.join(temp, "library");
   const agentDir = path.join(temp, "agent");
   await mkdir(root);
   await writeFile(path.join(root, fileName), content);
   const config = await addLibraryRoot(emptyConfig(), root, "Synthetic library");
+  await prepareConfigDirectory(agentDir);
   await writeConfig(agentDir, config, uuidSequence());
   return { agentDir, root: config.library_roots[0].path };
 }

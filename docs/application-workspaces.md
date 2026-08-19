@@ -2,11 +2,11 @@
 
 ## Status and authorization boundary
 
-This document is a **design only**. The current package does not configure an application root, create an application directory, persist a vacancy there, synchronize application status, save an artifact there, or delete workspace files. Approval of this document does not authorize implementation, a release, publication, or any scope beyond a separately approved implementation gate.
+**Implementation status:** Gate 1 is implemented in the current unreleased source for independent security/architecture review. It includes strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest and full state/vacancy/selected-original revisions, and read-only reconciliation through user-only `/career-workspace`. This status does not authorize merge, release, publication, tagging, or any later gate.
 
 Career Core remains authoritative for every career-domain operation, schema, algorithm, warning, error, evidence rule, and assisted/non-authoritative result. This design defines only pi-career-owned configuration and local-file protocols. It does not copy a Core schema or algorithm.
 
-The deliberately bounded **first implementation slice** is:
+The deliberately bounded **implemented Gate 1 slice** is:
 
 1. migrate an explicitly changed config from `pi.career.config.v1` to the exact v2 shape below;
 2. configure one existing private application root, create or validate its package marker, and enforce complete disjointness from every resume-library root;
@@ -194,13 +194,13 @@ Exact rules:
 - Unknown fields, missing fields, duplicate decoded keys, invalid UTF-8, a BOM, invalid IDs/labels/paths, noncanonical v2 encoding, trailing data, and content above 65,536 bytes fail closed.
 - Canonical encoding is `JSON.stringify(value, null, 2)` in the field order above plus one LF. The file is a non-symlink regular file owned by the effective user, mode `0600`, with one link.
 
-A v1 file is read using its existing exact fields and limits, but migration additionally rejects duplicate decoded keys and unsafe metadata. Migration is never automatic at startup. The first user-confirmed config mutation maps:
+A v1 file is read using its existing exact fields and limits, but migration additionally rejects duplicate decoded keys and unsafe metadata. Migration is never automatic at startup or during ordinary `/career-setup`, `/career-library`, root-removal, or variation-suggestion writes. While `application_workspace` is logically null, absent/v1 config remains canonical v1 under those writers. Only the exact user-confirmed `/career-workspace` **Configure application root** mutation maps:
 
 - the v1 `library_roots` unchanged and in order;
 - an absent `generated_variants_root` to `null`, otherwise its unchanged validated value; and
 - `application_workspace` to the newly approved root or `null`.
 
-The agent's existing `career/` config directory must itself be canonical, non-symlinked, owned by the effective user, and exact mode `0700`; the workspace flow neither creates nor chmods that directory. A missing config file inside that valid directory is treated as the logical empty v1 config only for a fixed plan: `expected_config_sha256` is `null`, the preview shows a no-clobber v2 config creation, and any file appearing before publication invalidates the plan. A present config must satisfy its exact v1 or v2 parser. This makes first config creation explicit without inventing a second config authority.
+The agent's existing `career/` config directory must itself be canonical by realpath equality, have no symlink in its supplied component walk, be owned by the effective user, and have exact mode `0700`. The workspace flow neither creates nor chmods that directory. Ordinary first-run setup retains its separate safe bootstrap: when only `career/` is absent beneath an existing canonical owned agent directory, it may create that one direct child as private canonical `0700`, sync the agent directory, and then no-clobber-create canonical v1 config; it never recursively creates a missing agent directory or adopts/chmods a pre-existing unsafe object. A missing config file inside a valid private `career/` directory is treated as the logical empty v1 config only for a fixed workspace plan: `expected_config_sha256` is `null`, the preview shows a no-clobber v2 config creation, and any file appearing before publication invalidates the plan. A present config must satisfy its exact v1 or v2 parser. This makes first workspace config creation explicit without inventing a second config authority.
 
 For a present config, the complete old bytes and complete new bytes appear in the mutation preview. Under the config mutation queue and config lock, the implementation rechecks the old inode, size, mode, owner, link count, and SHA-256 before an atomic same-directory replacement. Any drift cancels the fixed plan; it never merges or overwrites changed config. The replacement file is synced before rename, the config directory is synced after rename, and the exact new file is reopened and verified. For an absent config, a synced same-directory temporary file is published to the still-absent final path with the no-clobber protocol, never replacement rename. A crash exposes an absent file, the complete old config, or the complete new config, never a partial file.
 
@@ -250,7 +250,7 @@ Before root configuration, exactly one case is allowed:
 
 A root has at most 1,024 persistent immediate entries including its marker. Audits read at most 1,025 names to detect overflow. Exceeding the cap reports `workspace_limit_reached`, blocks attachment and mutation, and never truncates the audit into apparent validity. The exact current-plan lock is the only temporary entry permitted above the cap while a locked operation settles.
 
-An unmarked nonempty root is never adopted, even if it contains plausible manifests or only an incidental hidden file. An invalid, symlinked, wrong-owner, wrong-mode, multiply linked, oversized, or noncanonical marker is never repaired or replaced automatically. Removing root configuration leaves the marker and all children untouched. Reconfiguration of the same valid marked root is explicit workspace-file consent, not implicit discovery.
+An unmarked nonempty root is never adopted, even if it contains plausible manifests or only an incidental hidden file. An invalid, missing-from-an-attached-root, symlinked, wrong-owner, wrong-mode, multiply linked, oversized, or noncanonical marker is never repaired or replaced automatically. Removing root configuration leaves the marker and all children untouched. Reconfiguration of the same valid marked root is explicit workspace-file consent, not implicit discovery. Changing to a different root requires the separately confirmed detach action followed by a separately confirmed configure action, so configuration never races an in-flight mutation on the formerly attached root.
 
 ## Flat directory and naming contract
 
@@ -646,7 +646,7 @@ All fixtures use synthetic company, role, vacancy, and resume text. No real docu
 
 | Area | Required cases |
 |---|---|
-| Config migration | Strict v1 with/without variation suggestion maps to exact canonical v2; absent config in a pre-existing valid private config directory uses no-clobber creation; missing/unsafe config directory fails; every setup/library/variation writer preserves v2 and uses the shared CAS; later library/variation mutations reject application-root equality, both ancestor directions, and aliases; complete old/new preview; cancel/edit/false confirm causes zero mutation; mode/owner/link/symlink/oversize/UTF-8/BOM/duplicate/unknown-key failures; both exact config-lock kinds/bytes; config race changes expected hash and prevents replacement; crash yields absent, complete v1, or complete v2. |
+| Config migration | Fresh ordinary setup safely bootstraps only private `career/` and writes canonical v1; ordinary setup/library/root-removal/variation edits keep absent/v1 config at v1; only confirmed Configure application root maps strict v1 with/without variation suggestion or absent config in a pre-existing valid private directory to exact canonical v2; workspace missing/unsafe config directory fails; every later writer preserves v2 and uses shared locks/CAS; later library/variation mutations reject application-root equality, both ancestor directions, and aliases; complete old/new preview; cancel/edit/false confirm causes zero mutation; mode/owner/link/symlink-component/noncanonical/oversize/UTF-8/BOM/duplicate/unknown-key failures without permission repair; both exact config-lock kinds/bytes; config race changes expected hash and prevents replacement; crash yields absent, complete v1, or complete v2. |
 | Root validation | Existing canonical `0700` owner root succeeds; absent, relative, noncanonical, control, overlong, symlink-component, wrong-owner, wrong-mode, special-bit, inaccessible, unsupported-sync cases fail; library equality, application-under-library, and library-under-application all fail by components and inode alias. |
 | Root marker/adoption | Empty root exact marker/config success; marker bytes/order/mode/owner/link verified; crash marker-only can later attach; valid marked root audits; unmarked nonempty (including one hidden file), invalid marker, unknown root child, and present lock never adopt. |
 | Initialization | Requires active canonical application UUID and unchanged session; exact slug and full-UUID collision behavior; no object before preview/confirm; exact `0700` directory; manifest exact bytes exclude labels, slugs, directory/path, status, and private content; optional workflow-original vacancy, state-1 parent hash, commit order, fsync, and restart reattach. |
@@ -672,9 +672,9 @@ The repository's normal verification ladder, changed-file security review, and a
 
 Review this document for product, privacy, filesystem, session, and threat-model completeness. Approval changes no code and authorizes no implementation, merge, release, publication, or tag.
 
-### Gate 1 — bounded first slice
+### Gate 1 — bounded first slice (implemented in unreleased source; under review)
 
-After explicit implementation authorization, implement only:
+The approved implementation includes only:
 
 - strict config v2 migration and config CAS;
 - existing-private-root validation, two-way library disjointness, root marker, and attach/detach;
@@ -683,7 +683,7 @@ After explicit implementation authorization, implement only:
 - application initialization and status/selected-original/vacancy/vacancy-clear revisions;
 - read-only reconciliation, payload-free failures, and synthetic tests.
 
-Gate 1 excludes resume artifacts and all package deletion. It requires independent security/architecture review and full repository verification before merge consideration.
+Gate 1 excludes resume artifacts and all package deletion. The implementation still requires independent security/architecture review and full repository verification before merge consideration; it is not release authorization.
 
 ### Gate 2 — assisted resume artifact
 

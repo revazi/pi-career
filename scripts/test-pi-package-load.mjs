@@ -77,6 +77,7 @@ try {
     "career-tools",
     "career-vacancy",
     "career-workbench",
+    "career-workspace",
   ]);
   assert.ok(loaded[0].entryRenderers?.has("career.workflow"));
   for (const tool of tools) {

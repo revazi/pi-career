@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+import { chmod, mkdir } from "node:fs/promises";
+import path from "node:path";
+
+export async function prepareConfigDirectory(agentDir) {
+  const directory = path.join(agentDir, "career");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700);
+  return directory;
+}
+
 export const UUIDS = [
   "00000000-0000-4000-8000-000000000001",
   "00000000-0000-4000-8000-000000000002",

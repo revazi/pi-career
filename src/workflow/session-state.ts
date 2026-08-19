@@ -20,6 +20,7 @@ import {
   type WorkflowEntryData,
   WORKFLOW_CUSTOM_TYPE,
   WORKFLOW_STATE_SCHEMA,
+  workflowError,
 } from "./types.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -209,6 +210,61 @@ export function workflowResultCards(entries: readonly SessionEntry[]): ResultCar
   return workflowDataFromEntries(entries).filter(
     (data): data is ResultCardEntry => data.kind === "result_card",
   );
+}
+
+export interface WorkspaceApplicationIdentity {
+  identity: ApplicationEntry;
+  current: ApplicationEntry;
+  vacancy?: VacancyEntry;
+}
+
+export function workspaceApplicationIdentity(
+  entries: readonly SessionEntry[],
+): WorkspaceApplicationIdentity | undefined {
+  let identity: ApplicationEntry | undefined;
+  let current: ApplicationEntry | undefined;
+  let contextCleared = false;
+  const stateIds = new Set<string>();
+  for (const data of workflowDataFromEntries(entries)) {
+    if (data.kind === "application") {
+      let canonicalTimestamp = false;
+      try {
+        canonicalTimestamp = new Date(data.created_at).toISOString() === data.created_at;
+      } catch {
+        // The workspace requires canonical identity timestamps even if legacy reconstruction can ignore them.
+      }
+      if (contextCleared || stateIds.has(data.state_id) || data.application_id !== data.application_id.toLowerCase() ||
+        !canonicalTimestamp) {
+        throw workflowError("workspace_identity_conflict");
+      }
+      stateIds.add(data.state_id);
+      if (identity === undefined) {
+        identity = data;
+        current = data;
+        continue;
+      }
+      if (current === undefined || data.application_id !== identity.application_id ||
+        data.company_label !== identity.company_label || data.role_label !== identity.role_label ||
+        Date.parse(data.created_at) <= Date.parse(current.created_at)) {
+        throw workflowError("workspace_identity_conflict");
+      }
+      current = data;
+    } else if (data.kind === "application_clear" && current?.state_id === data.clears_state_id) {
+      identity = undefined;
+      current = undefined;
+      contextCleared = true;
+    }
+  }
+  if (identity === undefined || current === undefined) return undefined;
+  const reconstructed = reconstructWorkflowState(entries);
+  if (reconstructed.application?.state_id !== current.state_id) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return {
+    identity,
+    current,
+    ...(reconstructed.vacancy === undefined ? {} : { vacancy: reconstructed.vacancy }),
+  };
 }
 
 export function reconstructWorkflowState(

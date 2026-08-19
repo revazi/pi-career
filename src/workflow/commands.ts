@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { CareerInvocationError, invokeCareerCli } from "../process.ts";
+import { ApplicationWorkspaceWorkflow } from "./application-workspace.ts";
 import {
   addLibraryRoot,
   clearGeneratedVariantsRoot,
@@ -383,6 +384,11 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     uuid: options.uuid ?? randomUUID,
   };
   const owner = new RunOwner(dependencies.uuid);
+  const applicationWorkspace = new ApplicationWorkspaceWorkflow({
+    agentDir: dependencies.agentDir,
+    now: dependencies.now,
+    uuid: dependencies.uuid,
+  });
   let transientNoticeSession: string | undefined;
   const renderedData = new Map<string, WorkflowEntryData>();
   const renderedTieStateIds = new Set<string>();
@@ -514,6 +520,11 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     }
   };
 
+  pi.registerCommand("career-workspace", {
+    description: "Inspect and explicitly mutate the current application workspace",
+    handler: async (args, ctx) => handle(ctx, () => applicationWorkspace.run(args, ctx)),
+  });
+
   pi.registerCommand("career-setup", {
     description: "Configure deterministic resume-library roots",
     getArgumentCompletions: (prefix) => "status".startsWith(prefix) ? [{ value: "status", label: "status" }] : null,
@@ -535,7 +546,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const action = await ctx.ui.select("Career setup", [
         "Add root",
         "Set resume variations directory",
-        ...(config.generated_variants_root === undefined ? [] : ["Clear resume variations directory"]),
+        ...(config.generated_variants_root === null ? [] : ["Clear resume variations directory"]),
         "Rescan",
         "Status",
         "Close",
@@ -565,7 +576,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         owner.assert(run, ctx);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         ctx.ui.notify(
-          `Resume variation suggestion set to ${privacyDisplayPath(updated.generated_variants_root)}. No directory or resume file was created.`,
+          `Resume variation suggestion set to ${privacyDisplayPath(updated.generated_variants_root!)}. No directory or resume file was created.`,
           "info",
         );
       } else if (action === "Clear resume variations directory") {

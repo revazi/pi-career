@@ -12,6 +12,7 @@ The package's command handlers do not call a model/provider. `/career-workbench`
 It gives you:
 
 - local slash commands for setting up a resume library, analyzing originals, and matching them to a vacancy;
+- a user-only `/career-workspace` flow for an explicitly configured private application root, immutable status/vacancy revisions, selected-original digest binding, and read-only reconciliation;
 - one compact managed agent tool, `career_run`, for guided work after the deterministic baseline;
 - a visible workbench handoff that never sends private resume text until you review and submit it yourself;
 - bounded TUI inspection and explicit selection of Core-reviewed non-PDF changes without automatic materialization;
@@ -20,7 +21,7 @@ It gives you:
 
 Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-> **Version note:** this README describes published `pi-career@0.3.0`, the current native-free release. Published `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
+> **Version note:** application-workspace Gate 1 described here is an unreleased source change after published `pi-career@0.3.0`; no package version or release is implied. Published `pi-career@0.3.0` remains the current native-free release, `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
 ## Requirements
 
@@ -149,7 +150,7 @@ In Pi, run:
 /career-setup
 ```
 
-Choose **Add root** and enter the resume directory. Setup stores the canonical root in private local Pi configuration; it does not copy, move, or edit your resumes.
+Choose **Add root** and enter the resume directory. Setup stores the canonical root in private local Pi configuration; it does not copy, move, or edit your resumes. On first ordinary setup, pi-career may create only the missing agent-directory-relative `career/` config directory as canonical effective-user-owned `0700` beneath the existing canonical Pi agent directory. It never adopts or chmods a pre-existing unsafe object. Workspace configuration remains stricter and requires that private config directory to exist before `/career-workspace` begins.
 
 Setup also displays a preferred `variants/` destination. This is suggestion-only: it creates no directory or file and does not authorize a save.
 
@@ -190,6 +191,8 @@ Then set the vacancy:
 
 Paste the vacancy text directly. `pi-career` never fetches a vacancy URL. Career Core validates the text before it becomes the current vacancy.
 
+If you want the separate Gate 1 local application record, prepare an existing private `0700` directory outside every resume/variation root, then run `/career-workspace`. Configure the root and initialize the current application only after reviewing and confirming each exact mutation. This is optional and does not save an assisted resume.
+
 ### 6. Match your originals
 
 ```text
@@ -214,7 +217,7 @@ For a non-PDF tailored variation, `career_run variant-review` ends the agent tur
 
 ## Slash command reference
 
-The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-review` is TUI-only, `/career-save` supports TUI/RPC, and `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` and `/career-review` prepare editor prompts whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
+The workflow commands below require interactive TUI/RPC mode except `/career-vacancy clear`; `/career-review` is TUI-only, `/career-save` and no-argument `/career-workspace` support TUI/RPC, and `/career-tools` is a lightweight tool-surface switch. Slash-command handlers do not invoke a model/provider. `/career-workbench` and `/career-review` prepare editor prompts whose later user submission does. Core-backed commands may resolve or acquire the external runtime before processing private input.
 
 ### `/career-setup [status]`
 
@@ -260,6 +263,22 @@ Use:
 After clearing—or before working on another company/role—run `/new`. The same Pi session cannot be reused for a second application context because earlier private prompts would still be in that conversation.
 
 This command manages session state only. It does not create workspace folders or application files.
+
+### `/career-workspace`
+
+Open the user-only TUI/RPC application-workspace menu. The command accepts no arguments and is not available as a model tool. Print/JSON modes fail before reading config, session-private data, or workspace files.
+
+Gate 1 can:
+
+- show read-only status and classify drift, interrupted initialization, or crash-left locks/temporary files without repair;
+- explicitly configure one already-existing canonical owner-only `0700` application root, creating or validating its private package marker;
+- initialize the current active application at a package-derived direct-child path;
+- append an immutable full state revision for current status, exact workflow-original vacancy bytes, vacancy clear, or a freshly scanned selected-original digest binding;
+- detach the root from config without changing the marker or any application file.
+
+Every mutation displays a complete canonical preview in the editor, requires the preview to return byte-identically, and then requires a separate confirmation. Configuration and workspace files use owner-only modes, locks, bounded no-clobber publication, sync, and fail-closed identity/disjointness checks. Application roots must remain physically disjoint in both directions from every resume-library root and variation-root suggestion.
+
+Workspace files outlive `/career-application clear`, `/new`, session deletion, transient shutdown, detach, package removal, and status `closed`. Gate 1 does **not** save an assisted resume, delete a workspace/root/application, copy or modify an original, save Core/provider output, or create cover letters, notes, `changes.md`, interview files, PDF/DOCX artifacts, repair, adoption, archive, or sync behavior. `/career-save` remains a separate resume-library variation workflow with independent consent.
 
 ### `/career-vacancy [clear]`
 
@@ -400,7 +419,7 @@ When raw mode is explicitly enabled, discovery-first use remains mandatory: capa
 3. package-local exact `@revazi/career@0.2.0`;
 4. bounded acquisition of exact `@revazi/career@0.2.0` from the canonical npm registry.
 
-Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, `/career-workbench`, and `/career-review` itself do not resolve or invoke Core; `/career-review` requires a still-live review produced earlier by `career_run`. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do need Core.
+Runtime installation is separate from loading the local Pi package. `/career-setup`, `/career-library`, `/career-application`, `/career-workspace`, `/career-workbench`, and `/career-review` itself do not resolve or invoke Core; `/career-review` requires a still-live review produced earlier by `career_run`. `/career-vacancy`, `/career-analyze`, `/career-match`, `career_run`, and the raw tools do need Core.
 
 Extension initialization requires macOS or Linux and fails unsupported platforms with one payload-free `unsupported_platform` error before registering any command/tool or doing route work. Before private document stdin opens on a supported platform, the selected executable must pass the exact managed Career Core 0.2.0 operation and schema compatibility checks. An invalid explicit `CAREER_CLI_PATH` fails without fallback.
 
@@ -431,7 +450,8 @@ Use `pi --no-session` when you do not want a new Pi session JSONL. In a persiste
 
 Possible persistence surfaces are distinct:
 
-- **Package config:** canonical resume-root paths, bounded labels, and an optional variation-directory suggestion; never resume text, vacancy text, or full Core output.
+- **Package config:** canonical resume-root paths, bounded labels, an optional variation-directory suggestion, and an optional application-root UUID/path binding; never resume text, vacancy text, or full Core output.
+- **Application workspace files:** an exact root marker, immutable non-content manifest, append-only state metadata, exact explicitly approved workflow-original vacancy snapshots, and selected-original digests; no selected-original bytes, Core result, provider response, prompt, or credential.
 - **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
 - **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission, while `/career-review` prepares only an ephemeral handle and selected canonical IDs.
 - **Approved local variant files:** exact assisted Markdown/text bytes plus bounded marker/sidecar metadata only after `/career-save` preview and confirmation; never full Core JSON.
@@ -445,13 +465,13 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 
 - Supported original formats: searchable PDF, Markdown, and UTF-8 text.
 - No OCR, DOCX/Pages editing, vacancy URL fetching, or PDF layout reconstruction.
-- No automatic resume or application-workspace saving; explicit materialized-variant saving is private Markdown/text only on supported macOS/Linux filesystems.
+- No automatic resume saving. Gate 1 application workspaces persist only explicitly previewed status/vacancy/original bindings; assisted resume artifacts and package deletion remain unimplemented separate gates.
 - PDF workbench output is targeted manual guidance only.
 - Assisted variants remain non-authoritative and cannot be reranked as originals.
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
 - Supported runtime targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`; Windows is unsupported.
 
-The future application-workspace contract is documented in [`docs/application-workspaces.md`](docs/application-workspaces.md); those filesystem-writing phases are not implemented.
+Application-workspace Gate 1 and the still-unimplemented later artifact/deletion protocols are documented in [`docs/application-workspaces.md`](docs/application-workspaces.md). Gate 1 does not authorize or imply Gates 2–4.
 
 ## Development
 

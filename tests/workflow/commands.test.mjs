@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { adapterError } from "../../src/errors.ts";
-import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, configPath, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   createConsentEntry,
@@ -20,6 +20,7 @@ import {
   makeFakePi,
   matchResult,
   normalizationResult,
+  prepareConfigDirectory,
   resumeResult,
   syntheticTextPdf,
   uuidSequence,
@@ -28,11 +29,13 @@ import {
 const now = () => new Date("2026-08-04T17:56:06.000Z");
 
 async function configuredAgent(temp, files = ["resume.md"]) {
+  temp = await realpath(temp);
   const root = path.join(temp, "library");
   const agentDir = path.join(temp, "agent");
   await mkdir(root);
   for (const file of files) await writeFile(path.join(root, file), `# ${file}\nSynthetic resume content\n`);
   const config = await addLibraryRoot(emptyConfig(), root, "Synthetic library");
+  await prepareConfigDirectory(agentDir);
   await writeConfig(agentDir, config, uuidSequence());
   return { agentDir, root };
 }
@@ -41,8 +44,32 @@ test("registers the approved deterministic commands and reviewable workbench han
   const fake = makeFakePi();
   registerCareerCommands(fake.api, { agentDir: "/synthetic/agent" });
   assert.deepEqual([...fake.commands.keys()].sort(), [
-    "career-analyze", "career-application", "career-library", "career-match", "career-setup", "career-vacancy", "career-workbench",
+    "career-analyze", "career-application", "career-library", "career-match", "career-setup", "career-vacancy", "career-workbench", "career-workspace",
   ]);
+});
+
+test("fresh career-setup creates only private package config and writes canonical v1", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-first-setup-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    const library = path.join(temp, "library");
+    await mkdir(agentDir);
+    await mkdir(library);
+    await writeFile(path.join(library, "resume.md"), "# Synthetic resume\n");
+    const fake = makeFakePi();
+    registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
+    const rpc = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Add root"], inputs: [library],
+    });
+    await fake.commands.get("career-setup").handler("", rpc.ctx);
+    const file = configPath(agentDir);
+    assert.equal((await lstat(path.dirname(file))).mode & 0o7777, 0o700);
+    assert.equal((await lstat(file)).mode & 0o7777, 0o600);
+    assert.equal(JSON.parse(await readFile(file, "utf8")).schema_version, "pi.career.config.v1");
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
 });
 
 test("print/JSON modes fail closed except pure vacancy clear", async () => {
@@ -205,12 +232,13 @@ test("setup suggests a variants directory under the first root and stores an exp
 });
 
 test("library status explains why an unusable PDF was not indexed", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-notice-"));
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-notice-")));
   try {
     const root = path.join(temp, "library");
     const agentDir = path.join(temp, "agent");
     await mkdir(root);
     await writeFile(path.join(root, "scanned-resume.pdf"), "%PDF-1.4\nnot searchable\n");
+    await prepareConfigDirectory(agentDir);
     await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root, "Synthetic library"), uuidSequence());
 
     const fake = makeFakePi();
@@ -227,7 +255,7 @@ test("library status explains why an unusable PDF was not indexed", async () => 
 });
 
 test("searchable PDF resumes reach deterministic analysis without manual conversion", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-analyze-"));
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-analyze-")));
   try {
     const root = path.join(temp, "library");
     const agentDir = path.join(temp, "agent");
@@ -236,6 +264,7 @@ test("searchable PDF resumes reach deterministic analysis without manual convers
       "Synthetic Resume",
       "TypeScript testing experience",
     ]));
+    await prepareConfigDirectory(agentDir);
     await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root, "Synthetic library"), uuidSequence());
 
     const fake = makeFakePi();

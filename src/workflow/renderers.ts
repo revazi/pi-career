@@ -42,7 +42,7 @@ export function setupSummary(config: CareerConfig, scan: LibraryScan, persisted:
   const variantsRoot = suggestedGeneratedVariantsRoot(config);
   const variants = variantsRoot === undefined
     ? "Resume variation suggestion: unavailable until a resume root is configured"
-    : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === undefined ? "default under the first configured root" : "configured"})`;
+    : `Resume variation suggestion: ${privacyDisplayPath(variantsRoot)} (${config.generated_variants_root === null ? "default under the first configured root" : "configured"})`;
   return [
     `pi-career • ${roots} root${roots === 1 ? "" : "s"} • ${resumes} resume${resumes === 1 ? "" : "s"} • ${notices} notice${notices === 1 ? "" : "s"} • session ${persisted ? "persisted" : "transient"}`,
     variants,
@@ -80,7 +80,7 @@ function scanWarningMessage(code: LibraryScan["warnings"][number]["code"], isPdf
       : "file is over 256 KiB; reduce it before analysis";
     case "pdf_text_unavailable": return "PDF text could not be extracted; use a searchable, unencrypted PDF or export it as Markdown/text (OCR is not supported)";
     case "invalid_utf8": return "text file is not valid UTF-8";
-    case "invalid_assisted_sidecar": return "assisted-variant sidecar is invalid; the document is treated as original";
+    case "invalid_assisted_sidecar": return "assisted-variant sidecar is invalid; the document is quarantined from original eligibility";
     case "scan_entry_unavailable": return "file or directory could not be read";
   }
 }
