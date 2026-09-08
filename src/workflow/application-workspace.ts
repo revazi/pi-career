@@ -42,6 +42,7 @@ import { privacyDisplayPath } from "./renderers.ts";
 import { eligibleOriginals, scanLibrary } from "./scan.ts";
 import { parseStrictJson } from "./strict-json.ts";
 import {
+  boundedLabel,
   workspaceApplicationIdentity,
   type WorkspaceApplicationIdentity,
 } from "./session-state.ts";
@@ -365,6 +366,32 @@ function parseManifest(value: unknown): ApplicationManifest | undefined {
     application_created_at: value.application_created_at,
     workspace_created_at: value.workspace_created_at,
   };
+}
+
+// Byte validation only; the caller must separately validate file ownership,
+// mode, containment, and the immutable manifest before trusting this identity.
+export function decodeApplicationIdentity(
+  bytes: Buffer,
+  manifest: Pick<ApplicationManifest, "application_id" | "application_created_at">,
+) {
+  return decodeCanonical(bytes, (value) => {
+    if (!isRecord(value) || !exactKeys(value, [
+      "schema_version", "kind", "application_id", "company_label", "role_label", "created_at",
+    ]) || value.schema_version !== "pi.career.application_identity.v1" ||
+      value.kind !== "application_identity" || !validUuid(value.application_id) ||
+      !validTimestamp(value.created_at) || !boundedLabel(value.company_label) || !boundedLabel(value.role_label) ||
+      value.application_id !== manifest.application_id || value.created_at !== manifest.application_created_at) {
+      return undefined;
+    }
+    return {
+      schema_version: "pi.career.application_identity.v1" as const,
+      kind: "application_identity" as const,
+      application_id: value.application_id,
+      company_label: value.company_label,
+      role_label: value.role_label,
+      created_at: value.created_at,
+    };
+  });
 }
 
 function parseVacancyBinding(value: unknown): VacancyBinding | null | undefined {

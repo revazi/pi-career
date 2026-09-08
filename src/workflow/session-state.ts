@@ -42,7 +42,7 @@ function boundedText(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
 }
 
-function boundedLabel(value: unknown): value is string {
+export function boundedLabel(value: unknown): value is string {
   return typeof value === "string" &&
     value.length > 0 &&
     [...value].length <= 120 &&
