@@ -394,6 +394,57 @@ export function decodeApplicationIdentity(
   });
 }
 
+// Reads only the fixed identity child. Manifest/root/chain validation remains
+// the catalog caller's responsibility; absence is legacy, not an adopted file.
+export async function readApplicationIdentity(
+  directory: string,
+  manifest: Pick<ApplicationManifest, "application_id" | "application_created_at">,
+) {
+  const directoryMetadata = await inspectPrivateApplicationDirectory(directory, undefined);
+  const checkDirectory = async () => {
+    if (!sameInode(directoryMetadata, await inspectPrivateApplicationDirectory(directory, undefined))) {
+      throw workflowError("workspace_drift");
+    }
+  };
+  let handle: FileHandle | undefined;
+  try {
+    try {
+      handle = await open(path.join(directory, ".pi-career-identity.json"), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        await checkDirectory();
+        return undefined;
+      }
+      throw error;
+    }
+    const metadata = await handle.stat();
+    if (!privateMetadata(metadata, 0o600, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
+      throw workflowError("workspace_drift");
+    }
+    // One byte beyond the ceiling detects growth without an unbounded readFile.
+    const bytes = Buffer.alloc(METADATA_MAX_BYTES + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    const current = await handle.stat();
+    const named = await lstat(path.join(directory, ".pi-career-identity.json"));
+    if (length !== metadata.size || !privateMetadata(current, 0o600, "file") ||
+      !privateMetadata(named, 0o600, "file") || !sameInode(current, named) ||
+      current.size !== metadata.size || current.mtimeMs !== metadata.mtimeMs || current.ctimeMs !== metadata.ctimeMs) {
+      throw workflowError("workspace_drift");
+    }
+    await checkDirectory();
+    return decodeApplicationIdentity(bytes.subarray(0, length), manifest);
+  } catch {
+    throw workflowError("workspace_drift");
+  } finally {
+    await handle?.close().catch(() => { throw workflowError("workspace_drift"); });
+  }
+}
+
 function parseVacancyBinding(value: unknown): VacancyBinding | null | undefined {
   if (value === null) return null;
   if (!isRecord(value) || !exactKeys(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) ||
