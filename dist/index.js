@@ -5645,15 +5645,15 @@ function assertNoOrphanManagedFiles(entries, referencedFiles) {
     }
   }
 }
-async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename) {
+async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename, identity2) {
   const application = await inspectApplicationManifest(directoryPath, rootId2, expectedBasename);
   const entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
-  if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry))) {
+  if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry) && !(identity2 !== void 0 && entry === ".pi-career-identity.json"))) {
     throw workflowError("workspace_drift");
   }
   const { revisions, referencedFiles } = await inspectStateChain(application, orderedStateNames(entries));
   assertNoOrphanManagedFiles(entries, referencedFiles);
-  const managedBytes = application.manifestFile.bytes.length + revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) + [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
+  const managedBytes = application.manifestFile.bytes.length + (identity2 === void 0 ? 0 : canonicalJson2(identity2).length) + revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) + [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
   if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
   const head = revisions.at(-1);
   return {

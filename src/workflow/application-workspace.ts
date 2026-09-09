@@ -747,15 +747,17 @@ async function inspectApplicationDirectory(
   directoryPath: string,
   rootId: string,
   expectedBasename?: string,
+  identity?: ReturnType<typeof decodeApplicationIdentity>,
 ): Promise<InspectedApplication> {
   const application = await inspectApplicationManifest(directoryPath, rootId, expectedBasename);
   const entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
-  if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry))) {
+  if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry) &&
+    !(identity !== undefined && entry === ".pi-career-identity.json"))) {
     throw workflowError("workspace_drift");
   }
   const { revisions, referencedFiles } = await inspectStateChain(application, orderedStateNames(entries));
   assertNoOrphanManagedFiles(entries, referencedFiles);
-  const managedBytes = application.manifestFile.bytes.length +
+  const managedBytes = application.manifestFile.bytes.length + (identity === undefined ? 0 : canonicalJson(identity).length) +
     revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) +
     [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
   if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
@@ -855,6 +857,32 @@ async function inspectRoot(rootPath: string, options: RootInspectionOptions = {}
     applications,
     ...(currentApplication === undefined ? {} : { currentApplication }),
   };
+}
+
+// Strict read-only catalog foundation: invalid entries reject the entire result.
+// Config/root selection belongs to the caller; no disk-driven session attachment.
+export async function readApplicationCatalog(rootPath: string, expectedRootId: string) {
+  try {
+    const root = await inspectRoot(rootPath, { expectedRootId });
+    const records = [];
+    for (const application of root.applications) {
+      const identity = await readApplicationIdentity(application.directoryPath, application.manifest);
+      const inspected = await inspectApplicationDirectory(application.directoryPath, root.marker.root_id, undefined, identity);
+      records.push({
+        application_id: inspected.manifest.application_id,
+        classification: identity === undefined ? "legacy" as const : "valid" as const,
+        ...(identity === undefined ? {} : { identity }),
+        status: inspected.head.status,
+        updated_at: inspected.head.updated_at,
+      });
+    }
+    assertRootPlanCurrent(root, await inspectRoot(rootPath, { expectedRootId }));
+    return records.sort((left, right) =>
+      right.updated_at.localeCompare(left.updated_at) || left.application_id.localeCompare(right.application_id));
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("workspace_drift");
+  }
 }
 
 function slug(value: string, fallback: "company" | "role"): string {
