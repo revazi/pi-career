@@ -59,6 +59,7 @@ const allowed = new Set([
   "docs/licenses/Rust-1.97.1-STDLIB-NOTICE.md",
   "docs/licenses/Unicode-3.0.txt",
   "docs/native-dependency-inventory.md",
+  "docs/persistence-acceptance.md",
   "docs/product-flow.md",
   "docs/releasing.md",
   "docs/unpdf-LICENSE-MIT.txt",
