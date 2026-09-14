@@ -15,7 +15,7 @@ notices belong to the separately installed or acquired exact
 bundled by pi-career v0.1.0 remains in docs/native-dependency-inventory.md and
 docs/releasing.md but is not part of the current runtime boundary.
 
-Searchable PDF text extraction bundles unpdf 1.8.0, Copyright (c) 2023-PRESENT
+Searchable PDF text extraction bundles unpdf 1.8.1, Copyright (c) 2023-PRESENT
 Johann Schopplich, under the MIT License preserved at
 docs/unpdf-LICENSE-MIT.txt. Its bundled serverless PDF.js implementation is
 derived from Mozilla PDF.js and is distributed under the Apache License 2.0,

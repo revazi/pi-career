@@ -129,7 +129,7 @@ try {
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.os, expectedOs, "package must install only on macOS and Linux");
   assert.deepEqual(packagedManifest.peerDependencies, expectedExternalPeers);
-  assert.equal(packagedManifest.devDependencies?.unpdf, "1.8.0", "bundled PDF extractor must remain pinned");
+  assert.equal(packagedManifest.devDependencies?.unpdf, "1.8.1", "bundled PDF extractor must remain pinned");
   assert.equal(packagedManifest.peerDependenciesMeta, undefined);
   assert.equal(packagedManifest.dependencies, undefined);
   assert.equal(packagedManifest.optionalDependencies, undefined);
