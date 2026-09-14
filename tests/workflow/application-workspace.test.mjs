@@ -21,6 +21,7 @@ import test from "node:test";
 
 import {
   ApplicationWorkspaceWorkflow,
+  readApplicationCatalog,
   selectedOriginalOptions,
 } from "../../src/workflow/application-workspace.ts";
 import {
@@ -214,6 +215,24 @@ test("initialization, selected-original binding, status/vacancy revision, status
     const manifestBytes = await readFile(path.join(applicationDirectory, "application.json"));
     const manifestText = manifestBytes.toString("utf8");
     assert.doesNotMatch(manifestText, /Synthetic Company|Platform Engineer|preparing|vacancy|resume\.md/);
+    const identityFile = path.join(applicationDirectory, ".pi-career-identity.json");
+    const identityBytes = await readFile(identityFile);
+    assert.deepEqual(JSON.parse(identityBytes), {
+      schema_version: "pi.career.application_identity.v1",
+      kind: "application_identity",
+      application_id: value.identity.application_id,
+      company_label: "Synthetic Company",
+      role_label: "Platform Engineer",
+      created_at: value.identity.created_at,
+    });
+    assert.equal(identityBytes.toString("utf8"), `${JSON.stringify(JSON.parse(identityBytes), null, 2)}\n`);
+    assert.equal((await lstat(identityFile)).mode & 0o7777, 0o600);
+    assert.equal((await lstat(identityFile)).nlink, 1);
+    const [catalogRecord] = await readApplicationCatalog(
+      value.root, (await loadConfig(value.agentDir)).application_workspace.root_id,
+    );
+    assert.deepEqual(catalogRecord.identity, JSON.parse(identityBytes));
+    assert.equal(catalogRecord.classification, "valid");
     assert.equal(await readFile(path.join(applicationDirectory, "vacancy.md"), "utf8"), "Synthetic vacancy bytes");
     const state1Bytes = await readFile(path.join(applicationDirectory, ".pi-career-state-000001.json"));
     const state1 = JSON.parse(state1Bytes);
@@ -221,7 +240,10 @@ test("initialization, selected-original binding, status/vacancy revision, status
     assert.equal(state1.vacancy.source_state_id, value.vacancyEntry.state_id);
     assert.equal(state1.selected_original, null);
     assert.equal(state1.resume_artifact, null);
-    assert.deepEqual(initializePreview.creates.map((item) => item.object_type), ["directory", "file", "file", "file"]);
+    assert.deepEqual(initializePreview.creates.map((item) => item.object_type), ["directory", "file", "file", "file", "file"]);
+    assert.deepEqual(initializePreview.creates.map((item) => path.basename(item.path)), [
+      directoryName, "application.json", ".pi-career-identity.json", "vacancy.md", ".pi-career-state-000001.json",
+    ]);
 
     const original = eligibleOriginals(await scanLibrary(await loadConfig(value.agentDir)))[0];
     await runWorkspace(value.fake, {
@@ -298,6 +320,95 @@ test("initialization, selected-original binding, status/vacancy revision, status
     assert.deepEqual((await readdir(value.root)).sort(), rootBeforeDetach);
     assert.equal(value.invocations, 0);
     assert.equal(value.fake.entries.length, 5);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("identity publication cancellation creates no application file or directory", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const before = (await readdir(value.root)).sort();
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [false],
+    });
+    assert.deepEqual((await readdir(value.root)).sort(), before);
+    assert.equal(value.fake.entries.length, 1);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("identity published without state 1 remains a read-only interrupted initialization", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const directory = path.join(
+      value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`,
+    );
+    await rm(path.join(directory, ".pi-career-state-000001.json"));
+    const names = (await readdir(directory)).sort();
+    const before = await Promise.all(names.map((name) => readFile(path.join(directory, name))));
+
+    const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
+    assert.ok(status.notifications.some(({ message }) => message.includes("manifest has no committed first state")));
+    assert.deepEqual((await readdir(directory)).sort(), names);
+    assert.deepEqual(await Promise.all(names.map((name) => readFile(path.join(directory, name)))), before);
+    assert.equal(value.fake.entries.length, 1);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("persisted identity label drift blocks attachment without rewriting private bytes", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const directory = path.join(
+      value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`,
+    );
+    const identityFile = path.join(directory, ".pi-career-identity.json");
+    const changed = {
+      ...JSON.parse(await readFile(identityFile, "utf8")),
+      company_label: "Changed Synthetic Company",
+    };
+    const changedBytes = Buffer.from(`${JSON.stringify(changed, null, 2)}\n`);
+    await writeFile(identityFile, changedBytes, { mode: 0o600 });
+    await chmod(identityFile, 0o600);
+
+    const workflow = new ApplicationWorkspaceWorkflow({ agentDir: value.agentDir, now, uuid: value.ids });
+    const context = makeContext(value.fake, {
+      mode: "rpc", persisted: false, selects: ["Select original resume"],
+    });
+    await assert.rejects(workflow.run("", context.ctx), (error) => {
+      assert.match(error.message, /workspace_identity_conflict/);
+      assert.doesNotMatch(error.message, /Changed Synthetic|Platform Engineer/);
+      return true;
+    });
+    assert.deepEqual(await readFile(identityFile), changedBytes);
+    assert.equal(value.fake.entries.length, 1);
+    assert.equal(value.invocations, 0);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
@@ -441,7 +552,7 @@ test("application entry limits block append-only mutation without deleting unkno
     });
     const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
     const applicationDirectory = path.join(value.root, applicationName);
-    for (let index = 0; index < 158; index += 1) {
+    for (let index = 0; index < 157; index += 1) {
       await writeFile(path.join(applicationDirectory, `user-${String(index).padStart(3, "0")}.txt`), "synthetic user file\n");
     }
     assert.equal((await readdir(applicationDirectory)).length, 160);

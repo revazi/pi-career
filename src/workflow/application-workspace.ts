@@ -59,8 +59,10 @@ import {
 
 const ROOT_MARKER_NAME = ".pi-career-applications.json";
 const MANIFEST_NAME = "application.json";
+const IDENTITY_NAME = ".pi-career-identity.json";
 const ROOT_MARKER_SCHEMA = "pi.career.application_root.v1";
 const MANIFEST_SCHEMA = "pi.career.application_manifest.v1";
+const IDENTITY_SCHEMA = "pi.career.application_identity.v1";
 const STATE_SCHEMA = "pi.career.application_state.v1";
 const PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1";
 const METADATA_MAX_BYTES = 16_384;
@@ -169,6 +171,8 @@ interface CurrentApplicationTarget {
   directoryPath: string;
   applicationId: string;
   applicationCreatedAt: string;
+  companyLabel: string;
+  roleLabel: string;
 }
 
 interface RootInspectionOptions {
@@ -377,14 +381,14 @@ export function decodeApplicationIdentity(
   return decodeCanonical(bytes, (value) => {
     if (!isRecord(value) || !exactKeys(value, [
       "schema_version", "kind", "application_id", "company_label", "role_label", "created_at",
-    ]) || value.schema_version !== "pi.career.application_identity.v1" ||
+    ]) || value.schema_version !== IDENTITY_SCHEMA ||
       value.kind !== "application_identity" || !validUuid(value.application_id) ||
       !validTimestamp(value.created_at) || !boundedLabel(value.company_label) || !boundedLabel(value.role_label) ||
       value.application_id !== manifest.application_id || value.created_at !== manifest.application_created_at) {
       return undefined;
     }
     return {
-      schema_version: "pi.career.application_identity.v1" as const,
+      schema_version: IDENTITY_SCHEMA,
       kind: "application_identity" as const,
       application_id: value.application_id,
       company_label: value.company_label,
@@ -409,7 +413,7 @@ export async function readApplicationIdentity(
   let handle: FileHandle | undefined;
   try {
     try {
-      handle = await open(path.join(directory, ".pi-career-identity.json"), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      handle = await open(path.join(directory, IDENTITY_NAME), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         await checkDirectory();
@@ -430,7 +434,7 @@ export async function readApplicationIdentity(
       length += bytesRead;
     }
     const current = await handle.stat();
-    const named = await lstat(path.join(directory, ".pi-career-identity.json"));
+    const named = await lstat(path.join(directory, IDENTITY_NAME));
     if (length !== metadata.size || !privateMetadata(current, 0o600, "file") ||
       !privateMetadata(named, 0o600, "file") || !sameInode(current, named) ||
       current.size !== metadata.size || current.mtimeMs !== metadata.mtimeMs || current.ctimeMs !== metadata.ctimeMs) {
@@ -838,7 +842,12 @@ async function inspectCurrentApplication(
     matching.manifest.application_created_at !== target.applicationCreatedAt) {
     throw workflowError("workspace_identity_conflict");
   }
-  return inspectApplicationDirectory(matching.directoryPath, rootId, path.basename(target.directoryPath));
+  const identity = await readApplicationIdentity(matching.directoryPath, matching.manifest);
+  if (identity !== undefined &&
+    (identity.company_label !== target.companyLabel || identity.role_label !== target.roleLabel)) {
+    throw workflowError("workspace_identity_conflict");
+  }
+  return inspectApplicationDirectory(matching.directoryPath, rootId, path.basename(target.directoryPath), identity);
 }
 
 async function inspectRoot(rootPath: string, options: RootInspectionOptions = {}): Promise<RootAudit> {
@@ -919,6 +928,8 @@ function currentApplicationTarget(
     directoryPath: expectedApplicationPath(rootPath, identity),
     applicationId: identity.identity.application_id,
     applicationCreatedAt: identity.identity.created_at,
+    companyLabel: identity.identity.company_label,
+    roleLabel: identity.identity.role_label,
   };
 }
 
@@ -1255,7 +1266,8 @@ async function reconciliationClassification(rootPath: string): Promise<string> {
       if (children.length === 0) {
         return "Interrupted initialization: an empty application directory is quarantined. Reconciliation made no change.";
       }
-      if (children.some((name) => name.includes(".tmp") || name.startsWith(".pi-career-") && !STATE_BASENAME.test(name))) {
+      if (children.some((name) => name.includes(".tmp") || name.startsWith(".pi-career-") &&
+        !STATE_BASENAME.test(name) && name !== IDENTITY_NAME)) {
         return "Crash-left application temporary entry detected. Mutations are blocked; reconciliation made no change.";
       }
       const hasManifest = children.includes(MANIFEST_NAME);
@@ -1667,6 +1679,15 @@ export class ApplicationWorkspaceWorkflow {
       workspace_created_at: createdAt,
     };
     const manifestBytes = canonicalJson(manifest);
+    const displayIdentity = decodeApplicationIdentity(canonicalJson({
+      schema_version: IDENTITY_SCHEMA,
+      kind: "application_identity",
+      application_id: identity.identity.application_id,
+      company_label: identity.identity.company_label,
+      role_label: identity.identity.role_label,
+      created_at: identity.identity.created_at,
+    }), manifest);
+    const identityBytes = canonicalJson(displayIdentity);
     const currentVacancyBytes = vacancyBytes(identity.vacancy, identity.identity.application_id);
     const vacancyName = "vacancy.md";
     const state: ApplicationStateRevision = {
@@ -1685,15 +1706,18 @@ export class ApplicationWorkspaceWorkflow {
     };
     const stateFile = path.join(directoryPath, stateName(1));
     const manifestFile = path.join(directoryPath, MANIFEST_NAME);
+    const identityFile = path.join(directoryPath, IDENTITY_NAME);
     const vacancyFile = path.join(directoryPath, vacancyName);
     const stateBuffer = stateBytes(state);
-    const persistentCount = 2 + (currentVacancyBytes === undefined ? 0 : 1);
-    const managedBytes = manifestBytes.length + stateBuffer.length + (currentVacancyBytes?.length ?? 0);
+    const persistentCount = 3 + (currentVacancyBytes === undefined ? 0 : 1);
+    const managedBytes = manifestBytes.length + identityBytes.length + stateBuffer.length +
+      (currentVacancyBytes?.length ?? 0);
     if (persistentCount > APPLICATION_MAX_ENTRIES || managedBytes > APPLICATION_MAX_MANAGED_BYTES) {
       throw workflowError("workspace_limit_reached");
     }
     const files = [
       { final: manifestFile, temp: path.join(directoryPath, `.pi-career-${mutationId}-manifest.tmp`), bytes: manifestBytes },
+      { final: identityFile, temp: path.join(directoryPath, `.pi-career-${mutationId}-identity.tmp`), bytes: identityBytes },
       ...(currentVacancyBytes === undefined ? [] : [{ final: vacancyFile, temp: path.join(directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }]),
       { final: stateFile, temp: path.join(directoryPath, `.pi-career-${mutationId}-state.tmp`), bytes: stateBuffer },
     ];
@@ -1727,6 +1751,8 @@ export class ApplicationWorkspaceWorkflow {
             directoryPath,
             applicationId: identity.identity.application_id,
             applicationCreatedAt: identity.identity.created_at,
+            companyLabel: identity.identity.company_label,
+            roleLabel: identity.identity.role_label,
           },
         });
         assertRootPlanCurrent(attachment.root, root);
@@ -1749,11 +1775,20 @@ export class ApplicationWorkspaceWorkflow {
         for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
         await syncDirectory(directoryPath);
         await syncDirectory(configured.root_path);
-        const verified = await inspectApplicationDirectory(directoryPath, configured.root_id, path.basename(directoryPath));
+        const storedIdentity = await readApplicationIdentity(directoryPath, manifest);
+        if (storedIdentity === undefined || !canonicalJson(storedIdentity).equals(identityBytes)) {
+          throw workflowError("workspace_status_unknown");
+        }
+        const verified = await inspectApplicationDirectory(
+          directoryPath, configured.root_id, path.basename(directoryPath), storedIdentity,
+        );
         if (verified.headFile.sha256 !== hashBytes(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {
-        const committed = await inspectApplicationDirectory(directoryPath, configured.root_id, path.basename(directoryPath))
-          .then((value) => value.headFile.sha256 === hashBytes(stateBuffer), () => false);
+        const committed = await readApplicationIdentity(directoryPath, manifest)
+          .then((storedIdentity) => storedIdentity === undefined || !canonicalJson(storedIdentity).equals(identityBytes)
+            ? false
+            : inspectApplicationDirectory(directoryPath, configured.root_id, path.basename(directoryPath), storedIdentity)
+              .then((value) => value.headFile.sha256 === hashBytes(stateBuffer), () => false), () => false);
         if (committed) return;
         for (const item of [...published].reverse()) await unlinkOwned(item);
         if (createdDirectory !== undefined) {
@@ -1921,6 +1956,12 @@ export class ApplicationWorkspaceWorkflow {
     const configured = attachment.snapshot.config.application_workspace;
     const application = attachment.application;
     if (configured === null || application === undefined) throw workflowError("workspace_unavailable");
+    const inspectCommitted = async () => {
+      const storedIdentity = await readApplicationIdentity(application.directoryPath, application.manifest);
+      return inspectApplicationDirectory(
+        application.directoryPath, configured.root_id, path.basename(application.directoryPath), storedIdentity,
+      );
+    };
     await withQueues(files.map((file) => file.final), async () => {
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path), "workspace_mutation_lock", plan.envelope.mutation_id, plan.createdAt,
@@ -1940,6 +1981,8 @@ export class ApplicationWorkspaceWorkflow {
             directoryPath: application.directoryPath,
             applicationId: identity.identity.application_id,
             applicationCreatedAt: identity.identity.created_at,
+            companyLabel: identity.identity.company_label,
+            roleLabel: identity.identity.role_label,
           },
         });
         assertRootPlanCurrent(attachment.root, root);
@@ -1952,10 +1995,10 @@ export class ApplicationWorkspaceWorkflow {
         assertApplicationCapacity(currentApplication, files);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
-        const verified = await inspectApplicationDirectory(application.directoryPath, configured.root_id, path.basename(application.directoryPath));
+        const verified = await inspectCommitted();
         if (verified.headFile.sha256 !== hashBytes(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {
-        const committed = await inspectApplicationDirectory(application.directoryPath, configured.root_id, path.basename(application.directoryPath))
+        const committed = await inspectCommitted()
           .then((value) => value.headFile.sha256 === hashBytes(stateBuffer), () => false);
         if (committed) return;
         for (const item of [...published].reverse()) await unlinkOwned(item);
