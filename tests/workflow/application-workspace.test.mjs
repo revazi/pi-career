@@ -303,6 +303,45 @@ test("initialization, selected-original binding, status/vacancy revision, status
   }
 });
 
+test("P3-08: repeated reconciliation preserves every existing v1 workspace byte and session entry", async () => {
+  const value = await workspaceFixture();
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const rootEntries = (await readdir(value.root)).sort();
+    const directory = path.join(value.root, rootEntries.find((entry) => !entry.startsWith(".")));
+    const names = (await readdir(directory)).sort();
+    const files = [value.configFile, path.join(value.root, ".pi-career-applications.json"),
+      path.join(value.library, "resume.md"), ...names.map((name) => path.join(directory, name))];
+    const before = await Promise.all(files.map((file) => readFile(file)));
+    const entriesBefore = structuredClone(value.fake.entries);
+    const state = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000001.json"), "utf8"));
+    assert.equal(state.schema_version, "pi.career.application_state.v1");
+
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      const context = await runWorkspace(value.fake, {
+        selects: ["Status and reconcile"],
+        editors: [() => { assert.fail("read-only reconciliation must not ask for a mutation preview"); }],
+        confirms: [() => { assert.fail("read-only reconciliation must not ask for confirmation"); }],
+      });
+      assert.ok(context.notifications.some(({ message }) => message.includes("reconciled")));
+      assert.deepEqual((await readdir(value.root)).sort(), rootEntries);
+      assert.deepEqual((await readdir(directory)).sort(), names);
+      assert.deepEqual(await Promise.all(files.map((file) => readFile(file))), before);
+      assert.deepEqual(value.fake.entries, entriesBefore);
+      assert.equal(value.invocations, 0);
+    }
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("absent-config plans use no-clobber publication and reject a file appearing after confirmation", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-workspace-absent-")));
   try {
