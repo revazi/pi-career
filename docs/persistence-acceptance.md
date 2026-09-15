@@ -80,6 +80,67 @@ The Given/When/Then rows below preserve Spec 3 numbering. These are specificatio
 
 Some scenarios need later overlay/artifact slices. Foundation issue #65 must verify its own applicable subset and report later scenarios as pending rather than pretending #60 or #65 completes all end-to-end coverage.
 
+## Proposed exact read-only catalog classification contract — approval required
+
+This section resolves only the remaining #61 catalog projection. It does not approve state v2, readiness, migration, attachment, overlay UI, or a new persisted schema.
+
+`readApplicationCatalog(rootPath, expectedRootId)` will return one process-memory value:
+
+```json
+{
+  "schema_version": "pi.career.application_catalog.v1",
+  "applications": [],
+  "reconciliation": {
+    "interrupted": 0,
+    "drifted": 0,
+    "duplicate_id": 0,
+    "unsupported": 0,
+    "over_limit": 0
+  }
+}
+```
+
+Exact rules:
+
+- `schema_version`, `applications`, and `reconciliation` are always present in that order. Reconciliation keys are always present in the order shown, including zero counts.
+- `applications` contains only completely validated records already approved by #61: `valid` records include immutable exact identity metadata; `legacy` records omit identity; both include only application UUID, lifecycle status, and head update time needed by later local projections.
+- Applications remain ordered by head `updated_at` descending, then application UUID ascending. Classification counts never affect ordering.
+- Every persistent direct child other than the root marker contributes exactly once: to one valid/legacy application record or to one reconciliation count. The root marker contributes neither.
+- Invalid entries never produce an application UUID, path, basename, label, status, timestamp, hash, document body, or raw error in the result. Later UI may render only the five aggregate counts.
+- The return value is an internal local projection, not a persisted index, session entry, log, error payload, provider message, or model context. It is freshly derived on every call.
+
+### Root-fatal conditions
+
+The function returns no partial result and throws the existing stable payload-free error when the supplied root itself cannot be trusted:
+
+- invalid/noncanonical/private-root metadata or root-marker bytes;
+- root-marker UUID mismatch;
+- root direct-child count above the existing bound;
+- a live or crash-left root mutation lock; or
+- root replacement or entry-set drift while the scan is in progress.
+
+These remain `workspace_root_invalid`, `workspace_identity_conflict`, `workspace_limit_reached`, `workspace_busy`, or `workspace_drift` as applicable. The catalog never converts an untrusted root into an apparently complete set of application-local notices.
+
+### Per-child classifications
+
+After the root envelope is trusted, classification precedence for each direct child is exact:
+
+1. **`duplicate_id`** — two or more package-shaped directories have valid canonical manifests claiming the same manifest UUID. Every claiming directory is removed from `applications` and counted once under `duplicate_id`; no claimant is preferred, even if another file in one claimant would receive a lower-precedence classification.
+2. **`over_limit`** — a nonduplicate application-shaped directory exceeds the application-entry, managed-byte, or state-revision bound. Bounded reads stop at the existing overflow sentinel; no truncated record is accepted.
+3. **`unsupported`** — a nonduplicate, within-bound application-shaped directory contains canonical package metadata with the expected kind/bindings but an unsupported identity or state schema version. Arbitrary unknown JSON is `drifted`, not evidence of a future schema.
+4. **`interrupted`** — a nonduplicate, within-bound application-shaped directory is a recognizable incomplete no-clobber transaction: empty; valid manifest with optional valid identity but no state 1; or known package artifact/temp content without a committed state. It remains read-only and is never completed, cleaned, or adopted by listing.
+5. **`drifted`** — every other invalid direct child, including an unknown root entry, unsafe/non-directory application-shaped entry, malformed or misbound manifest/identity/chain, bad parent, gap/fork, orphaned referenced content, unsafe metadata/link, alias, or changed referenced bytes.
+
+If a category cannot be established without trusting malformed/private bytes, use `drifted`. A valid complete chain with absent identity is `legacy`, not `interrupted`. A valid identity with a complete valid chain is `valid`.
+
+### Race and side-effect contract
+
+- Classification is based on one bounded snapshot. Before return, root identity and entry names plus every emitted valid/legacy manifest, identity, head, and referenced current file are revalidated for inode/size/hash consistency. Any observed race rejects the whole call with `workspace_drift`; stale records or counts are never returned.
+- The function creates no index, lock, temp, config, identity, state, or session entry; performs no repair/adoption; and invokes no Core resolver, child process, package acquisition, network, provider/model, prompt, or telemetry boundary.
+- Behavioral tests must mix valid and every invalid class in one root, prove duplicate removal and exact counts, preserve all bytes/entries across repeated calls, inject a mid-scan race, and assert no private sentinel reaches invalid projections or errors.
+
+Approval of this section fixes the #61 API contract and permits one separate implementation PR. It does not complete #60 or #61 by itself.
+
 ## Synthetic fixture families
 
 - `empty-root`: canonical private root and valid marker, no applications.
@@ -137,7 +198,7 @@ Resolve before executable new-schema fixtures and production changes:
 3. Binding display identity to the state chain and crash classification for identity-without-state; migration cannot compare exact labels against a manifest that intentionally stores no labels. Validate session-derived expected location, UUID and timestamp instead; final algorithm needs review.
 4. Historical versus current dependency validation: historical original references must not require absent historical originals to remain forever readable merely to inspect the chain; corruption of immutable managed historical files still follows the existing drift contract.
 5. Digest definition for effective original versus saved assisted bytes; choose and document normalization domain so dependency comparisons are unambiguous.
-6. Stable read-only catalog errors/projections, exact new-application commit order and mixed-chain parser contract.
+6. Exact mixed-chain parser contract. The read-only catalog projection is proposed above; new-application manifest/identity/optional-vacancy/state-last order is documented in the current workspace protocol.
 7. Keep #65's integration checks scoped: explicit consented attachment entries are permitted by #64; blanket 'no session append anywhere' would contradict attachment persistence.
 
 ## Small PR sequence
@@ -163,4 +224,4 @@ Keep each PR independently testable. Add failing behavioral tests and the minima
 
 ## Next gate
 
-Approve/refine the command matrix and resolve the exact schemas above. Then add synthetic fixture builders and substantive failing acceptance tests through the repository's existing test harness. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed. No production code has been changed by this document.
+Approve/refine the read-only catalog contract above, then implement its substantive behavioral tests and minimal projection in one separate #61 PR. Independently approve the command matrix and resolve the remaining exact state/attachment/artifact schemas before their fixture or production slices. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed. No production code has been changed by this document.
