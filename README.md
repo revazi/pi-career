@@ -272,7 +272,7 @@ Gate 1 can:
 
 - show read-only status and classify drift, interrupted initialization, or crash-left locks/temporary files without repair;
 - explicitly configure one already-existing canonical owner-only `0700` application root, creating or validating its private package marker;
-- initialize the current active application at a package-derived direct-child path;
+- initialize the current active application at a package-derived direct-child path with immutable manifest and exact private display-identity metadata;
 - append an immutable full state revision for current status, exact workflow-original vacancy bytes, vacancy clear, or a freshly scanned selected-original digest binding;
 - detach the root from config without changing the marker or any application file.
 
@@ -451,7 +451,7 @@ Use `pi --no-session` when you do not want a new Pi session JSONL. In a persiste
 Possible persistence surfaces are distinct:
 
 - **Package config:** canonical resume-root paths, bounded labels, an optional variation-directory suggestion, and an optional application-root UUID/path binding; never resume text, vacancy text, or full Core output.
-- **Application workspace files:** an exact root marker, immutable non-content manifest, append-only state metadata, exact explicitly approved workflow-original vacancy snapshots, and selected-original digests; no selected-original bytes, Core result, provider response, prompt, or credential.
+- **Application workspace files:** an exact root marker, immutable non-content manifest, immutable bounded company/role display identity, append-only state metadata, exact explicitly approved workflow-original vacancy snapshots, and selected-original digests; no selected-original bytes, Core result, provider response, prompt, credential, session ID, or environment value.
 - **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
 - **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission, while `/career-review` prepares only an ephemeral handle and selected canonical IDs.
 - **Approved local variant files:** exact assisted Markdown/text bytes plus bounded marker/sidecar metadata only after `/career-save` preview and confirmation; never full Core JSON.

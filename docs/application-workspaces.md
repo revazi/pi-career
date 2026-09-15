@@ -2,7 +2,7 @@
 
 ## Status and authorization boundary
 
-**Implementation status:** Gate 1 is implemented in the current unreleased source for independent security/architecture review. It includes strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest and full state/vacancy/selected-original revisions, and read-only reconciliation through user-only `/career-workspace`. This status does not authorize merge, release, publication, tagging, or any later gate.
+**Implementation status:** Gate 1 plus the approved #61 read-only identity/catalog foundation are implemented in the current unreleased source for independent security/architecture review. They include strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest/display identity and full state/vacancy/selected-original revisions, bounded read-only catalog derivation, and read-only reconciliation through user-only `/career-workspace`. This status does not authorize merge, release, publication, tagging, or any later gate.
 
 Career Core remains authoritative for every career-domain operation, schema, algorithm, warning, error, evidence rule, and assisted/non-authoritative result. This design defines only pi-career-owned configuration and local-file protocols. It does not copy a Core schema or algorithm.
 
@@ -10,10 +10,10 @@ The deliberately bounded **implemented Gate 1 slice** is:
 
 1. migrate an explicitly changed config from `pi.career.config.v1` to the exact v2 shape below;
 2. configure one existing private application root, create or validate its package marker, and enforce complete disjointness from every resume-library root;
-3. initialize one package-created directory for the current active application;
+3. initialize one package-created directory for the current active application with immutable manifest and exact display-identity metadata;
 4. persist immutable application-state revisions containing status, an optional selected-original digest binding, and an optional exact current session-vacancy snapshot;
 5. add later immutable status, selected-original, vacancy, and vacancy-clear revisions;
-6. provide read-only status and reconciliation; and
+6. provide bounded read-only catalog derivation plus status and reconciliation; and
 7. leave every original, current `/career-save` destination, model/provider boundary, session schema, Core result, and unknown file unchanged.
 
 The first slice does **not** implement application-workspace resume saving or package deletion. Those protocols are fully specified here so their risks are auditable, but each requires its own later approval. PDF/DOCX artifacts, cover letters, `changes.md`, notes, interview files, full-result export, provider-response persistence, adoption of user files, and arbitrary application browsing are outside application-workspace v1.
@@ -135,7 +135,7 @@ No session schema change is required in v1. For the current active UUID, the **i
 - `status` is one of `preparing`, `applied`, `interviewing`, or `closed`; and
 - a status update creates another strict application entry with the same UUID and labels but a later state timestamp.
 
-Workspace references are not added to that strict schema. Session reconstruction remains authoritative for the active in-session application and vacancy; workspace reconstruction is separately authoritative only for local workspace files. `application_created_at` and the directory slugs always derive from the identity entry, while the latest valid entry supplies current status.
+Workspace references are not added to that strict schema. Session reconstruction remains authoritative for the active in-session application and vacancy; workspace reconstruction is separately authoritative for local workspace files and persistent catalog display. New initialization copies the identity entry's exact labels, UUID, and creation timestamp into one immutable private display-identity file. An attached session must retain those exact values. `application_created_at` and the directory slugs derive from the session identity entry during initialization, while the latest valid session entry supplies current conversational status.
 
 ### One session, one application
 
@@ -150,8 +150,8 @@ The package never accepts an application UUID from a command argument or file pi
 
 ### Restart, reattach, branch, and transient rules
 
-- A persisted session reattaches after restart only when its validated active identity entry matches the UUID and `application_created_at` in valid `application.json` at the exact identity-label-slug-derived direct-child path. A bounded direct-child scan must also find no second manifest with that UUID. A missing expected match means unattached; any duplicate, timestamp mismatch, or same-UUID label drift is `workspace_identity_conflict`.
-- The manifest UUID and identity-entry timestamp are identity authority, while the identity entry's immutable labels derive the expected location. A differently named or user-renamed directory is never adopted, and v1 never renames a directory.
+- A persisted session reattaches after restart only when its validated active identity entry matches the UUID and `application_created_at` in valid `application.json`, plus exact labels in a present valid `.pi-career-identity.json`, at the exact identity-label-slug-derived direct-child path. A bounded direct-child scan must also find no second manifest with that UUID. A missing expected match means unattached; any duplicate, timestamp mismatch, or same-UUID label drift is `workspace_identity_conflict`.
+- The manifest UUID and creation timestamp remain identity authority, the display-identity file supplies exact persistent labels, and the session identity entry must match both while attached. Legacy workspaces without display identity remain readable under their separately approved classification. A differently named or user-renamed directory is never adopted, and v1 never renames a directory.
 - Session branches that contain the same application UUID address the same workspace. Divergent status/vacancy state is shown as drift and requires an explicit direction-specific write; it is never merged silently.
 - A transient session may create workspace files after the same workspace consent. The UI must warn before preview that the files outlive the transient process. After shutdown, the transient session entries and managed handles cannot be reconstructed, so pi-career cannot reattach that directory from disk alone or invent a replacement session identity.
 - Clearing an application, removing its session file, or removing the configured root does not delete or rewrite the directory.
@@ -261,6 +261,7 @@ A valid v1 root is flat at the application level:
   .pi-career-applications.json
   synthetic-company--platform-engineer--00000000-0000-4000-8000-000000000001/
     application.json
+    .pi-career-identity.json
     .pi-career-state-000001.json
     vacancy.md
     .pi-career-state-000002.json
@@ -311,7 +312,24 @@ All application directories are direct children, non-symlink directories owned b
 
 Fields have exactly the order shown. The manifest is canonical two-space JSON plus one LF and at most 16,384 bytes. It contains only package schema/kind, non-content identity bindings, and canonical timestamps.
 
-The manifest contains no company/role label, slug, directory name, status, absolute or relative path, resume/vacancy/notes content, prompt, provider data, credential, exact review input, Core output, session ID, executable path, or environment value. Human-readable company/role slugs exist only in the private directory basename and are derived from the current session during initialization and reattachment; they are never duplicated into a manifest.
+The manifest contains no company/role label, slug, directory name, status, absolute or relative path, resume/vacancy/notes content, prompt, provider data, credential, exact review input, Core output, session ID, executable path, or environment value. Human-readable slugs exist in the private directory basename, while exact persistent labels exist only in the separate display-identity file; neither is duplicated into the manifest.
+
+### Immutable display identity
+
+New application initialization creates `.pi-career-identity.json` once and never edits or replaces it:
+
+```json
+{
+  "schema_version": "pi.career.application_identity.v1",
+  "kind": "application_identity",
+  "application_id": "<same lowercase manifest UUID>",
+  "company_label": "Synthetic Company",
+  "role_label": "Platform Engineer",
+  "created_at": "<same canonical application creation timestamp>"
+}
+```
+
+Fields have exactly the order shown. The file uses canonical two-space JSON plus one LF, is at most 16,384 bytes, and has the same strict private-file metadata requirements as the manifest. Labels retain their exact bounded UTF-8 bytes and are never normalized through the slug algorithm. The UUID and timestamp must match the immutable manifest. The file contains no path, document body, Core/provider result, prompt, credential, session ID, or environment value. Absence is accepted only as the explicit legacy classification; opening or listing a legacy application never creates this file.
 
 ### Immutable state revisions
 
@@ -362,6 +380,7 @@ Top-level and nested field order is fixed as shown. Relative paths are package-g
 The chain is valid only when:
 
 - `application.json` is exact, its UUID/root match the active session and root marker, and its enclosing directory is the exact safe basename derived for that active session UUID/labels;
+- when display identity is present, it is exact and its UUID/timestamp match the manifest; attached-session labels must match it byte-for-byte;
 - revisions start at 1, are contiguous, and do not exceed 64 in v1;
 - sequence 1 hashes the exact manifest as parent and every later revision hashes the exact prior revision;
 - every referenced package file exists with exact type/owner/mode/link-count/size/hash and remains inside the direct-child directory; and
@@ -373,7 +392,7 @@ A missing, forked, gapped, oversized, or hash-drifted chain is not partially tru
 
 ### Application and vacancy
 
-Application metadata comes only from the validated strict identity/current application entries on the active branch. A workspace action snapshots the current session ID, identity entry, and active application UUID during planning and rechecks all three after confirmation and under locks.
+Active workspace mutation metadata comes only from the validated strict identity/current application entries on the active branch and, when present, the matching immutable display-identity file. Read-only persistent catalog labels come only from that file, never from directory slugs. A workspace action snapshots the current session ID, identity entry, and active application UUID during planning and rechecks them after confirmation and under locks.
 
 Vacancy bytes come only from a current strict `VacancyEntry` whose `application_id` equals the active application UUID and whose stored SHA-256 still matches its text. The file bytes are exactly:
 
@@ -503,7 +522,7 @@ Config is the sole mutable file. A present config uses the cooperative config lo
 ### Commit order
 
 - **Configure an empty root:** publish and sync the root marker, then no-clobber-create or compare-and-swap the config as planned and sync its directory. A known pre-config failure may remove only the exact marker inode created by this plan if the root otherwise remains empty. A crash may leave a valid unattached marker, which is explicitly attachable later.
-- **Initialize application:** create/sync the application directory; publish `application.json`; publish optional `vacancy.md`; publish `.pi-career-state-000001.json` last; sync the application directory and then root. The final state revision is the commit record.
+- **Initialize application:** create/sync the application directory; publish `application.json`; publish `.pi-career-identity.json`; publish optional `vacancy.md`; publish `.pi-career-state-000001.json` last; sync the application directory and then root. The final state revision is the commit record.
 - **Status/selection/vacancy update:** publish a new vacancy file first when needed, then publish the next state revision last and sync the application directory. Existing files are immutable.
 - **Resume artifact (later gate):** publish the v2 sidecar first, artifact second, and state revision last. Thus an intentionally committed artifact is never unmarked, and an exact state commit references both.
 - **Deletion (later gate):** use the deletion protocol below; deletion has no rollback claim.
@@ -531,7 +550,7 @@ Repeating an action whose exact complete state is already the valid head is read
 |---|---|
 | Valid marker, no config reference | Valid unattached root; only explicit root configuration may attach it. |
 | Empty application directory | Interrupted initialization; invalid/unattached, never adopted. |
-| Manifest without state 1 | Interrupted initialization; quarantined. |
+| Manifest, with or without display identity, without state 1 | Interrupted initialization; quarantined; identity is never adopted independently. |
 | Vacancy file without referencing committed state | Orphan; never made current automatically. |
 | Sidecar without resume | Harmless assisted orphan; never authoritative or attached. |
 | Exact sidecar/resume pair without state | Uncommitted assisted orphan; not attached after restart. |
@@ -649,7 +668,7 @@ All fixtures use synthetic company, role, vacancy, and resume text. No real docu
 | Config migration | Fresh ordinary setup safely bootstraps only private `career/` and writes canonical v1; ordinary setup/library/root-removal/variation edits keep absent/v1 config at v1; only confirmed Configure application root maps strict v1 with/without variation suggestion or absent config in a pre-existing valid private directory to exact canonical v2; workspace missing/unsafe config directory fails; every later writer preserves v2 and uses shared locks/CAS; later library/variation mutations reject application-root equality, both ancestor directions, and aliases; complete old/new preview; cancel/edit/false confirm causes zero mutation; mode/owner/link/symlink-component/noncanonical/oversize/UTF-8/BOM/duplicate/unknown-key failures without permission repair; both exact config-lock kinds/bytes; config race changes expected hash and prevents replacement; crash yields absent, complete v1, or complete v2. |
 | Root validation | Existing canonical `0700` owner root succeeds; absent, relative, noncanonical, control, overlong, symlink-component, wrong-owner, wrong-mode, special-bit, inaccessible, unsupported-sync cases fail; library equality, application-under-library, and library-under-application all fail by components and inode alias. |
 | Root marker/adoption | Empty root exact marker/config success; marker bytes/order/mode/owner/link verified; crash marker-only can later attach; valid marked root audits; unmarked nonempty (including one hidden file), invalid marker, unknown root child, and present lock never adopt. |
-| Initialization | Requires active canonical application UUID and unchanged session; exact slug and full-UUID collision behavior; no object before preview/confirm; exact `0700` directory; manifest exact bytes exclude labels, slugs, directory/path, status, and private content; optional workflow-original vacancy, state-1 parent hash, commit order, fsync, and restart reattach. |
+| Initialization | Requires active canonical application UUID and unchanged session; exact slug and full-UUID collision behavior; no object before preview/confirm; exact `0700` directory; manifest exact bytes exclude labels, slugs, directory/path, status, and private content; exact private display-identity bytes preserve bounded labels and bind manifest UUID/timestamp; optional workflow-original vacancy, state-1 parent hash, identity-before-state commit order, fsync, cancellation, drift, and restart reattach. |
 | Session isolation | Earliest identity entry versus later state entries; same-UUID label/timestamp drift; fresh-session rule, application clear, branch before/after entry, two sessions with different UUIDs, same UUID branches, persisted restart, config detach/reattach, and transient shutdown all follow the identity rules without disk-driven session resurrection. |
 | Lifecycle update | Status-only immutable state; first/later vacancy names; exact session vacancy bytes and no added newline; vacancy clear retains old file; selected-original fresh unique uncapped document/root/digest/format binding; changed/capped/assisted/PDF-as-artifact original cases; no silent session/file direction choice. |
 | Drift | User edit to manifest/state/vacancy/marker/config blocks appropriate mutation; unknown noncolliding app file is ignored by append but blocks deletion; unknown collision blocks; malformed/gapped/forked state-shaped files fail closed; originals remain byte-identical. |
@@ -679,7 +698,7 @@ The approved implementation includes only:
 - strict config v2 migration and config CAS;
 - existing-private-root validation, two-way library disjointness, root marker, and attach/detach;
 - `/career-workspace` with the first-slice menu;
-- immutable manifest/state chain;
+- immutable manifest/display identity/state chain and bounded read-only catalog derivation;
 - application initialization and status/selected-original/vacancy/vacancy-clear revisions;
 - read-only reconciliation, payload-free failures, and synthetic tests.
 
