@@ -5418,7 +5418,7 @@ function decodeApplicationIdentity(bytes, manifest) {
     };
   });
 }
-async function readApplicationIdentity(directory, manifest) {
+async function readApplicationIdentityFile(directory, manifest) {
   const directoryMetadata = await inspectPrivateApplicationDirectory(directory, void 0);
   const checkDirectory = async () => {
     if (!sameInode(directoryMetadata, await inspectPrivateApplicationDirectory(directory, void 0))) {
@@ -5453,7 +5453,11 @@ async function readApplicationIdentity(directory, manifest) {
       throw workflowError("workspace_drift");
     }
     await checkDirectory();
-    return decodeApplicationIdentity(bytes.subarray(0, length), manifest);
+    const content = Buffer.from(bytes.subarray(0, length));
+    return {
+      identity: decodeApplicationIdentity(content, manifest),
+      file: { path: path6.join(directory, IDENTITY_NAME), bytes: content, metadata: current, sha256: hashBytes2(content) }
+    };
   } catch {
     throw workflowError("workspace_drift");
   } finally {
@@ -5461,6 +5465,9 @@ async function readApplicationIdentity(directory, manifest) {
       throw workflowError("workspace_drift");
     });
   }
+}
+async function readApplicationIdentity(directory, manifest) {
+  return (await readApplicationIdentityFile(directory, manifest))?.identity;
 }
 function parseVacancyBinding(value) {
   if (value === null) return null;
@@ -5713,7 +5720,7 @@ function assertNoOrphanManagedFiles(entries, referencedFiles) {
     }
   }
 }
-async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename, identity2) {
+async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename, identity2, identityFile) {
   const application = await inspectApplicationManifest(directoryPath, rootId2, expectedBasename);
   const entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
   if (entries.some((entry) => entry.startsWith(".pi-career-") && !STATE_BASENAME.test(entry) && !(identity2 !== void 0 && entry === ".pi-career-identity.json"))) {
@@ -5721,7 +5728,13 @@ async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasen
   }
   const { revisions, referencedFiles } = await inspectStateChain(application, orderedStateNames(entries));
   assertNoOrphanManagedFiles(entries, referencedFiles);
-  const managedBytes = application.manifestFile.bytes.length + (identity2 === void 0 ? 0 : canonicalJson2(identity2).length) + revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) + [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
+  const managedFiles = [
+    application.manifestFile,
+    ...identityFile === void 0 ? [] : [identityFile],
+    ...revisions.map((revision) => revision.file),
+    ...referencedFiles.values()
+  ];
+  const managedBytes = managedFiles.reduce((total, file) => total + file.bytes.length, 0) + (identity2 !== void 0 && identityFile === void 0 ? canonicalJson2(identity2).length : 0);
   if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
   const head = revisions.at(-1);
   return {
@@ -5730,6 +5743,7 @@ async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasen
     head: head.state,
     headFile: head.file,
     entries,
+    managedFiles,
     managedBytes
   };
 }

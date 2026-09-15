@@ -157,6 +157,7 @@ interface InspectedApplication {
   head: ApplicationStateRevision;
   headFile: ExactFile;
   entries: string[];
+  managedFiles: ExactFile[];
   managedBytes: number;
 }
 
@@ -165,6 +166,33 @@ interface AuditedApplication {
   metadata: Stats;
   manifestFile: ExactFile;
   manifest: ApplicationManifest;
+}
+
+interface ApplicationCatalogRecord {
+  application_id: string;
+  classification: "valid" | "legacy";
+  identity?: ReturnType<typeof decodeApplicationIdentity>;
+  status: ApplicationStatus;
+  updated_at: string;
+}
+
+interface ApplicationCatalogProjection {
+  schema_version: "pi.career.application_catalog.v1";
+  applications: ApplicationCatalogRecord[];
+  reconciliation: {
+    interrupted: number;
+    drifted: number;
+    duplicate_id: number;
+    unsupported: number;
+    over_limit: number;
+  };
+}
+
+interface CatalogEvidence {
+  root: RootAudit;
+  files: ExactFile[];
+  directories: Stats[];
+  projection: ApplicationCatalogProjection;
 }
 
 interface CurrentApplicationTarget {
@@ -400,10 +428,10 @@ export function decodeApplicationIdentity(
 
 // Reads only the fixed identity child. Manifest/root/chain validation remains
 // the catalog caller's responsibility; absence is legacy, not an adopted file.
-export async function readApplicationIdentity(
+async function readApplicationIdentityFile(
   directory: string,
   manifest: Pick<ApplicationManifest, "application_id" | "application_created_at">,
-) {
+): Promise<{ identity: ReturnType<typeof decodeApplicationIdentity>; file: ExactFile } | undefined> {
   const directoryMetadata = await inspectPrivateApplicationDirectory(directory, undefined);
   const checkDirectory = async () => {
     if (!sameInode(directoryMetadata, await inspectPrivateApplicationDirectory(directory, undefined))) {
@@ -441,12 +469,23 @@ export async function readApplicationIdentity(
       throw workflowError("workspace_drift");
     }
     await checkDirectory();
-    return decodeApplicationIdentity(bytes.subarray(0, length), manifest);
+    const content = Buffer.from(bytes.subarray(0, length));
+    return {
+      identity: decodeApplicationIdentity(content, manifest),
+      file: { path: path.join(directory, IDENTITY_NAME), bytes: content, metadata: current, sha256: hashBytes(content) },
+    };
   } catch {
     throw workflowError("workspace_drift");
   } finally {
     await handle?.close().catch(() => { throw workflowError("workspace_drift"); });
   }
+}
+
+export async function readApplicationIdentity(
+  directory: string,
+  manifest: Pick<ApplicationManifest, "application_id" | "application_created_at">,
+) {
+  return (await readApplicationIdentityFile(directory, manifest))?.identity;
 }
 
 function parseVacancyBinding(value: unknown): VacancyBinding | null | undefined {
@@ -752,6 +791,7 @@ async function inspectApplicationDirectory(
   rootId: string,
   expectedBasename?: string,
   identity?: ReturnType<typeof decodeApplicationIdentity>,
+  identityFile?: ExactFile,
 ): Promise<InspectedApplication> {
   const application = await inspectApplicationManifest(directoryPath, rootId, expectedBasename);
   const entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
@@ -761,9 +801,10 @@ async function inspectApplicationDirectory(
   }
   const { revisions, referencedFiles } = await inspectStateChain(application, orderedStateNames(entries));
   assertNoOrphanManagedFiles(entries, referencedFiles);
-  const managedBytes = application.manifestFile.bytes.length + (identity === undefined ? 0 : canonicalJson(identity).length) +
-    revisions.reduce((total, revision) => total + revision.file.bytes.length, 0) +
-    [...referencedFiles.values()].reduce((total, file) => total + file.bytes.length, 0);
+  const managedFiles = [application.manifestFile, ...(identityFile === undefined ? [] : [identityFile]),
+    ...revisions.map((revision) => revision.file), ...referencedFiles.values()];
+  const managedBytes = managedFiles.reduce((total, file) => total + file.bytes.length, 0) +
+    (identity !== undefined && identityFile === undefined ? canonicalJson(identity).length : 0);
   if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
   const head = revisions.at(-1)!;
   return {
@@ -772,6 +813,7 @@ async function inspectApplicationDirectory(
     head: head.state,
     headFile: head.file,
     entries,
+    managedFiles,
     managedBytes,
   };
 }
@@ -868,30 +910,247 @@ async function inspectRoot(rootPath: string, options: RootInspectionOptions = {}
   };
 }
 
-// Strict read-only catalog foundation: invalid entries reject the entire result.
-// Config/root selection belongs to the caller; no disk-driven session attachment.
-export async function readApplicationCatalog(rootPath: string, expectedRootId: string) {
+const CATALOG_SCHEMA = "pi.career.application_catalog.v1" as const;
+const APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|state)\.tmp$/;
+
+type ReconciliationClass = keyof ApplicationCatalogProjection["reconciliation"];
+
+type CatalogCandidate = {
+  name: string;
+  directoryPath: string;
+  metadata?: Stats;
+  entries?: string[];
+  application?: AuditedApplication;
+  classification?: ReconciliationClass;
+};
+
+function emptyCatalogProjection(): ApplicationCatalogProjection {
+  return {
+    schema_version: CATALOG_SCHEMA,
+    applications: [],
+    reconciliation: { interrupted: 0, drifted: 0, duplicate_id: 0, unsupported: 0, over_limit: 0 },
+  };
+}
+
+async function hasUnsupportedSchema(
+  file: string,
+  kind: "application_identity" | "application_state_revision",
+  schemaPrefix: string,
+  supportedSchema: string,
+  applicationId: string,
+  binding: { createdAt?: string; sequence?: number } = {},
+): Promise<boolean> {
   try {
-    const root = await inspectRoot(rootPath, { expectedRootId });
-    const records = [];
-    for (const application of root.applications) {
-      const identity = await readApplicationIdentity(application.directoryPath, application.manifest);
-      const inspected = await inspectApplicationDirectory(application.directoryPath, root.marker.root_id, undefined, identity);
-      records.push({
+    const metadata = await lstat(file);
+    if (!privateMetadata(metadata, 0o600, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) return false;
+    const bytes = await readFile(file);
+    if (bytes.length !== metadata.size) return false;
+    const value = parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return isRecord(value) && value.kind === kind && typeof value.schema_version === "string" &&
+      value.schema_version.startsWith(schemaPrefix) && value.schema_version !== supportedSchema &&
+      value.application_id === applicationId &&
+      (binding.createdAt === undefined || value.created_at === binding.createdAt) &&
+      (binding.sequence === undefined || value.sequence === binding.sequence) &&
+      canonicalJson(value).equals(bytes);
+  } catch {
+    return false;
+  }
+}
+
+function recognizableInterruptedEntries(entries: string[], hasManifest: boolean): boolean {
+  return entries.every((entry) => APPLICATION_TEMP.test(entry) ||
+    (hasManifest && (entry === MANIFEST_NAME || entry === IDENTITY_NAME || VACANCY_BASENAME.test(entry))));
+}
+
+function reconciliationForError(error: unknown): ReconciliationClass {
+  return error instanceof CareerWorkflowError && error.code === "workspace_limit_reached" ? "over_limit" : "drifted";
+}
+
+async function collectCatalogCandidate(
+  rootPath: string,
+  expectedRootId: string,
+  name: string,
+): Promise<CatalogCandidate> {
+  const directoryPath = path.join(rootPath, name);
+  const candidate: CatalogCandidate = { name, directoryPath };
+  if (!APPLICATION_BASENAME.test(name)) return { ...candidate, classification: "drifted" };
+  try {
+    candidate.metadata = await inspectPrivateApplicationDirectory(directoryPath, name);
+  } catch {
+    return { ...candidate, classification: "drifted" };
+  }
+  try {
+    candidate.application = await inspectApplicationManifest(directoryPath, expectedRootId, name);
+  } catch {
+    try {
+      candidate.entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
+      candidate.classification = recognizableInterruptedEntries(candidate.entries, false) ? "interrupted" : "drifted";
+    } catch (error) {
+      candidate.classification = reconciliationForError(error);
+    }
+  }
+  return candidate;
+}
+
+function markDuplicateClaims(candidates: CatalogCandidate[]): void {
+  const claimsById = new Map<string, CatalogCandidate[]>();
+  for (const candidate of candidates) {
+    if (candidate.application === undefined) continue;
+    const claims = claimsById.get(candidate.application.manifest.application_id) ?? [];
+    claims.push(candidate);
+    claimsById.set(candidate.application.manifest.application_id, claims);
+  }
+  for (const claims of claimsById.values()) {
+    if (claims.length > 1) for (const candidate of claims) candidate.classification = "duplicate_id";
+  }
+}
+
+async function candidateHasUnsupportedSchema(
+  candidate: CatalogCandidate,
+  entries: string[],
+  stateNames: string[],
+): Promise<boolean> {
+  const manifest = candidate.application!.manifest;
+  if (entries.includes(IDENTITY_NAME) && await hasUnsupportedSchema(
+    path.join(candidate.directoryPath, IDENTITY_NAME),
+    "application_identity",
+    "pi.career.application_identity.v",
+    IDENTITY_SCHEMA,
+    manifest.application_id,
+    { createdAt: manifest.application_created_at },
+  )) return true;
+  for (const stateNameValue of stateNames) {
+    if (await hasUnsupportedSchema(
+      path.join(candidate.directoryPath, stateNameValue),
+      "application_state_revision",
+      "pi.career.application_state.v",
+      STATE_SCHEMA,
+      manifest.application_id,
+      { sequence: Number(stateNameValue.match(STATE_BASENAME)![1]) },
+    )) return true;
+  }
+  return false;
+}
+
+async function classifyIncompleteCandidate(candidate: CatalogCandidate, entries: string[]): Promise<ReconciliationClass> {
+  try {
+    if (entries.includes(IDENTITY_NAME)) {
+      await readApplicationIdentityFile(candidate.directoryPath, candidate.application!.manifest);
+    }
+    return recognizableInterruptedEntries(entries, true) ? "interrupted" : "drifted";
+  } catch {
+    return "drifted";
+  }
+}
+
+type CatalogCandidateResult =
+  | { classification: ReconciliationClass }
+  | { record: ApplicationCatalogRecord; inspected: InspectedApplication };
+
+async function classifyCatalogCandidate(
+  candidate: CatalogCandidate,
+  expectedRootId: string,
+): Promise<CatalogCandidateResult> {
+  if (candidate.classification !== undefined) return { classification: candidate.classification };
+  let entries: string[];
+  try {
+    entries = await boundedEntries(candidate.directoryPath, APPLICATION_MAX_ENTRIES);
+  } catch (error) {
+    return { classification: reconciliationForError(error) };
+  }
+  const stateNames = entries.filter((entry) => STATE_BASENAME.test(entry));
+  if (stateNames.length > STATE_MAX_REVISIONS) return { classification: "over_limit" };
+  if (await candidateHasUnsupportedSchema(candidate, entries, stateNames)) return { classification: "unsupported" };
+  if (!entries.includes(stateName(1))) {
+    return { classification: await classifyIncompleteCandidate(candidate, entries) };
+  }
+  try {
+    const identityRead = await readApplicationIdentityFile(candidate.directoryPath, candidate.application!.manifest);
+    const inspected = await inspectApplicationDirectory(
+      candidate.directoryPath,
+      expectedRootId,
+      candidate.name,
+      identityRead?.identity,
+      identityRead?.file,
+    );
+    return {
+      record: {
         application_id: inspected.manifest.application_id,
-        classification: identity === undefined ? "legacy" as const : "valid" as const,
-        ...(identity === undefined ? {} : { identity }),
+        classification: identityRead === undefined ? "legacy" : "valid",
+        ...(identityRead === undefined ? {} : { identity: identityRead.identity }),
         status: inspected.head.status,
         updated_at: inspected.head.updated_at,
-      });
-    }
-    assertRootPlanCurrent(root, await inspectRoot(rootPath, { expectedRootId }));
-    return records.sort((left, right) =>
-      right.updated_at.localeCompare(left.updated_at) || left.application_id.localeCompare(right.application_id));
+      },
+      inspected,
+    };
   } catch (error) {
-    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    return { classification: reconciliationForError(error) };
+  }
+}
+
+async function deriveApplicationCatalog(rootPath: string, expectedRootId: string): Promise<CatalogEvidence> {
+  const root = await inspectRootEnvelope(rootPath, { expectedRootId });
+  const candidates: CatalogCandidate[] = [];
+  for (const name of root.entries) {
+    if (name !== ROOT_MARKER_NAME) candidates.push(await collectCatalogCandidate(rootPath, expectedRootId, name));
+  }
+  markDuplicateClaims(candidates);
+
+  const projection = emptyCatalogProjection();
+  const files: ExactFile[] = [];
+  const directories: Stats[] = [];
+  for (const candidate of candidates) {
+    const result = await classifyCatalogCandidate(candidate, expectedRootId);
+    if ("classification" in result) projection.reconciliation[result.classification] += 1;
+    else {
+      projection.applications.push(result.record);
+      directories.push(result.inspected.metadata);
+      files.push(...result.inspected.managedFiles);
+    }
+  }
+  projection.applications.sort((left, right) => right.updated_at.localeCompare(left.updated_at) ||
+    left.application_id.localeCompare(right.application_id));
+  return {
+    root: {
+      metadata: root.metadata,
+      markerFile: root.markerFile,
+      marker: root.marker,
+      entries: root.entries,
+      applications: [],
+    },
+    files,
+    directories,
+    projection,
+  };
+}
+
+function statsFingerprint(metadata: Stats): string {
+  return [metadata.dev, metadata.ino, metadata.mode, metadata.size, metadata.mtimeMs, metadata.ctimeMs].join(":");
+}
+
+function sameCatalogEvidence(left: CatalogEvidence, right: CatalogEvidence): boolean {
+  if (!sameInode(left.root.metadata, right.root.metadata) ||
+    !sameInode(left.root.markerFile.metadata, right.root.markerFile.metadata) ||
+    left.root.markerFile.sha256 !== right.root.markerFile.sha256 ||
+    JSON.stringify(left.root.entries) !== JSON.stringify(right.root.entries) ||
+    JSON.stringify(left.projection) !== JSON.stringify(right.projection)) return false;
+  const directoryFingerprints = (evidence: CatalogEvidence) => evidence.directories.map(statsFingerprint).sort();
+  const fileFingerprints = (evidence: CatalogEvidence) => evidence.files
+    .map((file) => `${file.path}:${file.sha256}:${statsFingerprint(file.metadata)}`).sort();
+  return JSON.stringify(directoryFingerprints(left)) === JSON.stringify(directoryFingerprints(right)) &&
+    JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
+}
+
+export async function readApplicationCatalog(rootPath: string, expectedRootId: string): Promise<ApplicationCatalogProjection> {
+  const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  let current: CatalogEvidence;
+  try {
+    current = await deriveApplicationCatalog(rootPath, expectedRootId);
+  } catch {
     throw workflowError("workspace_drift");
   }
+  if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
+  return initial.projection;
 }
 
 function slug(value: string, fallback: "company" | "role"): string {

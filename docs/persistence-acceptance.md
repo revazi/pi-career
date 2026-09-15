@@ -80,7 +80,7 @@ The Given/When/Then rows below preserve Spec 3 numbering. These are specificatio
 
 Some scenarios need later overlay/artifact slices. Foundation issue #65 must verify its own applicable subset and report later scenarios as pending rather than pretending #60 or #65 completes all end-to-end coverage.
 
-## Proposed exact read-only catalog classification contract — approval required
+## Exact read-only catalog classification contract
 
 This section resolves only the remaining #61 catalog projection. It does not approve state v2, readiness, migration, attachment, overlay UI, or a new persisted schema.
 
@@ -139,7 +139,7 @@ If a category cannot be established without trusting malformed/private bytes, us
 - The function creates no index, lock, temp, config, identity, state, or session entry; performs no repair/adoption; and invokes no Core resolver, child process, package acquisition, network, provider/model, prompt, or telemetry boundary.
 - Behavioral tests must mix valid and every invalid class in one root, prove duplicate removal and exact counts, preserve all bytes/entries across repeated calls, inject a mid-scan race, and assert no private sentinel reaches invalid projections or errors.
 
-Approval of this section fixes the #61 API contract and permits one separate implementation PR. It does not complete #60 or #61 by itself.
+This approved contract fixes the #61 API surface. Its implementation remains independently reviewable and does not complete #60 by itself.
 
 ## Synthetic fixture families
 
@@ -224,4 +224,4 @@ Keep each PR independently testable. Add failing behavioral tests and the minima
 
 ## Next gate
 
-Approve/refine the read-only catalog contract above, then implement its substantive behavioral tests and minimal projection in one separate #61 PR. Independently approve the command matrix and resolve the remaining exact state/attachment/artifact schemas before their fixture or production slices. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed. No production code has been changed by this document.
+Review the read-only catalog implementation against the contract above. Independently approve the command matrix and resolve the remaining exact state/attachment/artifact schemas before their fixture or production slices. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed.

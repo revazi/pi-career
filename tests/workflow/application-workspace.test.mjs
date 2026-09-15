@@ -228,7 +228,7 @@ test("initialization, selected-original binding, status/vacancy revision, status
     assert.equal(identityBytes.toString("utf8"), `${JSON.stringify(JSON.parse(identityBytes), null, 2)}\n`);
     assert.equal((await lstat(identityFile)).mode & 0o7777, 0o600);
     assert.equal((await lstat(identityFile)).nlink, 1);
-    const [catalogRecord] = await readApplicationCatalog(
+    const { applications: [catalogRecord] } = await readApplicationCatalog(
       value.root, (await loadConfig(value.agentDir)).application_workspace.root_id,
     );
     assert.deepEqual(catalogRecord.identity, JSON.parse(identityBytes));
