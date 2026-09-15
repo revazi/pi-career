@@ -74,7 +74,7 @@
     "@earendil-works/pi-ai": "0.85.1",
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@earendil-works/pi-tui": "0.85.1",
-    "@types/node": "24.13.3",
+    "@types/node": "24.13.4",
     "esbuild": "0.28.2",
     "js-tiktoken": "1.0.21",
     "tsx": "4.23.13",
