@@ -71,9 +71,9 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.2",
-    "@earendil-works/pi-coding-agent": "0.84.2",
-    "@earendil-works/pi-tui": "0.84.2",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
     "@types/node": "24.13.3",
     "esbuild": "0.28.1",
     "js-tiktoken": "1.0.21",
