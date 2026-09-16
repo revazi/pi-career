@@ -23,6 +23,14 @@ Career Core remains authoritative for scores, evidence, warnings, uncertainty, m
 
 > **Version note:** application-workspace Gate 1 described here is an unreleased source change after published `pi-career@0.3.0`; no package version or release is implied. Published `pi-career@0.3.0` remains the current native-free release, `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
+### Planned `/career` application mode
+
+The approved product roadmap makes `/career` a modal application inside Pi, not a prompt that enters the agent loop. Opening, browsing, searching, filtering, viewing readiness, and inspecting bounded local details will use local extension state only. Explicit deterministic analysis or matching will invoke Career Core locally without invoking a model. None of those actions will submit a message, append a session entry merely for navigation, or place resume, vacancy, application, or Core-result content in model context.
+
+Model assistance will begin only after the user selects an explicit assistance action—for example, resume regeneration, cover-letter suggestions, or a match explanation—reviews the visible editor handoff, and submits it through normal Pi interaction. Persistent application attachment, Career-specific model-context activation, provider submission, and file mutation remain separate decisions. The target model surface is context-on-demand: ordinary Pi sessions not explicitly activated for Career assistance carry no Career-specific Skill metadata or tool schema, while an explicitly activated one-application assistance session keeps the compact `career_run` surface stable for prompt-cache reuse.
+
+This is a roadmap contract, not current behavior. Today’s command-oriented implementation and its normally active compact `career_run` surface remain documented below until the separately reviewed overlay/session work lands. See [`docs/product-flow.md`](docs/product-flow.md) for the delivery order and acceptance boundaries.
+
 ## Requirements
 
 - Node.js 22.19 or newer

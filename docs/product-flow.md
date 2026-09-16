@@ -2,7 +2,54 @@
 
 The cross-repository migration plan and measured findings are recorded in [`career-run-roadmap.md`](career-run-roadmap.md). Career Core Phase 8, the first managed `career_run` implementation, the threat-reviewed package-owned Markdown/text save workflow in [`variant-save-workflow.md`](variant-save-workflow.md), and application-workspace Gate 1 in [`application-workspaces.md`](application-workspaces.md) are implemented. Synthetic PDF compatibility covers reviewed Chromium-generated tagged/untagged and ReportLab-generated two-page documents, embedded-font and multi-column layouts, and fail-closed text-unavailable cases. The Git-history/tree/hash-bound token-optimization study is complete: its frozen before/after evidence includes Pi Skill discovery and matching-task full-Skill context and records a 15.98% aggregate workflow reduction with no workflow regression. Application-workspace assisted resume artifacts, deletion, repair/adoption/archive/sync, broader workspace files, and further PDF extraction expansion remain later separately approved phases.
 
-## Current phase: managed agent tool and deterministic slash commands
+## Approved target: `/career` as a local Pi application
+
+The application-centric roadmap treats `/career` as a user-invoked modal application inside Pi. It is not a chat prompt, model command, or full-screen replacement for Pi. Its execution model has three separate planes:
+
+| Plane | User trigger | Execution boundary | Model/session effect |
+|---|---|---|---|
+| Overlay navigation | Open `/career`; browse, search, filter, open local detail, or review readiness | Local extension UI and bounded filesystem reads | No provider/model call, message submission, Career-specific model context, attachment, or session append |
+| Deterministic work | Explicit Analyze or Match action | Career Core through the reviewed resolver, with existing compatibility, stdin, cancellation, and output bounds | No provider/model call or model-context activation; only separately approved persistence may append or write |
+| Model assistance | Explicit Ask Pi/Regenerate/Suggest/Explain action followed by review and ordinary user submission | One application-scoped Pi assistance session using the bundled Skill and primary `career_run` tool | Career context and tokens begin only for this action; no package-initiated submission |
+
+“Token-free overlay” means the first two planes cause no model turn and add no Career document, result, Skill content, or tool contract to a model request. The target also removes Career-specific Skill discovery metadata and tool schemas from ordinary Pi sessions that have not been explicitly activated for Career assistance. A local Core operation can consume CPU and may perform the already bounded exact-package acquisition before private stdin; it still consumes no model tokens. `PI_OFFLINE=1` disables that acquisition for offline testing/use but is not required for normal overlay operation.
+
+### Read, cache, and refresh contract
+
+One overlay open or explicit refresh takes one bounded catalog snapshot. List views use only that projection and never read every document body. Exact document bytes and larger local details are loaded lazily only after the user opens the corresponding detail or starts an eligible action. Derived readiness is calculated locally from validated current metadata; it is never persisted or model-derived.
+
+Catalog, detail, and rendered-view caches are process-memory-only, bounded, and scoped to the current overlay instance. Closing the overlay drops UI/search/filter/cursor state. There is no persisted index, background watcher, polling loop, URL fetch, or speculative Core/model work. Returning from a dialog or completed mutation refreshes the affected bounded projection. Explicit Refresh replaces the snapshot only after a complete valid scan; cancelled or partial reads never masquerade as fresh complete state.
+
+Before any mutation, Core invocation, attachment, or model handoff, the adapter revalidates the selected identity, root, referenced bytes, and action prerequisites under the owning workflow’s race rules. Drift invalidates the action and requires a fresh view; cached display data never becomes write, Core, or prompt authority.
+
+### Session and model-context boundary
+
+Browsing never attaches an application. An explicit application attachment, when implemented by #64, stores only a bounded application/root identity pointer in a Pi custom entry after the separate session-persistence decision; it stores no document, result, prompt, or provider content and does not itself activate a Career Skill/tool or authorize provider submission. Workspace files remain the application authority.
+
+An explicit assistance action revalidates the application and uses one company/role per assistance session so prior-company conversation content cannot leak into another application. The action may prepare a visible editor message and may establish a fresh application-scoped Pi session, but it must never call `sendMessage()`, `sendUserMessage()`, or an equivalent automatic submission path. Only the user’s later ordinary submission activates the provider boundary. Within that explicitly activated assistance session, the Career Skill and compact `career_run` contract remain stable rather than being toggled every turn, preserving prompt-cache reuse. The exact raw compatibility tools remain inactive unless the user explicitly requests raw/debug mode.
+
+Restart, `/new`, branch, detach, unavailable-root, and identity-drift behavior must revalidate the bounded pointer and fail closed; no session is reconstructed from workspace files alone. Overlay route state and cached private bytes are never written to the Pi session. Session persistence, application attachment, assistance activation, provider submission, artifact mutation, and deletion are distinct approvals.
+
+### Ordered delivery and acceptance invariants
+
+Persistence foundations #60–#65 remain ahead of overlay implementation. #64 owns the exact attachment and command-authority contract and must also specify the context-on-demand activation lifecycle without inventing a second application authority. After those foundations are accepted, #54–#58 deliver the Resume, application, match/tailoring, cover-letter, and integrated overlay slices; #59 validates the complete product.
+
+Every overlay slice must prove with synthetic scenarios that:
+
+1. opening, closing, resizing, browsing, filtering, searching, and local detail navigation make no provider/model call, submit no message, append no session entry, and activate no Career-specific model context;
+2. list rendering uses one bounded metadata snapshot and does not read document bodies;
+3. local Analyze and Match remain explicit, cancellable Career Core operations with zero model calls/tokens;
+4. cached state is revalidated before mutation, Core use, attachment, or handoff, and observed drift fails closed;
+5. only an explicit assistance action may prepare Career model context, and preparation remains visibly reviewable without automatic submission;
+6. application attachment neither implies assistance activation nor provider or mutation consent;
+7. `career_run` remains the primary managed tool once assistance is active, while `career_core_discover`, `career_core_resume`, and `career_core_job` retain their exact compatibility names and stay inactive by default;
+8. branch/session replacement clears process-local handles and uses only the fresh Pi context;
+9. no persisted index, watcher, prompt/result cache, document duplication, telemetry, or background work is introduced; and
+10. benchmarks report ordinary model turns outside activated Career assistance sessions as zero Career-specific context tokens, separately from activated workflows, and preserve stable activated-session surfaces for prompt caching.
+
+This section is an acceptance contract and delivery order, not implementation approval. It does not claim that `/career` or context-on-demand activation exists in the current source.
+
+## Implemented current phase: managed agent tool and deterministic slash commands
 
 The normal active model surface is one compact `career_run` tool. The exact raw compatibility tools remain registered but inactive until `/career-tools raw` explicitly enables them:
 
