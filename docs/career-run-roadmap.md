@@ -19,6 +19,31 @@ Completed sequence:
 
 This document records findings and phase boundaries; it does not independently authorize persistence, publication, release, or later deferred work.
 
+## Next target: model context on demand
+
+The completed optimization reduced the cost of an activated Career workflow. The application-overlay phase has a stricter goal: a model turn in an ordinary Pi session that has not been explicitly activated for Career assistance must contain **zero Career-specific context tokens**. No `career-core` Skill name/description/content and no `career_run` or raw-tool schema should be model-visible merely because pi-career is installed. This target replaces neither the bundled Skill nor the managed tool; it changes when they become model-visible.
+
+The activation contract is:
+
+1. `/career` navigation, local catalog/detail reads, readiness derivation, and deterministic Career Core Analyze/Match actions do not activate model context and do not submit a model turn.
+2. Only a user-selected assistance action such as resume regeneration, cover-letter suggestions, or match explanation may request Career model context.
+3. The adapter first revalidates the selected application and prepares a visible bounded editor handoff. It never submits that handoff automatically.
+4. The bundled Career Skill and compact `career_run` tool become available only to the explicit application-scoped assistance session. `career_run` remains the primary managed tool.
+5. Once activated, that session keeps a stable Career model surface across its related turns so prompt caching is not defeated by per-turn tool/Skill churn.
+6. The exact raw compatibility names—`career_core_discover`, `career_core_resume`, and `career_core_job`—remain registered compatibility surfaces but inactive unless the user explicitly selects raw/debug mode.
+7. `/new`, branch replacement, detach, application identity drift, and unavailable roots invalidate process-local handles and require fresh validation. No prior application context is silently reused.
+
+Application attachment and model-context activation are separate. A bounded custom session entry may identify an explicitly attached workspace without entering model context or containing private documents; it does not by itself load the Skill, activate tools, call Core, or authorize a provider. The exact attachment bytes and the Pi lifecycle mechanism used for on-demand Skill/tool activation belong to #64 review. Implementation must follow Pi’s fresh-session/context lifecycle and must not retain an old extension context after session replacement.
+
+Benchmarking for this target must keep the historical frozen optimization evidence unchanged and add separate measurements for:
+
+- ordinary model turns outside an explicitly activated Career assistance session: exactly zero Career-specific Skill/tool tokens;
+- overlay and deterministic local operations: zero model submissions and zero model tokens;
+- first activated assistance turn: Skill discovery/content, `career_run`, handoff, and bounded result surfaces; and
+- later turns in the same assistance session: an unchanged model-visible Career surface suitable for provider prompt-cache reuse.
+
+This target does not authorize removal of `career_run`, renaming of raw tools, hidden prompt submission, automatic session creation, or implementation before the persistence/session contracts are approved.
+
 ## Findings motivating the migration
 
 The integration gap is adapter design rather than implementation language. Pi Fallow also invokes its Rust core through a CLI subprocess, but provides a substantially more agent-oriented boundary:
@@ -163,7 +188,7 @@ Raw generic agents remain discovery-first. A reviewed managed adapter may perfor
 
 ## Pi-career managed adapter phase
 
-Pi-career now uses one primary compact `career_run` tool. The existing `career_core_discover`, `career_core_resume`, and `career_core_job` tools remain registered as inactive advanced/debugging compatibility tools rather than occupying normal model context; `/career-tools raw` enables them explicitly.
+The current implementation uses one primary compact `career_run` tool. The existing `career_core_discover`, `career_core_resume`, and `career_core_job` tools remain registered as inactive advanced/debugging compatibility tools rather than occupying normal model context; `/career-tools raw` enables them explicitly. The context-on-demand target above will additionally keep `career_run` and Career Skill metadata out of model turns outside an explicitly activated assistance session while preserving this managed/raw relationship after activation.
 
 ### Ephemeral handles
 

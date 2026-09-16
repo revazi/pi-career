@@ -4,7 +4,7 @@
 
 `pi-career` is a public Pi adapter package for reviewed Career Core targets. It owns the Pi extension, external runtime resolver, Pi-facing Agent Skill, generated TypeScript bundles, package tests, and integration guidance. It does **not** own or package native Career Core binaries. Career Core remains authoritative for operations, schemas, algorithms, errors, evidence, warnings, uncertainty, ordering, and assisted/non-authoritative semantics; this repository does not copy those contracts or algorithms into TypeScript.
 
-The primary managed Pi surface is `career_run`. It uses ephemeral resume/result/review/variant handles, internal Career Core operation/schema discovery, compact projections, and bounded detail hydration. The exact raw compatibility tools remain registered but are normally inactive:
+In the current command-oriented implementation, the primary managed Pi surface is `career_run`. It uses ephemeral resume/result/review/variant handles, internal Career Core operation/schema discovery, compact projections, and bounded detail hydration. The exact raw compatibility tools remain registered but are normally inactive:
 
 - `career_core_discover`
 - `career_core_resume`
@@ -19,6 +19,16 @@ The workflow layer registers `/career-setup`, `/career-library`, `/career-applic
 The user-only `/career-save <variant-handle>` workflow is specified in [`variant-save-workflow.md`](variant-save-workflow.md). It accepts only a current successful non-PDF materialization, uses supported Pi TUI/RPC editor and confirmation dialogs, and writes nothing until the exact preview is returned unchanged and separately confirmed. Saving performs no Core/provider/network call, appends no session entry, and preserves all runtime-resolution, private-stdin, registry, and payload-free error boundaries in this document.
 
 The separate no-argument `/career-workspace` Gate 1 contract is specified in [`application-workspaces.md`](application-workspaces.md). Every local mutation requires a complete unchanged editor preview and separate confirmation, uses strict private config/root/file validation and bounded lock/no-clobber settlement, and performs no Core/runtime/provider/model/network/child/session-append action.
+
+## Planned `/career` overlay and context boundary
+
+The approved application roadmap adds a user-only `ctx.ui.custom(..., { overlay: true })` TUI surface, with supported hierarchical RPC dialogs as fallback. `/career` is local application code and never a model tool. Opening, rendering, browsing, searching, filtering, resizing, and viewing local details must not call `sendMessage()`, `sendUserMessage()`, invoke a provider/model, append a session entry, resolve/acquire/invoke Core, or mutate a file. Explicit deterministic Analyze and Match actions may invoke Core through the unchanged resolver boundary, but do not activate or invoke a model.
+
+The overlay reads one bounded catalog metadata snapshot per open or explicit refresh, loads exact document/detail bytes lazily, and caches only bounded process-local view data. It creates no index, watcher, polling task, payload/result persistence, or speculative operation. Every mutation, Core action, attachment, and assistance handoff revalidates current identity and referenced bytes rather than trusting cached display state.
+
+The target model surface is context-on-demand. Installation and ordinary model turns outside an explicitly activated Career assistance session expose no Career-specific Skill metadata/content or tool schema. Only an explicit assistance action may establish one application-scoped assistance session, load the bundled Career Skill, and activate the primary `career_run` tool; the exact raw compatibility tools remain inactive by default. The action may prepare a visible editor handoff but may not submit it. Once the user submits, the activated Career surface remains stable within that assistance session for prompt-cache reuse.
+
+Application attachment is a separate #64 session decision and contains only bounded identity pointers in a Pi custom entry excluded from model context. It contains no document/result/prompt content and does not itself activate tools, load Skill content, invoke Core/provider, or authorize persistence. Workspace files remain authoritative. The exact attachment bytes and activation lifecycle require separate review; this section does not implement `/career`, alter current session bytes, or authorize a release.
 
 ## Runtime resolution and compatibility
 

@@ -111,17 +111,19 @@ Mode behavior is exact:
 
 `Status and reconcile` performs no editor/confirm because it cannot mutate. Every mutating action uses the exact preview protocol below.
 
-## Five independent authorization classes
+## Independent authorization classes
 
-Consent is specific and non-transitive:
+Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The application roadmap adds attachment and model-context activation as separately reviewed decisions; naming them here does not implement or authorize them.
 
-1. **Session persistence.** Current persisted-session consent governs custom `pi.career.workflow_state.v1` entries. In a transient `pi --no-session` run, entries remain transient. This consent does not authorize provider submission or a file.
-2. **Provider submission.** `/career-workbench` prepares an ordinary editor message without calling a provider. Only the user's later normal Pi submission may send it. Session or workspace consent is not provider consent.
-3. **Workspace-file mutation.** Root marker/configuration, application initialization, and every state/vacancy revision each require a complete unchanged workspace preview and then a separate confirmation.
-4. **Artifact-file mutation.** Saving `resume.md`/`resume.txt`, its sidecar, and its state revision requires a new artifact preview and confirmation. A preceding workspace confirmation and any `/career-save` confirmation are irrelevant.
-5. **Deletion.** Deletion requires a new complete deletion preview and a distinct destructive confirmation. Detach, status `closed`, session clear, package removal, or prior write consent never authorizes deletion.
+1. **Session persistence.** Current persisted-session consent governs custom entries. In a transient `pi --no-session` run, entries remain transient. This consent does not authorize attachment, model context, provider submission, or a file.
+2. **Application attachment (target #64).** An explicit choice may append one bounded application/root identity pointer. Browsing, highlighting, or opening never attaches. Attachment contains no document/result/prompt bytes and does not authorize model-context activation, provider submission, Core use, or mutation.
+3. **Career model-context activation (target #64).** An explicit assistance action may make the bundled Career Skill and primary `career_run` tool available to one application-scoped assistance session. Attachment alone never does this, and raw tools remain inactive by default.
+4. **Provider submission.** `/career-workbench` and the future overlay assistance actions prepare an ordinary visible editor message without calling a provider. Only the user's later normal Pi submission may send it. Session, attachment, model-context, or workspace consent is not provider consent.
+5. **Workspace-file mutation.** Root marker/configuration, application initialization, and every state/vacancy revision each require a complete unchanged workspace preview and then a separate confirmation.
+6. **Artifact-file mutation.** Saving `resume.md`/`resume.txt`, its sidecar, and its state revision requires a new artifact preview and confirmation. A preceding workspace confirmation and any `/career-save` confirmation are irrelevant.
+7. **Deletion.** Deletion requires a new complete deletion preview and a distinct destructive confirmation. Detach, status `closed`, session clear, package removal, or prior write consent never authorizes deletion.
 
-A single confirmation may authorize all package-internal steps of one already previewed transaction in one class, such as its temporary files, final files, state commit, and required syncs. It cannot bundle two classes. In particular, initialization cannot also save a resume, and resume saving cannot also delete or replace an earlier artifact.
+A single confirmation may authorize all package-internal steps of one already previewed transaction in one class, such as its temporary files, final files, state commit, and required syncs. It cannot bundle two classes. In particular, attachment cannot silently activate assistance, preparing assistance cannot submit it, initialization cannot also save a resume, and resume saving cannot also delete or replace an earlier artifact.
 
 ## Session and application identity
 
@@ -136,6 +138,18 @@ No session schema change is required in v1. For the current active UUID, the **i
 - a status update creates another strict application entry with the same UUID and labels but a later state timestamp.
 
 Workspace references are not added to that strict schema. Session reconstruction remains authoritative for the active in-session application and vacancy; workspace reconstruction is separately authoritative for local workspace files and persistent catalog display. New initialization copies the identity entry's exact labels, UUID, and creation timestamp into one immutable private display-identity file. An attached session must retain those exact values. `application_created_at` and the directory slugs derive from the session identity entry during initialization, while the latest valid session entry supplies current conversational status.
+
+### Target `/career` attachment and assistance sessions
+
+The persistent-catalog model changes discovery, not authority: `/career` may list and open validated applications without any Pi session attachment. Overlay route, filter, search, cursor, bounded catalog snapshots, and lazy detail bytes remain process-memory-only and are not custom entries. Browsing appends nothing and does not load Career-specific model context.
+
+A future #64 attachment is one explicit, bounded pointer to a validated application/root identity. Its exact schema is intentionally deferred to #64; no field shape is implied here. It may contain only identity references needed to revalidate the workspace, never company documents, document bodies, Core/provider results, prompts, credentials, absolute-path display data, or model output. Pi custom-entry exclusion from model context is necessary but not sufficient: the adapter must also avoid copying attachment or workspace content into messages, tool results, or Skill text merely to browse.
+
+Attachment and assistance activation are independent. An attached application can remain entirely local. Only an explicit Ask Pi/Regenerate/Suggest/Explain action may establish or use an application-scoped assistance session, make the Career Skill and compact `career_run` model-visible, and prepare a bounded editor handoff. That preparation cannot invoke a provider or submit a message. The user reviews and submits through ordinary Pi interaction; after activation, the Career model surface remains stable for that assistance session to preserve prompt-cache reuse.
+
+The one-company/role rule applies to assistance context, not catalog browsing. A user may browse any number of applications locally, but a session containing assistance for one application cannot be repointed to another. `Open in new Pi session` must use Pi's session-replacement lifecycle, discard stale extension context, and continue only with the fresh context after successful replacement. Cancellation or replacement failure leaves the original session and overlay authority unchanged. Restart, branch, `/new`, detach, unavailable root, and identity drift all trigger fresh pointer validation; no session attachment or assistance context is reconstructed from workspace files alone.
+
+These are acceptance requirements for #64 and later overlay slices, not changes to the current `pi.career.workflow_state.v1` bytes or Gate 1 behavior.
 
 ### One session, one application
 
