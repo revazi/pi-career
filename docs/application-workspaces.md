@@ -388,6 +388,8 @@ The chain is valid only when:
 
 A missing, forked, gapped, oversized, or hash-drifted chain is not partially trusted. No revision is overwritten, compacted, or deleted in v1.
 
+The reviewed next-schema decision is documented in [the exact state-v2 and derived-readiness contract](persistence-acceptance.md#exact-state-v2-and-derived-readiness-contract). It adds only `cover_letter_artifact` after `resume_artifact`, defines mixed v1/v2 reading and pure readiness, and leaves every v1 byte valid and immutable. The current production reader/writer remains v1-only until a separate #62 implementation is reviewed; this cross-reference does not authorize migration, attachment, cover-letter writes, or overlay UI.
+
 ## Eligible sources and artifact decisions
 
 ### Application and vacancy
