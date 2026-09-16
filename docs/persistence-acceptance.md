@@ -141,6 +141,179 @@ If a category cannot be established without trusting malformed/private bytes, us
 
 This approved contract fixes the #61 API surface. Its implementation remains independently reviewable and does not complete #60 by itself.
 
+## Exact state-v2 and derived-readiness contract
+
+This section resolves the #60/#62 decisions needed before executable v2 fixtures or production parsing. It is a pi-career storage/read contract, not a Career Core schema. It authorizes no state write, migration, cover-letter attachment, session attachment, or overlay behavior.
+
+### Canonical `pi.career.application_state.v2`
+
+The canonical value is:
+
+```json
+{
+  "schema_version": "pi.career.application_state.v2",
+  "kind": "application_state_revision",
+  "application_id": "00000000-0000-4000-8000-000000000001",
+  "sequence": 4,
+  "parent_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "status": "preparing",
+  "vacancy": {
+    "relative_path": "vacancy.md",
+    "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "utf8_bytes": 30,
+    "source_state_id": "00000000-0000-4000-8000-000000000080"
+  },
+  "selected_original": {
+    "document_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "library_root_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "text_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "format": "markdown"
+  },
+  "resume_artifact": null,
+  "cover_letter_artifact": {
+    "relative_path": "cover-letter.md",
+    "artifact_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "utf8_bytes": 42,
+    "format": "markdown",
+    "authority": "user_authored",
+    "job_description_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "effective_resume_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "updated_at": "2026-08-12T00:00:04.000Z"
+}
+```
+
+The top-level keys and nested keys occur in exactly the displayed order. `cover_letter_artifact` is either `null` or the exact seven-key object shown. All v1 fields retain their existing unions and meanings:
+
+- `application_id` is one canonical lowercase UUID; `sequence` is a safe integer from 1 through 64 inclusive; `parent_sha256` is 64 lowercase hexadecimal characters.
+- `status` is exactly `preparing`, `applied`, `interviewing`, or `closed`.
+- `vacancy` is `null` or the existing ordered `{ relative_path, content_sha256, utf8_bytes, source_state_id }` binding. `relative_path` is exactly `vacancy.md` when first introduced at sequence 1 or `vacancy-<six-digit-introducing-state-sequence>.md` when introduced later; carried references retain their original path. `content_sha256` is 64 lowercase hexadecimal characters, `utf8_bytes` is a safe integer from 1 through 262,144 inclusive, and `source_state_id` is a canonical workflow UUID.
+- `selected_original` is `null` or the existing ordered `{ document_id, library_root_id, text_sha256, format }` binding. Its three IDs/digests are each 64 lowercase hexadecimal characters and `format` is `markdown`, `text`, or `pdf`.
+- `resume_artifact` is `null` or the existing ordered `{ relative_path, artifact_sha256, sidecar_relative_path, sidecar_sha256 }` binding. Its artifact path is exactly `resume.md` or `resume.txt`; its sidecar path is exactly `resume.pi-career.json`; both hashes are 64 lowercase hexadecimal characters. Exact artifact bytes are 1 through 262,144 bytes and the sidecar is 1 through 16,384 bytes.
+- `updated_at` is a real canonical UTC timestamp with milliseconds. Sequence 1 is not earlier than `workspace_created_at`; every later state timestamp is strictly later than its predecessor.
+
+A state file is fatal-UTF-8 canonical two-space JSON plus one LF, with no BOM, duplicate decoded key, unknown key, trailing data, or noncanonical value, and is 1 through 16,384 bytes. It remains an owner-only `0600`, one-link, non-symlink regular file. The application entry limit of 160, managed-byte limit of 2,097,152, total state-revision limit of 64 across both versions, and complete-preview limit of 5,242,880 remain independent unchanged ceilings.
+
+`Ready`, component classifications, match scores, Core results, provider data, prompts, session IDs, absolute paths, and document bodies are not additional state keys.
+
+### Exact cover-letter reference
+
+A non-null `cover_letter_artifact` has these rules:
+
+1. `relative_path` is one package-generated direct-child basename. The first distinct letter is `cover-letter.md` for `markdown` or `cover-letter.txt` for `text`. Every later distinct letter is `cover-letter-<six-digit-introducing-state-sequence>.md` or `.txt`. The suffix must equal the state sequence that first introduces those exact bytes. No separator, absolute form, dot component, control character, alternative padding, or user-selected name is accepted.
+2. `artifact_sha256` is SHA-256 over the exact artifact bytes and is 64 lowercase hexadecimal characters. `utf8_bytes` is their exact byte length and is a safe integer from 1 through 262,144 inclusive.
+3. The artifact is fatal UTF-8 text with no BOM, NUL, carriage return, or unpaired surrogate after decoding. Bytes are otherwise preserved exactly; pi-career adds no heading, whitespace, or trailing LF. `format` is exactly `markdown` or `text` and must match the filename extension.
+4. `authority` is exactly `user_authored`. No other authority value is valid in v2. A future assisted authority requires a separately approved schema/version and cannot be smuggled in as an unknown v2 value.
+5. `job_description_sha256` and `effective_resume_sha256` are each 64 lowercase hexadecimal characters and bind the letter to the same revision's package-derived dependency digests defined below.
+6. There is no cover-letter sidecar in v2. Authority, size, exact-byte hash, format, and dependencies live only in the immutable state reference. A draft cannot be attached before both dependencies can be derived. Draft storage outside this exact approved artifact transaction is not introduced.
+7. Carrying an unchanged reference into a later state is allowed and is how a letter becomes stale after a dependency changes. A rebind may retain the exact path, artifact hash, size, format, and authority while changing only the two dependency hashes, but it is a distinct explicitly reviewed future transaction and both new hashes must match that revision's dependencies. New bytes require a new immutable numbered path. One historical path may never claim different bytes, size, format, or authority.
+8. Every referenced cover-letter file is a direct-child owner-only `0600`, one-link, non-symlink regular file with exact size/hash. It counts toward the existing entry and managed-byte ceilings. Publication, preview, confirmation, and commit ordering remain outside this read-contract slice.
+
+### Exact digest domains
+
+The **current job-description digest** exists only when the head `vacancy` binding is non-null and its exact package file validates. Its value is `vacancy.content_sha256`, verified as SHA-256 over the exact accepted job-description file bytes. There is no Unicode, whitespace, line-ending, Markdown, URL, or Core normalization at readiness time.
+
+The **effective-resume digest** exists only when the Resume component is `Available`:
+
+- for an effective original, it is `selected_original.text_sha256`, freshly verified against the eligible original's current scanner `text_sha256`; or
+- for an effective tailored artifact, it is `resume_artifact.artifact_sha256`, freshly verified against the exact package artifact bytes.
+
+The scanner-text digest is SHA-256 over the UTF-8 encoding of the existing scanner text: fatal UTF-8 decoded Markdown/text or current PDF extractor text, with CRLF and CR converted to LF and no other Unicode, whitespace, or content normalization. This names the existing pi-career scanner domain; it does not copy or replace a Career Core algorithm. The tailored digest is over exact artifact bytes, not scanner-normalized text. No domain prefix, JSON wrapper, sidecar bytes, path, document ID, or format is added to either dependency digest.
+
+### Mixed-version complete-chain validation
+
+A complete chain contains one through 64 total revisions and is exactly one of: all v1; all v2; or a contiguous v1 prefix followed by a contiguous v2 suffix. A v2-to-v1 transition anywhere is a downgrade and invalidates the whole chain. An existing all-v1 chain stays readable and byte-identical indefinitely.
+
+The following rules are fail-closed and never select a last-known-good prefix:
+
+1. State basenames start at `.pi-career-state-000001.json`, increase by exactly one, and agree with each embedded `sequence`. Any missing sequence, duplicate/alternate state-shaped basename, embedded mismatch, or revision above 64 is a gap/duplicate and invalidates the chain.
+2. Sequence 1's `parent_sha256` hashes the exact manifest bytes. Every later parent hashes the exact complete canonical bytes of the immediately preceding revision, regardless of schema version. A parent to any earlier revision, unknown bytes, or competing lineage is a fork/bad parent and invalidates the chain.
+3. Every revision binds the manifest application UUID and satisfies the timestamp rules above. The manifest, identity when present, directory, state metadata, and every package-local reference retain their existing private metadata, containment, byte, hash, and aggregate-bound checks.
+4. A canonical, correctly bound `pi.career.application_state.vN` with unsupported `N` makes the whole entry `unsupported`; no prefix is current. Malformed JSON, arbitrary schema text, unknown kind/binding, or noncanonical future-looking bytes are `drifted`, not `unsupported`.
+5. The first v2 after a v1 head is a transition revision. `status`, `vacancy`, `selected_original`, and `resume_artifact` must equal the v1 head exactly. `cover_letter_artifact` must be `null`, except that a separately approved cover-letter attachment transaction may introduce a non-null reference whose dependencies match that same snapshot. No status, vacancy, original, or resume-artifact change may be combined with this transition. Sequence, parent, schema, and later timestamp necessarily change.
+6. A new application's sequence 1 may be v2 but must have `cover_letter_artifact: null`. No rule rewrites or replaces an earlier v1 file. If a 64-revision v1 chain has no capacity for a transition, it remains readable but cannot append; there is no compaction or implicit limit increase.
+7. `resume_artifact` requires non-null `selected_original`. Its exact v2 assisted sidecar must identify `assisted_non_authoritative`, bind the stored original document/text digest, and bind the exact artifact hash before the artifact can be effective. A selected-original change while an artifact is referenced is invalid unless the same next snapshot clears the artifact; there is no fallback from an invalid referenced artifact to the original.
+8. A newly introduced or explicitly rebound cover-letter reference must match the job/effective-resume digests derivable from that revision's metadata. A byte-identical carried reference may mismatch a later snapshot and is then valid history but `Stale` at that head.
+
+Every package-local file referenced by any revision remains immutable managed history and is checked for exact path, type, owner, mode, link count, size, and hash. Reuse of one path with conflicting immutable metadata is structural drift. Missing or changed historical-only vacancy, resume artifact, sidecar, or cover letter invalidates the complete chain when the head no longer references it; no component projection can hide damaged history. A stable failure of a well-formed head reference instead gives that current component the diagnostic classification `Drifted`, excludes the application from valid catalog records, and blocks Ready. Orphan package-shaped files are never adopted as history.
+
+Historical `selected_original` bindings are different because their bytes live in an external Resume library: non-head bindings are structurally and chain validated but are not freshly rescanned. An absent or changed historical original therefore does not prevent reading an otherwise intact chain. Only the head selected-original binding is resolved through one fresh complete bounded scan for readiness. No historical source is reconstructed from a sidecar, artifact, chat, or provider content.
+
+A downgrade, gap, fork, unsupported version, malformed revision, conflicting path reuse, or historical-only managed-reference failure yields no trusted head, no `current` label, and no readiness projection. A structurally valid candidate head with a stable current-reference failure may produce only the diagnostic `Drifted` component projection defined below; it is not a valid/current catalog record. Catalog discovery uses its existing aggregate `unsupported`, `drifted`, or `over_limit` classification and exposes no invalid private detail.
+
+### Pure component classifications
+
+The classification vocabulary is closed and case-sensitive: `Missing`, `Available`, `Stale`, `Unavailable`, and `Drifted`. Classification and readiness derivation are deterministic functions of a validated state snapshot plus bounded read evidence; they do not mutate either input.
+
+**Job description**
+
+- `Missing`: head `vacancy` is `null`.
+- `Available`: the non-null reference and exact current package bytes validate.
+- `Drifted`: the well-formed non-null local reference has stably absent, changed, unsafe, aliased, or over-bound package bytes/metadata.
+- `Stale` and `Unavailable` are not emitted for this package-local component. There is no URL fetch or alternate source fallback.
+
+**Resume**
+
+- `Missing`: both `selected_original` and `resume_artifact` are `null`.
+- `Available`: one fresh complete uncapped scan finds exactly one eligible original matching the stored document ID, root ID, format, and scanner-text digest, and either no tailored artifact is referenced or the exact artifact/sidecar and source binding also validate.
+- `Stale`: the same uniquely identified eligible original is found but its current format or scanner-text digest differs from the binding. A referenced tailored artifact cannot hide this and no original/artifact is silently substituted.
+- `Unavailable`: the binding cannot be conclusively checked because the configured root/source is absent or stale, extraction/read fails, the candidate is missing, ambiguous, assisted/quarantined rather than original, or a root/total scan cap is reached.
+- `Drifted`: package-local artifact/sidecar bytes or metadata stably fail, or the hash-valid sidecar authority/source binding contradicts the well-formed state. An artifact without a selected original is structural chain drift and yields no component projection. There is no fallback to the selected original while a referenced artifact is stale, unavailable, or drifted.
+
+When Resume is `Available`, effective-resume selection is exact: choose `tailored` when a non-null current `resume_artifact` and its source binding validate; otherwise choose `original` from the valid selected-original binding. Every other Resume classification yields no effective source and no effective-resume digest. Merely finding another original, an assisted variant, or matching text under another identity never changes the selection.
+
+**Cover letter**
+
+- `Missing`: `cover_letter_artifact` is `null`.
+- `Available`: its exact local artifact validates, both current dependency digests exist, and both equal the stored dependency hashes.
+- `Stale`: its exact local artifact validates, both current dependency digests exist, and either stored dependency hash differs.
+- `Unavailable`: its exact local artifact validates but one or both current dependencies have no digest because the corresponding component is not `Available`.
+- `Drifted`: its well-formed reference has stably missing, changed, unsafe, or over-bound exact local bytes/metadata.
+
+After structural chain validation, a null reference is `Missing`; a non-null reference with failed local evidence is `Drifted`; a locally valid cover then resolves dependency `Unavailable`, mismatch `Stale`, or `Available` in that order. Impossible or malformed state combinations are structural chain drift and return no component projection at all. A diagnostic surface may report a well-formed current component as `Drifted`, but catalog discovery must continue to exclude the application from valid/legacy records.
+
+### Readiness truth table
+
+Let `J`, `R`, and `C` mean that Job description, Resume, and Cover letter respectively classify exactly `Available`. `n` is exactly the number of true values; `Missing`, `Stale`, `Unavailable`, and `Drifted` each contribute zero. Lifecycle status and match-result presence contribute nothing.
+
+| J | R | C | Projection | Reachability |
+|---|---|---|---|---|
+| no | no | no | `Incomplete 0/3` | yes |
+| yes | no | no | `Incomplete 1/3` | yes |
+| no | yes | no | `Incomplete 1/3` | yes |
+| no | no | yes | impossible; cover must be `Unavailable` or `Drifted` | no |
+| yes | yes | no | `Incomplete 2/3` | yes |
+| yes | no | yes | impossible; cover must be `Unavailable` or `Drifted` | no |
+| no | yes | yes | impossible; cover must be `Unavailable` or `Drifted` | no |
+| yes | yes | yes | `Ready 3/3` | yes, only with no application blocker |
+
+`Ready 3/3` additionally requires a trusted manifest/identity/root, a complete supported chain, all historical managed references valid, and no root/application collision, drift, race, unsupported schema, or exceeded bound. If that envelope is not trusted, the application is not projected as Ready regardless of three isolated component observations. `preparing`, `applied`, `interviewing`, and `closed` all use this same table. A match result is neither read nor persisted for readiness.
+
+### Races, privacy, errors, and forbidden effects
+
+- Chain/reference/evidence reads are bounded. Before return, the reader revalidates root/application identity and entry set plus every manifest, identity, revision, current/historical managed file, and selected-original scan evidence used by the result. Any observed replacement, inode/size/hash/metadata change, entry-set change, or newly capped scan fails with `workspace_drift`; no stale or partial projection is returned.
+- An unsupported canonical state remains the aggregate `unsupported` classification during catalog discovery. Limit overflow remains `over_limit`. Direct attached reads use only existing stable payload-free workspace failures; this slice adds no error string containing a path, basename, label, UUID, hash, document bytes, schema bytes, environment value, raw filesystem error, or stack.
+- Parsing and derivation create no index, lock, temp, config, identity, revision, artifact, sidecar, cache file, session entry, prompt, result, or log. They perform no repair, adoption, migration, attachment, compaction, deletion, URL fetch, Core resolution/invocation, child process, npm acquisition, provider/model call, network call, telemetry, or automatic prompt submission.
+- Complete document bytes and absolute paths remain confined to an explicitly authorized future local detail/preview surface. Catalog/readiness values, adapter errors, logs, provider context, and session entries receive neither. Digests are internal integrity/dependency evidence and are not displayed by list projections or errors.
+- Cancellation before a read begins returns without private access. Cancellation or a race during the bounded read returns no partial result. Because this slice is read-only, there is no settlement-after-commit path and no retry through another runtime route.
+
+### #60 synthetic fixture and ownership map for this contract
+
+Fixtures use fixed synthetic UUIDs/timestamps/labels and generated private temporary roots. Document bytes are short strings such as `Synthetic job description.`, `Synthetic original resume.`, and `Synthetic user-authored letter.` Expected canonical bytes and hashes are computed by test-only builders that do not import the production parser as their sole oracle.
+
+| Fixture family | Required variants | Spec 3 scenarios | Implementation owner |
+|---|---|---|---|
+| `state-v2-canonical` | sequence-1 v2; v1 head plus null-cover transition; separately represented cover-introduction transition; lower/at/above metadata and revision bounds | P3-08, P3-09, P3-47 | #60 fixtures; #62 reader; #63 writer/migration |
+| `mixed-chain` | all-v1, all-v2, v1→v2, v2→v1 downgrade, gap, embedded-sequence mismatch, bad parent/fork, canonical unsupported version, malformed future-looking version | P3-04, P3-08, P3-09, P3-10 | #60 fixtures; #62 reader |
+| `historical-references` | carried vacancy/artifact/letter; cleared current references; absent historical external original; missing/changed historical managed file; conflicting path reuse | P3-04, P3-20, P3-21, P3-43, P3-47 | #60 fixtures; #62 reader; #65 integration |
+| `cover-letter-reference` | Markdown/text first and numbered paths; rebind with identical bytes; bad authority/format/path/hash/dependency; bytes 0/1/262,144/262,145 | P3-19, P3-20, P3-21, P3-44 | #60 fixtures; #62 validation; later #57 writer |
+| `package-completeness` | every reachable availability row; each non-Available class for each component; applied/closed lifecycle; no match result | P3-16 through P3-25 | #60 fixtures; #62 derivation; #55 creation presentation |
+| `source-authority` | current/changed/missing original; stale/capped/ambiguous scan; assisted/quarantined candidate; valid and source-mismatched tailored artifact | P3-18, P3-21, P3-22, P3-23, P3-48 | #60 fixtures; #62 derivation; #64/#56 convergence |
+| `read-races-and-privacy` | revision, historical/current artifact, selected source, and entry-set replacement during read; synthetic private sentinels in failures and spies | P3-33, P3-37, P3-39, P3-43, P3-44 | #60 fixtures; #62 reader; #65 adversarial integration |
+| `transaction-orphans` | cover/artifact published without state and exact state committed after ambiguous failure | P3-40, P3-41 | #60 fixtures; later writer issue; #65 settlement |
+
+The #60 fixture slice may encode these approved bytes and corruption cases without adding production behavior. Fixture validation alone does not satisfy a behavioral scenario: #62 must exercise the future public read/derivation boundary, and #63/#57/#65 retain their mutation, fault-injection, and integration rows. No fixture may contain a real company, role, resume, job description, cover letter, credential, provider response, session file, machine-specific path, or Core checkout.
+
 ## Synthetic fixture families
 
 - `empty-root`: canonical private root and valid marker, no applications.
@@ -171,7 +344,7 @@ Use fixed synthetic UUIDs/timestamps and generated temp-root paths. Hash expecte
 
 No proposal above changes the current command contracts until explicitly reviewed and implemented. In particular, workspace-backed model-readable content still requires the existing session/provider privacy decisions; opening the overlay is not consent.
 
-## Capacity findings and unresolved decisions
+## Capacity findings and remaining decisions
 
 Observed current source limits in `src/workflow/application-workspace.ts`:
 
@@ -187,32 +360,28 @@ Observed current source limits in `src/workflow/application-workspace.ts`:
 
 These are independent ceilings, not guaranteed capacity for 64 maximum-sized documents.
 
-The previous maximal 131-file package set gains one identity file. Repeated resume/letter artifact pairs can exhaust 160 entries before 64 states. A candidate accounting formula is `2 + S + J + 2R + 2C + U`, where `S` is states, `J` job files, `R` resume pairs, `C` cover-letter pairs, and `U` unknown user entries. This assumes a separate cover-letter sidecar, which remains **proposed**, not an approved schema.
+Including the immutable identity, the maximal v1 shape is 132 files before unknown user entries: manifest + identity + 64 states + 64 job-description files + one resume/sidecar pair. Distinct cover letters can therefore exhaust 160 entries before 64 states. The fixed accounting formula is `2 + S + J + 2R + C + U`, where `S` is state files, `J` is distinct job-description files, `R` is distinct resume artifact/sidecar pairs, `C` is distinct cover-letter files, and `U` is unknown user entries. A cover-letter rebind that reuses exact bytes adds a state but no second artifact; v2 has no cover-letter sidecar.
 
 Retain limits by default; reject over-capacity plans before preview and under lock. Preview size must be checked using actual canonical encoded preview bytes: JSON escaping means a 2-MiB managed-byte budget does not prove that a complete preview fits 5 MiB. No truncation, compaction, deletion, or larger bounds without separate approval.
 
-Resolve before executable new-schema fixtures and production changes:
+The state-v2 schema, cover-letter reference, digest domains, mixed-chain validation, historical-reference behavior, component classes, and readiness table are fixed above. Remaining decisions are outside this #60/#62 read-contract slice:
 
-1. Exact cover-letter reference/sidecar schema, field order, authority values, names, text and metadata bounds; handling a draft without job/resume prerequisites.
-2. Exact session attachment schema, consent, branch/clear semantics, command matrix above, and safe explicit session replacement.
-3. Binding display identity to the state chain and crash classification for identity-without-state; migration cannot compare exact labels against a manifest that intentionally stores no labels. Validate session-derived expected location, UUID and timestamp instead; final algorithm needs review.
-4. Historical versus current dependency validation: historical original references must not require absent historical originals to remain forever readable merely to inspect the chain; corruption of immutable managed historical files still follows the existing drift contract.
-5. Digest definition for effective original versus saved assisted bytes; choose and document normalization domain so dependency comparisons are unambiguous.
-6. Exact mixed-chain parser contract. The read-only catalog projection is proposed above; new-application manifest/identity/optional-vacancy/state-last order is documented in the current workspace protocol.
-7. Keep #65's integration checks scoped: explicit consented attachment entries are permitted by #64; blanket 'no session append anywhere' would contradict attachment persistence.
+1. Exact session attachment schema, consent, branch/clear semantics, command matrix above, and safe explicit session replacement remain #64 decisions.
+2. #63 must define the exact user-visible lazy-migration plan/confirmation flow and transaction settlement. A requested non-cover mutation requires the dedicated transition revision above before its own changed snapshot; #63 must decide how those separately committed bytes are previewed and authorized without weakening consent or combining forbidden fields.
+3. #57 must define cover-letter authoring/rebind preview, confirmation, publication, crash settlement, and user-visible draft behavior. No draft is persisted by the state-v2 reference contract.
+4. Later overlay issues must decide presentation copy and local detail navigation without changing classification/readiness semantics or exposing invalid-entry detail.
+5. #65's integration checks remain scoped: explicit consented attachment entries are permitted by #64; blanket “no session append anywhere” would contradict attachment persistence.
 
 ## Small PR sequence
 
 Each item is a separate reviewable change, not a promise to implement its entire parent issue at once. Do not combine persistence and overlay behavior in a single PR.
 
-1. **#60 acceptance baseline (this slice):** this ledger, its structural completeness check, and a real v1 read-only reconciliation regression. No new schema or runtime behavior.
-2. **#60 exact-contract decisions:** command-authority matrix and exact identity/state/attachment/artifact contracts, with unresolved choices explicitly reviewed before code.
-3. **#60 fixture support:** independent synthetic byte builders and corruption cases for approved schemas. Fixture checks do not count as workflow coverage.
-4. **#61 identity reader:** strict immutable identity parsing and negative cases, without writes or UI.
-5. **#61 catalog reader:** bounded discovery, ordering, duplicate detection, and legacy classification.
-6. **#61 identity publication:** one approved no-clobber transaction with cancellation/race tests.
-7. **#62 state reader, then readiness:** separate mixed-chain validation and pure readiness changes.
-8. **#63/#64:** migrate one explicit transaction or converge one command family per PR; no bulk migration or all-command rewrite.
+1. **#60 acceptance baseline (landed):** this ledger, its structural completeness check, and a real v1 read-only reconciliation regression.
+2. **#61 identity/catalog foundation (landed):** strict identity parsing/publication and bounded classified discovery without UI.
+3. **#60/#62 exact state/readiness contract (this slice):** the schema, dependency, chain, classification, readiness, side-effect, and fixture ownership decisions above; no production behavior.
+4. **#60 fixture support:** independent synthetic byte builders and corruption cases for the reviewed contract. Fixture checks do not count as workflow coverage.
+5. **#62 state reader, then readiness:** separate mixed-chain validation and pure readiness changes.
+6. **#63/#64:** migrate one explicit transaction or converge one command family per PR; no bulk migration or all-command rewrite.
 
 Keep each PR independently testable. Add failing behavioral tests and the minimal implementation together when a new boundary is introduced, rather than landing a broken default test suite. Release and remote Git operations remain separately authorized.
 
@@ -224,4 +393,4 @@ Keep each PR independently testable. Add failing behavioral tests and the minima
 
 ## Next gate
 
-Review the read-only catalog implementation against the contract above. Independently approve the command matrix and resolve the remaining exact state/attachment/artifact schemas before their fixture or production slices. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed.
+Review and approve the exact state-v2/readiness contract above before adding its synthetic byte fixtures or production reader. After approval, land #60 fixture builders/corruption cases, then split #62 into mixed-chain reading and pure readiness derivation. Independently resolve #63 migration transactions, #64 attachment/command authority, and #57 cover-letter writes. Keep #60 open until its executable coverage or explicit later-slice deferrals are reviewed.
