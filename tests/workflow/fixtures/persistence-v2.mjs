@@ -147,7 +147,7 @@ export function makeState(version, {
   selectedOriginal = null,
   resumeArtifact = null,
   coverLetterArtifact = null,
-  updatedAt = `2026-08-12T00:00:${String(sequence).padStart(2, "0")}.000Z`,
+  updatedAt = new Date(Date.parse(SYNTHETIC.createdAt) + sequence * 1_000).toISOString(),
 } = {}) {
   const shared = {
     schema_version: `pi.career.application_state.v${version}`,
