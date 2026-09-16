@@ -256,6 +256,21 @@ export function canonicalStateFixtures() {
   ];
 }
 
+export function stateBoundaryFixtures() {
+  const base = buildChain([{ version: 2 }]);
+  const rawState = (length) => ({
+    ...base,
+    revisions: [{ ...base.revisions[0], bytes: Buffer.alloc(length, 0x20) }],
+  });
+  return [
+    { id: "metadata-below-limit", expected: "drifted", chain: rawState(16_383) },
+    { id: "metadata-at-limit", expected: "drifted", chain: rawState(16_384) },
+    { id: "metadata-above-limit", expected: "over_limit", chain: rawState(16_385) },
+    { id: "revisions-at-limit", expected: "valid", chain: buildChain(Array.from({ length: 64 }, () => ({ version: 2 }))) },
+    { id: "revisions-above-limit", expected: "over_limit", chain: buildChain(Array.from({ length: 65 }, () => ({ version: 2 }))) },
+  ];
+}
+
 export function historicalReferenceFixtures() {
   const vacancy = makeVacancyBinding();
   const selectedOriginal = makeSelectedOriginal();

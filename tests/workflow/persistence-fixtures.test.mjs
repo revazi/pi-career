@@ -30,6 +30,7 @@ import {
   readRaceAndPrivacyFixtures,
   sha256,
   sourceAuthorityFixtures,
+  stateBoundaryFixtures,
   stateName,
   transactionOrphanFixtures,
 } from "./fixtures/persistence-v2.mjs";
@@ -130,6 +131,19 @@ test("#60 P3-08/P3-09/P3-47 canonical state fixtures preserve transition bytes",
     ["vacancy.md", SYNTHETIC.vacancyBytes],
     ["cover-letter.md", SYNTHETIC.coverBytes],
   ]);
+});
+
+test("#60 P3-04/P3-09/P3-44 state fixtures hit exact metadata and revision bounds", () => {
+  const fixtures = new Map(stateBoundaryFixtures().map((fixture) => [fixture.id, fixture]));
+  assert.equal(fixtures.get("metadata-below-limit").chain.revisions[0].bytes.length, 16_383);
+  assert.equal(fixtures.get("metadata-at-limit").chain.revisions[0].bytes.length, 16_384);
+  assert.equal(fixtures.get("metadata-above-limit").chain.revisions[0].bytes.length, 16_385);
+  assert.equal(fixtures.get("revisions-at-limit").chain.revisions.length, 64);
+  assert.equal(fixtures.get("revisions-above-limit").chain.revisions.length, 65);
+  assert.equal(fixtures.get("metadata-above-limit").expected, "over_limit");
+  assert.equal(fixtures.get("revisions-at-limit").expected, "valid");
+  assert.equal(fixtures.get("revisions-above-limit").expected, "over_limit");
+  assertLinkedChain(fixtures.get("revisions-at-limit").chain);
 });
 
 test("#60 P3-04/P3-08/P3-09/P3-10 mixed-chain fixtures isolate each corruption", () => {
