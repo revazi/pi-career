@@ -392,6 +392,12 @@ export function completeApplicationFixture(chain = buildChain([{ version: 1 }]),
 }
 
 export async function materializeApplicationFixture(fixture = completeApplicationFixture()) {
+  for (const name of fixture.files.keys()) {
+    if (name.length === 0 || name === "." || name === ".." || path.basename(name) !== name ||
+      path.isAbsolute(name) || /[\u0000-\u001f\u007f]/.test(name)) {
+      throw new TypeError("unsafe synthetic fixture filename");
+    }
+  }
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-persistence-v2-")));
   await chmod(root, 0o700);
   await writeFile(path.join(root, ".pi-career-applications.json"), canonicalJson(fixture.rootMarker), { mode: 0o600 });

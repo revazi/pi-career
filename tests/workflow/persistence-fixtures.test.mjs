@@ -250,6 +250,13 @@ test("#60 P3-40/P3-41 transaction fixtures distinguish orphan from exact commit"
 });
 
 test("#60 materialized fixture uses only private synthetic files and deterministic bytes", async (t) => {
+  await assert.rejects(
+    materializeApplicationFixture(completeApplicationFixture(
+      buildChain([{ version: 1 }]),
+      new Map([["../escaped-private-fixture", Buffer.from("Synthetic escaped bytes")]]),
+    )),
+    { name: "TypeError", message: "unsafe synthetic fixture filename" },
+  );
   const fixture = completeApplicationFixture();
   const { root, directory } = await materializeApplicationFixture(fixture);
   t.after(() => rm(root, { recursive: true, force: true }));
