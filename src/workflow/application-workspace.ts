@@ -63,7 +63,8 @@ const IDENTITY_NAME = ".pi-career-identity.json";
 const ROOT_MARKER_SCHEMA = "pi.career.application_root.v1";
 const MANIFEST_SCHEMA = "pi.career.application_manifest.v1";
 const IDENTITY_SCHEMA = "pi.career.application_identity.v1";
-const STATE_SCHEMA = "pi.career.application_state.v1";
+const STATE_SCHEMA_V1 = "pi.career.application_state.v1";
+const STATE_SCHEMA_V2 = "pi.career.application_state.v2";
 const PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1";
 const METADATA_MAX_BYTES = 16_384;
 const CONFIG_MAX_BYTES = 65_536;
@@ -82,6 +83,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/;
 const VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/;
+const COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/;
 const APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 const APPLICATION_STATUSES = new Set<ApplicationStatus>(["preparing", "applied", "interviewing", "closed"]);
 
@@ -128,8 +130,17 @@ interface ResumeArtifactBinding {
   sidecar_sha256: string;
 }
 
-interface ApplicationStateRevision {
-  schema_version: typeof STATE_SCHEMA;
+interface CoverLetterArtifactBinding {
+  relative_path: string;
+  artifact_sha256: string;
+  utf8_bytes: number;
+  format: "markdown" | "text";
+  authority: "user_authored";
+  job_description_sha256: string;
+  effective_resume_sha256: string;
+}
+
+interface ApplicationStateRevisionBase {
   kind: "application_state_revision";
   application_id: string;
   sequence: number;
@@ -140,6 +151,17 @@ interface ApplicationStateRevision {
   resume_artifact: ResumeArtifactBinding | null;
   updated_at: string;
 }
+
+interface ApplicationStateRevisionV1 extends ApplicationStateRevisionBase {
+  schema_version: typeof STATE_SCHEMA_V1;
+}
+
+interface ApplicationStateRevisionV2 extends ApplicationStateRevisionBase {
+  schema_version: typeof STATE_SCHEMA_V2;
+  cover_letter_artifact: CoverLetterArtifactBinding | null;
+}
+
+type ApplicationStateRevision = ApplicationStateRevisionV1 | ApplicationStateRevisionV2;
 
 interface ExactFile {
   path: string;
@@ -531,21 +553,40 @@ function parseResumeArtifact(value: unknown): ResumeArtifactBinding | null | und
   };
 }
 
-function parseState(value: unknown): ApplicationStateRevision | undefined {
+function parseCoverLetterArtifact(value: unknown): CoverLetterArtifactBinding | null | undefined {
+  if (value === null) return null;
   if (!isRecord(value) || !exactKeys(value, [
-    "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status", "vacancy",
-    "selected_original", "resume_artifact", "updated_at",
-  ]) || value.schema_version !== STATE_SCHEMA || value.kind !== "application_state_revision" ||
-    !validUuid(value.application_id) || !Number.isSafeInteger(value.sequence) ||
-    (value.sequence as number) < 1 || (value.sequence as number) > STATE_MAX_REVISIONS ||
-    !validHash(value.parent_sha256) || typeof value.status !== "string" ||
-    !APPLICATION_STATUSES.has(value.status as ApplicationStatus) || !validTimestamp(value.updated_at)) return undefined;
+    "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
+    "job_description_sha256", "effective_resume_sha256",
+  ]) || !validRelativeBasename(value.relative_path) || !COVER_LETTER_BASENAME.test(value.relative_path) ||
+    !validHash(value.artifact_sha256) || !Number.isSafeInteger(value.utf8_bytes) ||
+    (value.utf8_bytes as number) < 1 ||
+    !["markdown", "text"].includes(value.format as string) || value.authority !== "user_authored" ||
+    !validHash(value.job_description_sha256) || !validHash(value.effective_resume_sha256)) return undefined;
+  const extension = (value.relative_path as string).endsWith(".md") ? "markdown" : "text";
+  if (value.format !== extension) return undefined;
+  return {
+    relative_path: value.relative_path as string,
+    artifact_sha256: value.artifact_sha256 as string,
+    utf8_bytes: value.utf8_bytes as number,
+    format: value.format as "markdown" | "text",
+    authority: "user_authored",
+    job_description_sha256: value.job_description_sha256 as string,
+    effective_resume_sha256: value.effective_resume_sha256 as string,
+  };
+}
+
+function parseStateBase(value: Record<string, unknown>): ApplicationStateRevisionBase | undefined {
+  if (value.kind !== "application_state_revision" || !validUuid(value.application_id) ||
+    !Number.isSafeInteger(value.sequence) || (value.sequence as number) < 1 ||
+    (value.sequence as number) > STATE_MAX_REVISIONS || !validHash(value.parent_sha256) ||
+    typeof value.status !== "string" || !APPLICATION_STATUSES.has(value.status as ApplicationStatus) ||
+    !validTimestamp(value.updated_at)) return undefined;
   const vacancy = parseVacancyBinding(value.vacancy);
   const selected = parseSelectedOriginal(value.selected_original);
   const artifact = parseResumeArtifact(value.resume_artifact);
   if (vacancy === undefined || selected === undefined || artifact === undefined) return undefined;
   return {
-    schema_version: STATE_SCHEMA,
     kind: "application_state_revision",
     application_id: value.application_id,
     sequence: value.sequence as number,
@@ -554,7 +595,29 @@ function parseState(value: unknown): ApplicationStateRevision | undefined {
     vacancy,
     selected_original: selected,
     resume_artifact: artifact,
-    updated_at: value.updated_at,
+    updated_at: value.updated_at as string,
+  };
+}
+
+function parseState(value: unknown): ApplicationStateRevision | undefined {
+  if (!isRecord(value)) return undefined;
+  const v1 = value.schema_version === STATE_SCHEMA_V1;
+  const v2 = value.schema_version === STATE_SCHEMA_V2;
+  if ((!v1 && !v2) || !exactKeys(value, [
+    "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status", "vacancy",
+    "selected_original", "resume_artifact", ...(v2 ? ["cover_letter_artifact"] : []), "updated_at",
+  ])) return undefined;
+  const base = parseStateBase(value);
+  if (base === undefined) return undefined;
+  if (v1) return { schema_version: STATE_SCHEMA_V1, ...base };
+  const coverLetter = parseCoverLetterArtifact(value.cover_letter_artifact);
+  if (coverLetter === undefined) return undefined;
+  const { updated_at: updatedAt, ...beforeUpdatedAt } = base;
+  return {
+    schema_version: STATE_SCHEMA_V2,
+    ...beforeUpdatedAt,
+    cover_letter_artifact: coverLetter,
+    updated_at: updatedAt,
   };
 }
 
@@ -720,8 +783,38 @@ async function inspectArtifactFile(
 ): Promise<ExactFile> {
   const file = path.join(directoryPath, relativePath);
   const metadata = await lstat(file).catch(() => undefined);
-  if (metadata === undefined || metadata.size > maximumBytes) throw workflowError("workspace_drift");
+  if (metadata === undefined || metadata.size <= 0) throw workflowError("workspace_drift");
+  if (metadata.size > maximumBytes) throw workflowError("workspace_limit_reached");
   return readContentFile(file, metadata.size, expectedHash);
+}
+
+function assertCanonicalArtifactText(file: ExactFile): void {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (file.bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) || /[\u0000\r]/.test(text)) {
+    throw workflowError("workspace_drift");
+  }
+}
+
+function parseApplicationSidecar(
+  bytes: Buffer,
+  artifact: ResumeArtifactBinding,
+  selected: SelectedOriginalBinding,
+): void {
+  decodeCanonical(bytes, (value) => {
+    if (!isRecord(value) || !exactKeys(value, [
+      "schema_version", "kind", "authority", "base_document_id", "base_text_sha256",
+      "artifact_sha256", "created_at",
+    ]) || value.schema_version !== "pi.career.assisted_variant_meta.v2" ||
+      value.kind !== "assisted_variant" || value.authority !== "assisted_non_authoritative" ||
+      value.base_document_id !== selected.document_id || value.base_text_sha256 !== selected.text_sha256 ||
+      value.artifact_sha256 !== artifact.artifact_sha256 || !validTimestamp(value.created_at)) return undefined;
+    return value;
+  });
 }
 
 async function inspectArtifactReferences(
@@ -731,20 +824,126 @@ async function inspectArtifactReferences(
 ): Promise<void> {
   const artifact = state.resume_artifact;
   if (artifact === null) return;
-  const existingArtifact = referencedFiles.get(artifact.relative_path);
-  if (existingArtifact === undefined) {
-    referencedFiles.set(artifact.relative_path, await inspectArtifactFile(
+  if (state.selected_original === null) throw workflowError("workspace_drift");
+  let artifactFile = referencedFiles.get(artifact.relative_path);
+  if (artifactFile === undefined) {
+    artifactFile = await inspectArtifactFile(
       directoryPath, artifact.relative_path, artifact.artifact_sha256, VACANCY_MAX_BYTES,
-    ));
-  } else if (existingArtifact.sha256 !== artifact.artifact_sha256) {
+    );
+    assertCanonicalArtifactText(artifactFile);
+    referencedFiles.set(artifact.relative_path, artifactFile);
+  } else if (artifactFile.sha256 !== artifact.artifact_sha256) {
     throw workflowError("workspace_drift");
   }
-  const existingSidecar = referencedFiles.get(artifact.sidecar_relative_path);
-  if (existingSidecar === undefined) {
-    referencedFiles.set(artifact.sidecar_relative_path, await inspectArtifactFile(
+  let sidecarFile = referencedFiles.get(artifact.sidecar_relative_path);
+  if (sidecarFile === undefined) {
+    sidecarFile = await inspectArtifactFile(
       directoryPath, artifact.sidecar_relative_path, artifact.sidecar_sha256, METADATA_MAX_BYTES,
-    ));
-  } else if (existingSidecar.sha256 !== artifact.sidecar_sha256) {
+    );
+    referencedFiles.set(artifact.sidecar_relative_path, sidecarFile);
+  } else if (sidecarFile.sha256 !== artifact.sidecar_sha256) {
+    throw workflowError("workspace_drift");
+  }
+  parseApplicationSidecar(sidecarFile.bytes, artifact, state.selected_original);
+}
+
+function coverLetter(state: ApplicationStateRevision | undefined): CoverLetterArtifactBinding | null {
+  return state?.schema_version === STATE_SCHEMA_V2 ? state.cover_letter_artifact : null;
+}
+
+function sameCoverLetterIdentity(
+  left: CoverLetterArtifactBinding | null,
+  right: CoverLetterArtifactBinding | null,
+): boolean {
+  return left === null || right === null ? left === right :
+    left.relative_path === right.relative_path && left.artifact_sha256 === right.artifact_sha256 &&
+    left.utf8_bytes === right.utf8_bytes && left.format === right.format && left.authority === right.authority;
+}
+
+function sameCoverLetterBinding(
+  left: CoverLetterArtifactBinding | null,
+  right: CoverLetterArtifactBinding | null,
+): boolean {
+  return sameCoverLetterIdentity(left, right) && (left === null || right === null ||
+    left.job_description_sha256 === right.job_description_sha256 &&
+    left.effective_resume_sha256 === right.effective_resume_sha256);
+}
+
+function effectiveResumeDigest(state: ApplicationStateRevision): string | undefined {
+  return state.resume_artifact?.artifact_sha256 ?? state.selected_original?.text_sha256;
+}
+
+function assertCoverDependencies(
+  state: ApplicationStateRevision,
+  previous: ApplicationStateRevision | undefined,
+): void {
+  const binding = coverLetter(state);
+  if (binding === null) return;
+  const previousBinding = coverLetter(previous);
+  if (sameCoverLetterBinding(previousBinding, binding)) return;
+  if (binding.job_description_sha256 !== state.vacancy?.content_sha256 ||
+    binding.effective_resume_sha256 !== effectiveResumeDigest(state)) throw workflowError("workspace_drift");
+}
+
+async function inspectCoverLetterReference(
+  directoryPath: string,
+  state: ApplicationStateRevision,
+  previous: ApplicationStateRevision | undefined,
+  referencedFiles: Map<string, ExactFile>,
+): Promise<void> {
+  const binding = coverLetter(state);
+  if (binding === null) return;
+  if (binding.utf8_bytes > VACANCY_MAX_BYTES) throw workflowError("workspace_limit_reached");
+  assertCoverDependencies(state, previous);
+  const existing = referencedFiles.get(binding.relative_path);
+  if (existing !== undefined) {
+    if (existing.sha256 !== binding.artifact_sha256 || existing.bytes.length !== binding.utf8_bytes) {
+      throw workflowError("workspace_drift");
+    }
+    return;
+  }
+  const extension = binding.format === "markdown" ? "md" : "txt";
+  const earlierCoverCount = [...referencedFiles.keys()].filter((name) => COVER_LETTER_BASENAME.test(name)).length;
+  const expectedName = earlierCoverCount === 0
+    ? `cover-letter.${extension}`
+    : `cover-letter-${String(state.sequence).padStart(6, "0")}.${extension}`;
+  if (binding.relative_path !== expectedName) throw workflowError("workspace_drift");
+  const file = await inspectArtifactFile(
+    directoryPath, binding.relative_path, binding.artifact_sha256, VACANCY_MAX_BYTES,
+  );
+  if (file.bytes.length !== binding.utf8_bytes) throw workflowError("workspace_drift");
+  assertCanonicalArtifactText(file);
+  referencedFiles.set(binding.relative_path, file);
+}
+
+function sameSelectedOriginal(left: SelectedOriginalBinding | null, right: SelectedOriginalBinding | null): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameResumeArtifact(left: ResumeArtifactBinding | null, right: ResumeArtifactBinding | null): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertVersionAndSourceTransition(
+  state: ApplicationStateRevision,
+  previous: ApplicationStateRevision | undefined,
+): void {
+  if (state.resume_artifact !== null && state.selected_original === null) throw workflowError("workspace_drift");
+  if (previous === undefined) {
+    if (state.schema_version === STATE_SCHEMA_V2 && state.cover_letter_artifact !== null) {
+      throw workflowError("workspace_drift");
+    }
+    return;
+  }
+  if (previous.schema_version === STATE_SCHEMA_V2 && state.schema_version === STATE_SCHEMA_V1) {
+    throw workflowError("workspace_drift");
+  }
+  if (previous.resume_artifact !== null && !sameSelectedOriginal(previous.selected_original, state.selected_original) &&
+    state.resume_artifact !== null) throw workflowError("workspace_drift");
+  if (previous.schema_version === STATE_SCHEMA_V1 && state.schema_version === STATE_SCHEMA_V2 &&
+    (state.status !== previous.status || !sameVacancyBinding(state.vacancy, previous.vacancy) ||
+      !sameSelectedOriginal(state.selected_original, previous.selected_original) ||
+      !sameResumeArtifact(state.resume_artifact, previous.resume_artifact))) {
     throw workflowError("workspace_drift");
   }
 }
@@ -762,14 +961,17 @@ async function inspectStateChain(
     const stateName = stateNames[index]!;
     if (stateName.sequence !== expectedSequence) throw workflowError("workspace_drift");
     const read = await readExactFile(path.join(application.directoryPath, stateName.name), parseState);
+    const previous = revisions.at(-1)?.state;
     const timestampInvalid = expectedSequence === 1
       ? Date.parse(read.value.updated_at) < Date.parse(priorTimestamp)
       : Date.parse(read.value.updated_at) <= Date.parse(priorTimestamp);
     if (read.value.sequence !== expectedSequence ||
       read.value.application_id !== application.manifest.application_id ||
       read.value.parent_sha256 !== parentHash || timestampInvalid) throw workflowError("workspace_drift");
-    await inspectVacancyReference(application.directoryPath, read.value, revisions.at(-1)?.state, referencedFiles);
+    assertVersionAndSourceTransition(read.value, previous);
+    await inspectVacancyReference(application.directoryPath, read.value, previous, referencedFiles);
     await inspectArtifactReferences(application.directoryPath, read.value, referencedFiles);
+    await inspectCoverLetterReference(application.directoryPath, read.value, previous, referencedFiles);
     revisions.push({ file: read.file, state: read.value });
     parentHash = read.file.sha256;
     priorTimestamp = read.value.updated_at;
@@ -779,7 +981,9 @@ async function inspectStateChain(
 
 function assertNoOrphanManagedFiles(entries: readonly string[], referencedFiles: ReadonlyMap<string, ExactFile>): void {
   for (const entry of entries) {
-    if (VACANCY_BASENAME.test(entry) && !referencedFiles.has(entry)) throw workflowError("workspace_drift");
+    if ((VACANCY_BASENAME.test(entry) || COVER_LETTER_BASENAME.test(entry)) && !referencedFiles.has(entry)) {
+      throw workflowError("workspace_drift");
+    }
     if (["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry) && !referencedFiles.has(entry)) {
       throw workflowError("workspace_drift");
     }
@@ -936,7 +1140,7 @@ async function hasUnsupportedSchema(
   file: string,
   kind: "application_identity" | "application_state_revision",
   schemaPrefix: string,
-  supportedSchema: string,
+  supportedSchema: string | readonly string[],
   applicationId: string,
   binding: { createdAt?: string; sequence?: number } = {},
 ): Promise<boolean> {
@@ -946,8 +1150,9 @@ async function hasUnsupportedSchema(
     const bytes = await readFile(file);
     if (bytes.length !== metadata.size) return false;
     const value = parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    const supportedSchemas = typeof supportedSchema === "string" ? [supportedSchema] : supportedSchema;
     return isRecord(value) && value.kind === kind && typeof value.schema_version === "string" &&
-      value.schema_version.startsWith(schemaPrefix) && value.schema_version !== supportedSchema &&
+      value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) &&
       value.application_id === applicationId &&
       (binding.createdAt === undefined || value.created_at === binding.createdAt) &&
       (binding.sequence === undefined || value.sequence === binding.sequence) &&
@@ -1005,6 +1210,18 @@ function markDuplicateClaims(candidates: CatalogCandidate[]): void {
   }
 }
 
+async function candidateHasOversizedState(candidate: CatalogCandidate, stateNames: readonly string[]): Promise<boolean> {
+  for (const stateNameValue of stateNames) {
+    try {
+      const metadata = await lstat(path.join(candidate.directoryPath, stateNameValue));
+      if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.size > METADATA_MAX_BYTES) return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 async function candidateHasUnsupportedSchema(
   candidate: CatalogCandidate,
   entries: string[],
@@ -1024,7 +1241,7 @@ async function candidateHasUnsupportedSchema(
       path.join(candidate.directoryPath, stateNameValue),
       "application_state_revision",
       "pi.career.application_state.v",
-      STATE_SCHEMA,
+      [STATE_SCHEMA_V1, STATE_SCHEMA_V2],
       manifest.application_id,
       { sequence: Number(stateNameValue.match(STATE_BASENAME)![1]) },
     )) return true;
@@ -1059,7 +1276,9 @@ async function classifyCatalogCandidate(
     return { classification: reconciliationForError(error) };
   }
   const stateNames = entries.filter((entry) => STATE_BASENAME.test(entry));
-  if (stateNames.length > STATE_MAX_REVISIONS) return { classification: "over_limit" };
+  if (stateNames.length > STATE_MAX_REVISIONS || await candidateHasOversizedState(candidate, stateNames)) {
+    return { classification: "over_limit" };
+  }
   if (await candidateHasUnsupportedSchema(candidate, entries, stateNames)) return { classification: "unsupported" };
   if (!entries.includes(stateName(1))) {
     return { classification: await classifyIncompleteCandidate(candidate, entries) };
@@ -1949,8 +2168,8 @@ export class ApplicationWorkspaceWorkflow {
     const identityBytes = canonicalJson(displayIdentity);
     const currentVacancyBytes = vacancyBytes(identity.vacancy, identity.identity.application_id);
     const vacancyName = "vacancy.md";
-    const state: ApplicationStateRevision = {
-      schema_version: STATE_SCHEMA,
+    const state: ApplicationStateRevisionV1 = {
+      schema_version: STATE_SCHEMA_V1,
       kind: "application_state_revision",
       application_id: identity.identity.application_id,
       sequence: 1,
@@ -2076,7 +2295,9 @@ export class ApplicationWorkspaceWorkflow {
     const attachment = await attachmentFor(this.options.agentDir, identity);
     const application = attachment.application;
     const configured = attachment.snapshot.config.application_workspace;
-    if (configured === null || application === undefined) throw workflowError("workspace_unavailable");
+    if (configured === null || application === undefined || application.head.schema_version !== STATE_SCHEMA_V1) {
+      throw workflowError("workspace_unavailable");
+    }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
     if (application.head.status === identity.current.status && sameSessionVacancy(application.head, identity.vacancy)) {
       ctx.ui.notify("Workspace status and vacancy already match this session; no revision was added.", "info");
@@ -2094,8 +2315,8 @@ export class ApplicationWorkspaceWorkflow {
         : application.head.vacancy;
     const createdAt = this.options.now().toISOString();
     if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
-    const state: ApplicationStateRevision = {
-      schema_version: STATE_SCHEMA,
+    const state: ApplicationStateRevisionV1 = {
+      schema_version: STATE_SCHEMA_V1,
       kind: "application_state_revision",
       application_id: identity.identity.application_id,
       sequence,
@@ -2145,7 +2366,8 @@ export class ApplicationWorkspaceWorkflow {
     const attachment = await attachmentFor(this.options.agentDir, identity);
     const application = attachment.application;
     const configured = attachment.snapshot.config.application_workspace;
-    if (configured === null || application === undefined || application.head.resume_artifact !== null) {
+    if (configured === null || application === undefined || application.head.schema_version !== STATE_SCHEMA_V1 ||
+      application.head.resume_artifact !== null) {
       throw workflowError("workspace_unavailable");
     }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
@@ -2172,8 +2394,8 @@ export class ApplicationWorkspaceWorkflow {
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     const createdAt = this.options.now().toISOString();
     if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
-    const state: ApplicationStateRevision = {
-      schema_version: STATE_SCHEMA,
+    const state: ApplicationStateRevisionV1 = {
+      schema_version: STATE_SCHEMA_V1,
       kind: "application_state_revision",
       application_id: identity.identity.application_id,
       sequence,
