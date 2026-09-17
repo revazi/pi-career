@@ -47,6 +47,7 @@ import {
   workspaceApplicationIdentity,
   type WorkspaceApplicationIdentity,
 } from "./session-state.ts";
+import type { ApplicationAttachmentEntry } from "./session-attachment.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
   type ApplicationStatus,
@@ -223,6 +224,18 @@ interface CatalogEvidence {
   files: ExactFile[];
   directories: Stats[];
   projection: ApplicationCatalogProjection;
+  applicationClaims: string[];
+  validatedApplications: Array<{ record: ApplicationCatalogRecord; inspected: InspectedApplication }>;
+}
+
+export interface ValidatedApplicationAttachment {
+  attachment_id: string;
+  application_id: string;
+  root_id: string;
+  company_label: string;
+  role_label: string;
+  status: ApplicationStatus;
+  updated_at: string;
 }
 
 interface CurrentApplicationTarget {
@@ -1344,11 +1357,13 @@ async function deriveApplicationCatalog(rootPath: string, expectedRootId: string
   const projection = emptyCatalogProjection();
   const files: ExactFile[] = [];
   const directories: Stats[] = [];
+  const validatedApplications: Array<{ record: ApplicationCatalogRecord; inspected: InspectedApplication }> = [];
   for (const candidate of candidates) {
     const result = await classifyCatalogCandidate(candidate, expectedRootId);
     if ("classification" in result) projection.reconciliation[result.classification] += 1;
     else {
       projection.applications.push(result.record);
+      validatedApplications.push(result);
       directories.push(result.inspected.metadata);
       files.push(...result.inspected.managedFiles);
     }
@@ -1366,6 +1381,10 @@ async function deriveApplicationCatalog(rootPath: string, expectedRootId: string
     files,
     directories,
     projection,
+    applicationClaims: candidates.flatMap((candidate) => candidate.application === undefined
+      ? []
+      : [candidate.application.manifest.application_id]),
+    validatedApplications,
   };
 }
 
@@ -1396,6 +1415,79 @@ export async function readApplicationCatalog(rootPath: string, expectedRootId: s
   }
   if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
   return initial.projection;
+}
+
+function attachmentValidationError(error: unknown): never {
+  if (error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict") throw error;
+  throw workflowError("attachment_unavailable");
+}
+
+function expectedIdentityBasename(identity: NonNullable<ApplicationCatalogRecord["identity"]>): string {
+  return `${slug(identity.company_label, "company")}--${slug(identity.role_label, "role")}--${identity.application_id}`;
+}
+
+function exactValidatedMatch(
+  evidence: CatalogEvidence,
+  attachment: ApplicationAttachmentEntry,
+): { record: ApplicationCatalogRecord; inspected: InspectedApplication; identity: NonNullable<ApplicationCatalogRecord["identity"]> } {
+  const claims = evidence.applicationClaims.filter((id) => id === attachment.application_id);
+  if (claims.length > 1) throw workflowError("workspace_identity_conflict");
+  if (claims.length === 0) throw workflowError("attachment_unavailable");
+  const matches = evidence.validatedApplications.filter(
+    ({ record }) => record.application_id === attachment.application_id,
+  );
+  const match = matches.length === 1 ? matches[0] : undefined;
+  const identity = match?.record.identity;
+  if (match === undefined || match.record.classification !== "valid" || identity === undefined) {
+    throw workflowError("attachment_unavailable");
+  }
+  return { ...match, identity };
+}
+
+function assertExactAttachmentBinding(
+  evidence: CatalogEvidence,
+  attachment: ApplicationAttachmentEntry,
+  match: ReturnType<typeof exactValidatedMatch>,
+): void {
+  const { inspected, identity } = match;
+  if (evidence.root.marker.created_at !== attachment.root_created_at ||
+    inspected.manifest.root_id !== attachment.root_id ||
+    inspected.manifest.application_created_at !== attachment.application_created_at ||
+    inspected.manifest.workspace_created_at !== attachment.workspace_created_at ||
+    identity.created_at !== attachment.application_created_at ||
+    path.basename(inspected.directoryPath) !== expectedIdentityBasename(identity)) {
+    throw workflowError("workspace_identity_conflict");
+  }
+}
+
+export async function validateApplicationAttachment(
+  agentDir: string,
+  attachment: ApplicationAttachmentEntry,
+): Promise<ValidatedApplicationAttachment> {
+  try {
+    const snapshot = await loadConfigSnapshot(agentDir);
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("attachment_unavailable");
+    if (configured.root_id !== attachment.root_id) throw workflowError("workspace_identity_conflict");
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    if (!sameCatalogEvidence(initial, current)) throw workflowError("attachment_unavailable");
+    await assertConfigSnapshotCurrent(snapshot);
+    const match = exactValidatedMatch(initial, attachment);
+    assertExactAttachmentBinding(initial, attachment, match);
+    return {
+      attachment_id: attachment.attachment_id,
+      application_id: attachment.application_id,
+      root_id: attachment.root_id,
+      company_label: match.identity.company_label,
+      role_label: match.identity.role_label,
+      status: match.record.status,
+      updated_at: match.record.updated_at,
+    };
+  } catch (error) {
+    return attachmentValidationError(error);
+  }
 }
 
 function slug(value: string, fallback: "company" | "role"): string {

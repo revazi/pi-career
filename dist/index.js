@@ -1275,7 +1275,8 @@ var WORKFLOW_ERROR_MESSAGES = {
   workspace_drift: "The application workspace changed or contains inconsistent package state.",
   workspace_preview_changed: "The exact workspace preview changed; no mutation was performed.",
   workspace_verification_failed: "The workspace mutation could not be safely verified.",
-  workspace_status_unknown: "The workspace reached an indeterminate filesystem state; reconcile before retrying."
+  workspace_status_unknown: "The workspace reached an indeterminate filesystem state; reconcile before retrying.",
+  attachment_unavailable: "The attached career application is unavailable."
 };
 var CareerWorkflowError = class extends Error {
   code;

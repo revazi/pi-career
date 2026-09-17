@@ -113,7 +113,7 @@ Mode behavior is exact:
 
 ## Independent authorization classes
 
-Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The attachment and model-context decisions are fixed here for #64. Strict record parsing and replay are implemented independently; filesystem validation, command wiring, and resource activation remain later behavior slices.
+Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The attachment and model-context decisions are fixed here for #64. Strict record parsing/replay and fresh pointer validation are implemented independently; command wiring and resource activation remain later behavior slices.
 
 1. **Session persistence.** Current persisted-session consent governs custom entries. In a transient `pi --no-session` run, entries remain process-memory-only. This consent does not authorize attachment, model context, provider submission, or a file.
 2. **Application attachment.** An explicit Attach choice appends the bounded application/root identity pointer specified below. Browsing, highlighting, opening, or choosing an assistance action never substitutes for that choice. Attachment contains no document/result/prompt bytes and does not authorize model-context activation, provider submission, Core use, or mutation.
