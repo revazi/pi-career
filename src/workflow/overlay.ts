@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import type { ExtensionCommandContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
 import { attachedApplicationSourcesForSession, readApplicationCatalog } from "./application-workspace.ts";
 import { loadConfig } from "./config.ts";
-import { libraryIndexPreview, librarySummary, setupSummary } from "./renderers.ts";
+import { privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
 
 export const CAREER_OVERLAY_VIEWS = [
@@ -45,56 +44,95 @@ const VIEW_LABELS: Record<CareerOverlayView, string> = {
   workspace: "Workspace",
 };
 
-export type CareerOverlayPages = Record<CareerOverlayView, string>;
-
-function localLine(_error: unknown): string {
-  return "Local career data is unavailable.";
+export interface CareerOverlayItem {
+  id: string;
+  label: string;
+  detail: string;
 }
 
-export async function buildCareerOverlayPages(
+export interface CareerOverlayPane {
+  intro: string;
+  items: CareerOverlayItem[];
+}
+
+export type CareerOverlayModel = Record<CareerOverlayView, CareerOverlayPane>;
+
+function unavailablePane(): CareerOverlayPane {
+  return { intro: "Local career data is unavailable.", items: [] };
+}
+
+function item(id: string, label: string, detail: string): CareerOverlayItem {
+  return { id, label, detail };
+}
+
+export async function buildCareerOverlayModel(
   agentDir: string,
   ctx: ExtensionCommandContext,
-): Promise<CareerOverlayPages> {
+): Promise<CareerOverlayModel> {
   const persisted = ctx.sessionManager.getSessionFile() !== undefined;
-  let setup = "pi-career is not configured.";
-  let library = "No resume library is configured.";
+  const empty: CareerOverlayModel = {
+    setup: { intro: "pi-career is not configured.", items: [] },
+    library: { intro: "No resume library is configured.", items: [] },
+    applications: { intro: "Application workspace is not configured.", items: [] },
+    vacancy: { intro: "No persistent application is attached.", items: [] },
+    match: { intro: "No persistent application is attached.", items: [] },
+    analyze: { intro: "No persistent application is attached.", items: [] },
+    workbench: { intro: "Workbench/assistance is never submitted from overlay navigation.", items: [] },
+    workspace: { intro: "Workspace administration stays local. Opening this view does not mutate files.", items: [] },
+  };
+
   try {
     const config = await loadConfig(agentDir);
     const scan = await scanLibrary(config);
-    setup = setupSummary(config, scan, persisted);
-    library = [librarySummary(config, scan, persisted), libraryIndexPreview(config, scan, 20)]
-      .filter(Boolean).join("\n");
-  } catch (error) {
-    setup = localLine(error);
-    library = localLine(error);
-  }
-
-  let applications = "Application workspace is not configured.";
-  try {
-    const config = await loadConfig(agentDir);
+    empty.setup = {
+      intro: setupSummary(config, scan, persisted),
+      items: config.library_roots.map((root) => item(
+        root.id,
+        root.label,
+        `${root.label}\n${privacyDisplayPath(root.path)}\nIndexed resumes stay local. Opening a root does not call Core.`,
+      )),
+    };
+    empty.library = {
+      intro: scan.records.length === 0
+        ? "No indexed resumes."
+        : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
+      items: scan.records.map((record) => {
+        const badges = [
+          record.format,
+          ...(record.kind === "assisted_variant" ? ["assisted variant"] : []),
+          ...(record.too_large_for_core_input === true ? ["too large"] : []),
+        ].join(" • ");
+        return item(
+          record.id,
+          `${record.label} — ${badges}`,
+          `${record.label}\n${badges}\nOverlay browse does not analyze or attach this resume.`,
+        );
+      }),
+    };
     const workspace = config.application_workspace;
     if (workspace !== null) {
       const catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id);
-      const rows = catalog.applications.map((application) => {
-        const label = application.identity === undefined
-          ? "Legacy application"
-          : `${application.identity.company_label} — ${application.identity.role_label}`;
-        return `- ${label} — ${application.status}`;
-      });
-      applications = [
-        rows.length === 0 ? "No persistent applications." : rows.join("\n"),
-        "Opening this view does not attach an application or activate Career assistance.",
-      ].join("\n");
+      empty.applications = {
+        intro: catalog.applications.length === 0
+          ? "No persistent applications. Opening this view does not attach or activate assistance."
+          : "Browse applications without attaching. Enter opens local detail only.",
+        items: catalog.applications.map((application) => {
+          const label = application.identity === undefined
+            ? `Legacy application — ${application.status}`
+            : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
+          const detail = application.identity === undefined
+            ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
+            : `${application.identity.company_label} — ${application.identity.role_label}\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application or activate Career assistance.`;
+          return item(application.application_id, label, detail);
+        }),
+      };
     }
-  } catch (error) {
-    applications = localLine(error);
+  } catch {
+    empty.setup = unavailablePane();
+    empty.library = unavailablePane();
+    empty.applications = unavailablePane();
   }
 
-  let vacancy = "No persistent application is attached.";
-  let match = vacancy;
-  let analyze = vacancy;
-  let workbench = "Workbench/assistance is never submitted from overlay navigation.";
-  let workspace = "Workspace administration stays local. Opening this view does not mutate files.";
   try {
     const attached = await attachedApplicationSourcesForSession(
       agentDir,
@@ -103,52 +141,123 @@ export async function buildCareerOverlayPages(
     );
     if (attached !== undefined) {
       const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
-      vacancy = attached.vacancy === undefined
-        ? `${heading}\nNo current job description in the workspace.`
-        : `${heading}\nCurrent job description: ${attached.vacancy.vacancy_label}`;
-      match = attached.effective_resume === undefined
-        ? `${heading}\nNo effective Resume is available.`
-        : `${heading}\nEffective Resume: ${attached.effective_resume.label}`;
-      analyze = attached.selected_original === undefined
-        ? `${heading}\nNo selected original Resume is available.`
-        : `${heading}\nSelected original: ${attached.selected_original.label}`;
-      workbench = `${heading}\nAssistance is not submitted from this overlay. Explicit activation remains a separate action.`;
-      workspace = `${heading}\nWorkspace files are the current application authority.`;
+      empty.vacancy = {
+        intro: heading,
+        items: attached.vacancy === undefined
+          ? []
+          : [item("vacancy", attached.vacancy.vacancy_label, `${heading}\nCurrent job description: ${attached.vacancy.vacancy_label}\nBrowse does not replace workspace files.`)],
+      };
+      if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\nNo current job description in the workspace.`;
+      empty.match = {
+        intro: heading,
+        items: attached.effective_resume === undefined
+          ? []
+          : [item("effective", attached.effective_resume.label, `${heading}\nEffective Resume: ${attached.effective_resume.label}\nMatch is not run by opening this view.`)],
+      };
+      if (attached.effective_resume === undefined) empty.match.intro = `${heading}\nNo effective Resume is available.`;
+      empty.analyze = {
+        intro: heading,
+        items: attached.selected_original === undefined
+          ? []
+          : [item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`)],
+      };
+      if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\nNo selected original Resume is available.`;
+      empty.workbench = {
+        intro: `${heading}\nAssistance is not submitted from this overlay.`,
+        items: [item("workbench", "Career assistance", `${heading}\nExplicit activation remains a separate action. Overlay browse does not submit a message.`)],
+      };
+      empty.workspace = {
+        intro: `${heading}\nWorkspace files are the current application authority.`,
+        items: [item("workspace", "Workspace", `${heading}\nOpening this view does not mutate files or attach another application.`)],
+      };
     }
-  } catch (error) {
-    vacancy = localLine(error);
-    match = vacancy;
-    analyze = vacancy;
+  } catch {
+    empty.vacancy = unavailablePane();
+    empty.match = unavailablePane();
+    empty.analyze = unavailablePane();
   }
 
-  return { setup, library, applications, vacancy, match, analyze, workbench, workspace };
+  return empty;
 }
 
 export class CareerOverlay implements Component {
+  private current: CareerOverlayView;
+  private readonly cursors: Record<CareerOverlayView, number>;
+  private detail = false;
+
   constructor(
     readonly view: CareerOverlayView,
-    private pages: CareerOverlayPages,
+    private readonly model: CareerOverlayModel,
     private readonly theme: Theme,
     private readonly keybindings: KeybindingsManager,
     private readonly requestRender: () => void,
     private readonly close: () => void,
-    private current: CareerOverlayView = view,
-  ) {}
+  ) {
+    this.current = view;
+    this.cursors = {
+      setup: 0, library: 0, applications: 0, vacancy: 0, match: 0, analyze: 0, workbench: 0, workspace: 0,
+    };
+  }
 
   get currentView(): CareerOverlayView {
     return this.current;
   }
 
+  get showingDetail(): boolean {
+    return this.detail;
+  }
+
+  get cursor(): number {
+    return this.cursors[this.current];
+  }
+
+  get currentItem(): CareerOverlayItem | undefined {
+    return this.model[this.current].items[this.cursor];
+  }
+
+  private pane(): CareerOverlayPane {
+    return this.model[this.current];
+  }
+
+  private move(delta: number): void {
+    const items = this.pane().items;
+    if (items.length === 0) return;
+    this.cursors[this.current] = (this.cursor + delta + items.length) % items.length;
+    this.requestRender();
+  }
+
   handleInput(data: string): void {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape)) {
+      if (this.detail) {
+        this.detail = false;
+        this.requestRender();
+        return;
+      }
       this.close();
       return;
     }
     const index = Number.parseInt(data, 10);
     const next = CAREER_OVERLAY_VIEWS[index - 1];
-    if (next !== undefined && next !== this.current) {
+    if (next !== undefined) {
       this.current = next;
+      this.detail = false;
       this.requestRender();
+      return;
+    }
+    if (this.detail) return;
+    if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) {
+      this.move(-1);
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) {
+      this.move(1);
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.return) || matchesKey(data, Key.enter)) {
+      if (this.currentItem !== undefined) {
+        this.detail = true;
+        this.requestRender();
+      }
     }
   }
 
@@ -158,12 +267,22 @@ export class CareerOverlay implements Component {
       const label = `${index + 1}:${VIEW_LABELS[view]}`;
       return view === this.current ? this.theme.bold(this.theme.fg("accent", label)) : this.theme.fg("dim", label);
     }).join("  ");
-    const body = this.pages[this.current].split("\n");
+    const pane = this.pane();
+    const selected = this.currentItem;
+    const body = this.detail && selected !== undefined
+      ? selected.detail.split("\n")
+      : [
+        pane.intro,
+        ...pane.items.map((entry, index) => index === this.cursor ? `> ${entry.label}` : `  ${entry.label}`),
+      ];
+    const footer = this.detail
+      ? "Esc back • 1-8 view • no model or Core call"
+      : "↑↓ move • Enter open • Esc close • 1-8 view • no model or Core call";
     return [
       this.theme.fg("accent", this.theme.bold(`Career • ${VIEW_LABELS[this.current]}`)),
       nav,
       ...body,
-      this.theme.fg("dim", "1-8 view • Esc close • no model or Core call"),
+      this.theme.fg("dim", footer),
     ].map((line) => truncateToWidth(line, renderWidth));
   }
 
@@ -176,10 +295,10 @@ export async function openCareerOverlay(
   agentDir: string,
 ): Promise<void> {
   if (ctx.mode !== "tui") return;
-  const pages = await buildCareerOverlayPages(agentDir, ctx);
+  const model = await buildCareerOverlayModel(agentDir, ctx);
   await ctx.ui.custom<void>((tui, theme, keybindings, done) => new CareerOverlay(
     view,
-    pages,
+    model,
     theme,
     keybindings,
     () => tui.requestRender(),
