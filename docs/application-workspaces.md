@@ -113,11 +113,11 @@ Mode behavior is exact:
 
 ## Independent authorization classes
 
-Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The application roadmap adds attachment and model-context activation as separately reviewed decisions; naming them here does not implement or authorize them.
+Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The attachment and model-context decisions are fixed here for #64 but remain unimplemented until their separate behavior slice is reviewed.
 
-1. **Session persistence.** Current persisted-session consent governs custom entries. In a transient `pi --no-session` run, entries remain transient. This consent does not authorize attachment, model context, provider submission, or a file.
-2. **Application attachment (target #64).** An explicit choice may append one bounded application/root identity pointer. Browsing, highlighting, or opening never attaches. Attachment contains no document/result/prompt bytes and does not authorize model-context activation, provider submission, Core use, or mutation.
-3. **Career model-context activation (target #64).** An explicit assistance action may make the bundled Career Skill and primary `career_run` tool available to one application-scoped assistance session. Attachment alone never does this, and raw tools remain inactive by default.
+1. **Session persistence.** Current persisted-session consent governs custom entries. In a transient `pi --no-session` run, entries remain process-memory-only. This consent does not authorize attachment, model context, provider submission, or a file.
+2. **Application attachment.** An explicit Attach choice appends the bounded application/root identity pointer specified below. Browsing, highlighting, opening, or choosing an assistance action never substitutes for that choice. Attachment contains no document/result/prompt bytes and does not authorize model-context activation, provider submission, Core use, or mutation.
+3. **Career model-context activation.** For an already attached application, an explicit Ask Pi/Regenerate/Suggest/Explain action may append the activation record specified below, make the bundled Career Skill and primary `career_run` tool available, and prepare an editor handoff. Attachment alone never does this, and raw tools remain inactive by default.
 4. **Provider submission.** `/career-workbench` and the future overlay assistance actions prepare an ordinary visible editor message without calling a provider. Only the user's later normal Pi submission may send it. Session, attachment, model-context, or workspace consent is not provider consent.
 5. **Workspace-file mutation.** Root marker/configuration, application initialization, and every state/vacancy revision each require a complete unchanged workspace preview and then a separate confirmation.
 6. **Artifact-file mutation.** Saving `resume.md`/`resume.txt`, its sidecar, and its state revision requires a new artifact preview and confirmation. A preceding workspace confirmation and any `/career-save` confirmation are irrelevant.
@@ -139,37 +139,85 @@ No session schema change is required in v1. For the current active UUID, the **i
 
 Workspace references are not added to that strict schema. Session reconstruction remains authoritative for the active in-session application and vacancy; workspace reconstruction is separately authoritative for local workspace files and persistent catalog display. New initialization copies the identity entry's exact labels, UUID, and creation timestamp into one immutable private display-identity file. An attached session must retain those exact values. `application_created_at` and the directory slugs derive from the session identity entry during initialization, while the latest valid session entry supplies current conversational status.
 
-### Target `/career` attachment and assistance sessions
+### `/career` attachment records
 
-The persistent-catalog model changes discovery, not authority: `/career` may list and open validated applications without any Pi session attachment. Overlay route, filter, search, cursor, bounded catalog snapshots, and lazy detail bytes remain process-memory-only and are not custom entries. Browsing appends nothing and does not load Career-specific model context.
+The persistent catalog changes discovery, not authority: `/career` may list and open validated applications without any Pi session attachment. Overlay route, filter, search, cursor, bounded catalog snapshots, and lazy detail bytes remain process-memory-only. Browsing appends nothing and does not load Career-specific model context.
 
-A future #64 attachment is one explicit, bounded pointer to a validated application/root identity. Its exact schema is intentionally deferred to #64; no field shape is implied here. It may contain only identity references needed to revalidate the workspace, never company documents, document bodies, Core/provider results, prompts, credentials, absolute-path display data, or model output. Pi custom-entry exclusion from model context is necessary but not sufficient: the adapter must also avoid copying attachment or workspace content into messages, tool results, or Skill text merely to browse.
+Attachment uses Pi custom entries, which do not participate in model context. The custom type is exactly `career.application_attachment`. An attach entry has exactly this ordered data object:
 
-Attachment and assistance activation are independent. An attached application can remain entirely local. Only an explicit Ask Pi/Regenerate/Suggest/Explain action may establish or use an application-scoped assistance session, make the Career Skill and compact `career_run` model-visible, and prepare a bounded editor handoff. That preparation cannot invoke a provider or submit a message. The user reviews and submits through ordinary Pi interaction; after activation, the Career model surface remains stable for that assistance session to preserve prompt-cache reuse.
+```json
+{
+  "schema_version": "pi.career.application_attachment.v1",
+  "kind": "application_attachment",
+  "attachment_id": "<lowercase UUID>",
+  "application_id": "<lowercase UUID>",
+  "root_id": "<lowercase UUID>",
+  "root_created_at": "<root marker canonical UTC timestamp with milliseconds>",
+  "application_created_at": "<application manifest canonical UTC timestamp with milliseconds>",
+  "workspace_created_at": "<application manifest canonical UTC timestamp with milliseconds>"
+}
+```
 
-The one-company/role rule applies to assistance context, not catalog browsing. A user may browse any number of applications locally, but a session containing assistance for one application cannot be repointed to another. `Open in new Pi session` must use Pi's session-replacement lifecycle, discard stale extension context, and continue only with the fresh context after successful replacement. Cancellation or replacement failure leaves the original session and overlay authority unchanged. Restart, branch, `/new`, detach, unavailable root, and identity drift all trigger fresh pointer validation; no session attachment or assistance context is reconstructed from workspace files alone.
+A detach entry uses the same custom type and exactly this ordered data object:
 
-These are acceptance requirements for #64 and later overlay slices, not changes to the current `pi.career.workflow_state.v1` bytes or Gate 1 behavior.
+```json
+{
+  "schema_version": "pi.career.application_attachment.v1",
+  "kind": "application_detachment",
+  "detachment_id": "<lowercase UUID>",
+  "attachment_id": "<lowercase UUID>"
+}
+```
+
+The outer Pi session entry ID, parent ID, and timestamp remain Pi-owned envelope fields and are not duplicated in adapter data. All adapter fields are mandatory; extra, missing, reordered, malformed, or noncanonical values fail closed. The three identity timestamps bind the configured root marker and application manifest without storing a path. The entry contains no labels, slugs, paths, document bytes, result bytes, prompt text, credentials, provider content, environment values, or model output.
+
+The adapter replays all `career.application_attachment` entries on the active branch in order. An attachment is active only when its exact `attachment_id` has not been cleared by one later valid detachment. A detachment must clear the currently active ID; attaching while one is active, reusing any record ID, or an invalid transition makes Career attachment state unavailable. Compaction does not replace custom-entry replay: reconstruction uses `SessionManager.getBranch()`, not model context entries.
+
+Before attachment and on every restore or action, one bounded fresh scan must map `root_id` to the one current configured application root, match `root_created_at`, find exactly one direct-child manifest with the application UUID, match both manifest timestamps and `root_id`, validate the display identity and expected direct-child name, and reject stale/capped scans, duplicates, legacy identity, drift, or over-limit data. Workspace bytes remain authoritative after that pointer validation. Missing config/root/application data is `attachment_unavailable`; conflicting identity is `workspace_identity_conflict`. Neither outcome causes fallback, path search, identity invention, session append, file mutation, or automatic detach.
+
+### Assistance activation record and model surface
+
+Attachment and assistance activation are independent. The custom type for explicit activation is exactly `career.application_assistance`, with this ordered data object:
+
+```json
+{
+  "schema_version": "pi.career.application_assistance.v1",
+  "kind": "application_assistance_activation",
+  "activation_id": "<lowercase UUID>",
+  "attachment_id": "<active attachment lowercase UUID>",
+  "application_id": "<attached application lowercase UUID>"
+}
+```
+
+The record contains no action prompt or private content. It is valid only when IDs are new, its application and attachment exactly match the valid active attachment on that branch, and no earlier valid activation exists for that attachment. Repeated assistance actions reuse the activation and append nothing. Detaching clears effective activation because a later attachment receives a new `attachment_id`; old activation records never reactivate it.
+
+The implementation lifecycle is fixed:
+
+1. The package no longer statically declares `./skills/career-core` in `package.json`. The extension registers the four reviewed tools but removes all four Career names from the active set unless the current branch has a valid activation; unrelated tools are preserved.
+2. `session_start` strictly replays entries and freshly validates the pointer. Only a valid activation makes `career_run` active. The raw names remain inactive.
+3. `resources_discover`, which Pi runs after `session_start`, returns the package's `skills/career-core` parent path only while that valid activation is in memory. Otherwise it returns no Career Skill path, so ordinary model turns contain neither Career Skill metadata/content nor a Career tool schema.
+4. The first explicit assistance action requires an already valid attachment, revalidates it, appends one activation entry, puts the bounded `/skill:career-core …` handoff in the visible editor, then calls `await ctx.reload(); return;`. Reload is terminal for that old command frame. It does not call `sendMessage()`, `sendUserMessage()`, Core, or a provider.
+5. After reload, the user may edit, cancel, or ordinarily submit the handoff. An `input` handler freshly validates active attachment before Skill expansion; on failure it returns `handled`, emits only stable local guidance, clears handles/tools, and starts no agent turn. Normal submission after successful validation is the sole provider-consent action. The same Skill and compact `career_run` surface remains unchanged across valid related turns for prompt-cache reuse.
+6. `/career-tools raw` is rejected outside a valid activation. Inside one, it may explicitly add the exact three raw compatibility names; `managed` removes them. Raw selection is process-memory-only and resets to managed on reload, restart, branch replacement, and session replacement.
+
+Every attached workspace read used to prepare a handoff or execute `career_run` is freshly bounded and validated. Commands validate in their action handlers, normal prompts validate in `input` before Skill expansion, and tools validate before private Core input. If attachment becomes unavailable, execution fails before Core/provider use with a stable payload-free error and removes Career tools from the active set. No background watcher or provider hook scans files. The next reload, restart, branch transition, or explicit local action removes undiscoverable Skill metadata; no invalid attachment may be used merely because a prior turn was valid.
 
 ### One session, one application
 
-An application workspace can be initialized only when the current branch reconstructs exactly one active application and its UUID is canonical lowercase. The current fresh-session rule remains:
+The one-company/role rule applies to session use, not catalog browsing. A user may browse any number of applications locally. For the irrevocable used-application check, the adapter examines all entries from `SessionManager.getEntries()`, including strict legacy workflow identity entries and valid attachment entries on abandoned branches. The first application UUID claims the session. Any attempt to create, initialize, or attach another UUID fails and offers `Open in new Pi session`; branch navigation, detachment, clearing, or compaction does not release that claim. Same-UUID reattachment after an explicit detach is allowed only after full current validation and gets a fresh `attachment_id`.
 
-- use `/new` before `/career-application` for another company/role;
-- after a session has contained and cleared an application, it cannot create another application in that session;
-- `/career-application clear` detaches the active session state but does not alter files; and
-- a branch positioned before the application entry has no active application and cannot attach or mutate that workspace.
+An application workspace can be initialized only when the current branch reconstructs exactly one active legacy application and its UUID is canonical lowercase. A matching workspace attachment may coexist with that same legacy identity only when UUID, creation timestamp, and exact labels agree. Once attached, workspace state is authoritative and later commands cannot append a competing session-only status or vacancy. The package never accepts an application UUID from a command argument or file picker and never uses company/role labels alone as authority.
 
-The package never accepts an application UUID from a command argument or file picker. It never uses company/role labels as authority.
+`Open in new Pi session` uses `ctx.newSession({ parentSession, setup, withSession })`. `setup` appends only a freshly generated attachment record for the selected validated application through the replacement `SessionManager`; it copies no conversation, activation, document, or result entry. A successful replacement tears down the old runtime, starts and validates the new one, and uses only the replacement callback context for a local notification. It does not submit a message. Cancellation or setup/replacement failure leaves the old session and overlay unchanged and appends nothing there.
 
-### Restart, reattach, branch, and transient rules
+### Restart, branch, detach, and transient rules
 
-- A persisted session reattaches after restart only when its validated active identity entry matches the UUID and `application_created_at` in valid `application.json`, plus exact labels in a present valid `.pi-career-identity.json`, at the exact identity-label-slug-derived direct-child path. A bounded direct-child scan must also find no second manifest with that UUID. A missing expected match means unattached; any duplicate, timestamp mismatch, or same-UUID label drift is `workspace_identity_conflict`.
-- The manifest UUID and creation timestamp remain identity authority, the display-identity file supplies exact persistent labels, and the session identity entry must match both while attached. Legacy workspaces without display identity remain readable under their separately approved classification. A differently named or user-renamed directory is never adopted, and v1 never renames a directory.
-- Session branches that contain the same application UUID address the same workspace. Divergent status/vacancy state is shown as drift and requires an explicit direction-specific write; it is never merged silently.
-- A transient session may create workspace files after the same workspace consent. The UI must warn before preview that the files outlive the transient process. After shutdown, the transient session entries and managed handles cannot be reconstructed, so pi-career cannot reattach that directory from disk alone or invent a replacement session identity.
-- Clearing an application, removing its session file, or removing the configured root does not delete or rewrite the directory.
-- The application UUID never changes. Re-applying to the same company/role uses a fresh session and fresh UUID, producing a distinct directory.
+- Persisted restart/resume reconstructs only strict entries on the active branch, then performs the complete fresh pointer validation above. Workspace files alone never reconstruct an attachment or activation.
+- `/tree` navigation recomputes branch attachment and activation. If Career resource visibility changes, the handler performs one terminal reload so both active tools and discovered Skill metadata match the new branch before another model turn. Navigating before attach is unattached; between attach and activation is attached-local; at or after activation is assisted.
+- `/fork` and `/clone` inherit only entries present at their selected branch position and are revalidated in the fresh extension instance. Their source session's all-entry used-application claim is unchanged. `/new` is unattached unless the explicit replacement flow above seeds one attachment.
+- Explicit Detach appends only the detachment record after confirmation, performs no workspace mutation, clears ephemeral Career handles/results, and reloads to remove the model surface. Removing config or losing a root merely makes the attachment unavailable and appends no detachment.
+- In `pi --no-session`, the same entries live only in the in-memory `SessionManager`, so reload and tree behavior work identically during that process. Shutdown loses attachment, activation, raw-tool choice, and managed handles; separately approved workspace files remain. They cannot recreate session identity later.
+- Clearing a legacy application, removing a session file, detaching, or removing the configured root does not delete or rewrite an application directory. Re-applying to the same company/role uses a new session and UUID.
 
 ## Configuration v2 and migration
 

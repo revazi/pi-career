@@ -24,7 +24,7 @@ Before any mutation, Core invocation, attachment, or model handoff, the adapter 
 
 ### Session and model-context boundary
 
-Browsing never attaches an application. An explicit application attachment, when implemented by #64, stores only a bounded application/root identity pointer in a Pi custom entry after the separate session-persistence decision; it stores no document, result, prompt, or provider content and does not itself activate a Career Skill/tool or authorize provider submission. Workspace files remain the application authority.
+Browsing never attaches an application. The approved #64 attachment stores only the exact bounded, path-free application/root identity pointer in a Pi custom entry after the separate session-persistence decision; it stores no document, result, prompt, or provider content and does not itself activate a Career Skill/tool or authorize provider submission. Workspace files remain the application authority.
 
 An explicit assistance action revalidates the application and uses one company/role per assistance session so prior-company conversation content cannot leak into another application. The action may prepare a visible editor message and may establish a fresh application-scoped Pi session, but it must never call `sendMessage()`, `sendUserMessage()`, or an equivalent automatic submission path. Only the user’s later ordinary submission activates the provider boundary. Within that explicitly activated assistance session, the Career Skill and compact `career_run` contract remain stable rather than being toggled every turn, preserving prompt-cache reuse. The exact raw compatibility tools remain inactive unless the user explicitly requests raw/debug mode.
 
@@ -32,7 +32,7 @@ Restart, `/new`, branch, detach, unavailable-root, and identity-drift behavior m
 
 ### Ordered delivery and acceptance invariants
 
-Persistence foundations #60–#65 remain ahead of overlay implementation. #64 owns the exact attachment and command-authority contract and must also specify the context-on-demand activation lifecycle without inventing a second application authority. After those foundations are accepted, #54–#58 deliver the Resume, application, match/tailoring, cover-letter, and integrated overlay slices; #59 validates the complete product.
+Persistence foundations #60–#65 remain ahead of overlay implementation. #64's exact attachment, command-authority, and context-on-demand lifecycle are specified in [`application-workspaces.md`](application-workspaces.md); behavior remains split into reviewable implementation slices without a second application authority. After those foundations are accepted, #54–#58 deliver the Resume, application, match/tailoring, cover-letter, and integrated overlay slices; #59 validates the complete product.
 
 Every overlay slice must prove with synthetic scenarios that:
 
