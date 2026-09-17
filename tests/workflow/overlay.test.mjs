@@ -659,3 +659,69 @@ test("RPC overlay can update status and open Gate 1 workspace management", async
     await rm(temp, { recursive: true, force: true });
   }
 });
+
+test("overlay keeps created applications and analyze results in the shared UI", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-loop-")));
+  try {
+    const rootDir = path.join(temp, "resumes");
+    await mkdir(rootDir);
+    await writeFile(path.join(rootDir, "alpha.md"), "# Synthetic Alpha\nDeterministic content\n");
+    const { fake } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        if (invocation.operation === "analyze") {
+          return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+        }
+        if (invocation.operation === "normalize") {
+          return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+        }
+        return { operation: "job.match", json: JSON.stringify(matchResult()) };
+      },
+    });
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.create, CAREER_UI_RPC_ACTIONS.close],
+      inputs: ["Synthetic Company", "Synthetic Engineer"], confirms: [true],
+    }).ctx);
+    let listed;
+    const list = makeContext(fake, { mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close] });
+    const select = list.ctx.ui.select;
+    list.ctx.ui.select = async (title, options) => {
+      listed = options;
+      return select(title, options);
+    };
+    await fake.commands.get("career").handler("", list.ctx);
+    assert.ok(listed.some((option) => option.includes("Synthetic Company")));
+
+    await fake.commands.get("career-setup").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [rootDir], confirms: [true],
+    }).ctx);
+    await fake.commands.get("career-analyze").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
+    }).ctx);
+    let analyzeOptions;
+    const analyze = makeContext(fake, { mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close] });
+    const analyzeSelect = analyze.ctx.ui.select;
+    analyze.ctx.ui.select = async (title, options) => {
+      analyzeOptions = options;
+      return analyzeSelect(title, options);
+    };
+    await fake.commands.get("career-analyze").handler("", analyze.ctx);
+    assert.ok(analyzeOptions.some((option) => option.includes("Career analyze")));
+
+    const asked = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-workbench").handler("", asked.ctx);
+    assert.equal(fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
+    assert.ok(asked.notifications.some(({ message }) => message.includes("Attach an application")));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});

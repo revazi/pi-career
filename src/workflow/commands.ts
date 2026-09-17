@@ -465,7 +465,14 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         if (resume === undefined) {
           const originals = eligibleOriginals(scan);
           if (originals.length === 0) throw workflowError("library_empty");
-          resume = originals[0];
+          if (originals.length === 1) {
+            resume = originals[0];
+          } else {
+            const byLabel = new Map(originals.map((record) => [record.label, record]));
+            const chosen = await ctx.ui.select("Choose an original resume", [...byLabel.keys()]);
+            resume = chosen === undefined ? undefined : byLabel.get(chosen);
+            if (resume === undefined) return false;
+          }
         }
         if (resume === undefined) throw workflowError("library_empty");
         await ensureConsent(ctx, run);
@@ -545,6 +552,37 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       },
       workspace: async () => {
         await applicationWorkspace.run("", ctx);
+        return true;
+      },
+      askPi: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached === undefined) {
+          ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning");
+          return false;
+        }
+        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        return true;
+      },
+      detach: async () => {
+        const outcome = await applicationWorkspace.detachAttachedApplication(ctx);
+        if (outcome === "cancelled") {
+          ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          return false;
+        }
+        return outcome === "detached";
+      },
+      clearVacancy: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== undefined) {
+          if (attached.vacancy === undefined) return false;
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
+          return outcome === "written";
+        }
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.vacancy === undefined) return false;
+        const run = owner.start(ctx);
+        appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+        ctx.ui.notify("Current career vacancy cleared.", "info");
         return true;
       },
     });

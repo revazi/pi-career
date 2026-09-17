@@ -9,9 +9,10 @@ import {
   readApplicationCatalog,
 } from "./application-workspace.ts";
 import { loadConfig } from "./config.ts";
-import { privacyDisplayPath, setupSummary } from "./renderers.ts";
+import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
 import type { ApplicationAttachmentPointer } from "./session-attachment.ts";
+import { reconstructWorkflowState } from "./session-state.ts";
 
 export const CAREER_UI_VIEWS = [
   "setup",
@@ -74,6 +75,9 @@ export const CAREER_UI_RPC_ACTIONS = {
   editVacancy: "Edit job description",
   updateStatus: "Update status",
   workspace: "Manage workspace",
+  askPi: "Ask Pi",
+  detach: "Detach",
+  clearVacancy: "Clear job description",
 } as const;
 
 export interface CareerUiItem {
@@ -101,6 +105,9 @@ export interface CareerUiActions {
   editVacancy?: () => Promise<boolean>;
   updateStatus?: () => Promise<boolean>;
   workspace?: () => Promise<boolean>;
+  askPi?: () => Promise<boolean>;
+  detach?: () => Promise<boolean>;
+  clearVacancy?: () => Promise<boolean>;
 }
 
 function unavailablePane(): CareerUiPane {
@@ -132,14 +139,14 @@ export async function buildCareerUiModel(
 ): Promise<CareerUiModel> {
   const persisted = ctx.sessionManager.getSessionFile() !== undefined;
   const empty: CareerUiModel = {
-    setup: { intro: "pi-career is not configured.", items: [] },
-    library: { intro: "No resume library is configured.", items: [] },
-    applications: { intro: "Application workspace is not configured.", items: [] },
-    vacancy: { intro: "No persistent application is attached.", items: [] },
-    match: { intro: "No persistent application is attached.", items: [] },
-    analyze: { intro: "No persistent application is attached.", items: [] },
-    workbench: { intro: "Workbench/assistance is never submitted from overlay navigation.", items: [] },
-    workspace: { intro: "Workspace administration stays local. Opening this view does not mutate files.", items: [] },
+    setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
+    library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
+    applications: { intro: "Application workspace is not configured. Open Workspace and press m to configure, then c to create.", items: [] },
+    vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
+    match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
+    analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
+    workbench: { intro: "Press p to prepare Ask Pi. Nothing is submitted from this view.", items: [] },
+    workspace: { intro: "Press m to manage the application workspace. Opening this view does not mutate files.", items: [] },
   };
 
   try {
@@ -155,7 +162,7 @@ export async function buildCareerUiModel(
     };
     empty.library = {
       intro: scan.records.length === 0
-        ? "No indexed resumes."
+        ? "No indexed resumes. Press n to add a root, r to rescan."
         : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
       items: scan.records.map((record) => {
         const badges = [
@@ -178,8 +185,8 @@ export async function buildCareerUiModel(
       );
       empty.applications = {
         intro: catalog.applications.length === 0
-          ? "No persistent applications. Opening this view does not attach or activate assistance."
-          : "Browse applications without attaching. Enter opens local detail. a attaches the selected valid application.",
+          ? "No persistent applications. Press c to create one. Creating does not attach."
+          : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
         items: catalog.applications.map((application) => {
           const pointer = pointers.get(application.application_id);
           const label = application.identity === undefined
@@ -206,29 +213,30 @@ export async function buildCareerUiModel(
     );
     if (attached !== undefined) {
       const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+      const pack = `Job description: ${attached.vacancy === undefined ? "missing" : "ready"} · Selected original: ${attached.selected_original === undefined ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === undefined ? "missing" : "ready"}`;
       empty.vacancy = {
-        intro: heading,
+        intro: `${heading}\n${pack}`,
         items: attached.vacancy === undefined
           ? []
           : [item("vacancy", attached.vacancy.vacancy_label, `${heading}\nCurrent job description: ${attached.vacancy.vacancy_label}\nBrowse does not replace workspace files.`)],
       };
-      if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\nNo current job description in the workspace.`;
+      if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\n${pack}\nNo current job description. Press e to paste one.`;
       empty.match = {
-        intro: heading,
+        intro: `${heading}\n${pack}`,
         items: attached.effective_resume === undefined
           ? []
           : [item("effective", attached.effective_resume.label, `${heading}\nEffective Resume: ${attached.effective_resume.label}\nMatch is not run by opening this view.`)],
       };
-      if (attached.effective_resume === undefined) empty.match.intro = `${heading}\nNo effective Resume is available.`;
+      if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.`;
       empty.analyze = {
-        intro: heading,
+        intro: `${heading}\n${pack}`,
         items: attached.selected_original === undefined
           ? []
           : [item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`)],
       };
-      if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\nNo selected original Resume is available.`;
+      if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\n${pack}\nNo selected original Resume is available.`;
       empty.workbench = {
-        intro: `${heading}\nAssistance is not submitted from this overlay.`,
+        intro: `${heading}\n${pack}\nPress p to prepare Ask Pi. Nothing is submitted.`,
         items: [item("workbench", "Career assistance", `${heading}\nExplicit activation remains a separate action. Overlay browse does not submit a message.`)],
       };
       empty.workspace = {
@@ -240,6 +248,32 @@ export async function buildCareerUiModel(
     empty.vacancy = unavailablePane();
     empty.match = unavailablePane();
     empty.analyze = unavailablePane();
+  }
+
+  const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+  if (empty.applications.items.length === 0 && state.application !== undefined) {
+    empty.applications = {
+      intro: "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.",
+      items: [item(
+        state.application.application_id,
+        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status}`,
+        `${state.application.company_label} — ${state.application.role_label}\nStatus: ${state.application.status}\nSession-scoped. Opening does not attach this application.`,
+      )],
+    };
+  }
+  const analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5);
+  const matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
+  if (analyzeCards.length > 0) {
+    empty.analyze.items = [
+      ...empty.analyze.items,
+      ...analyzeCards.map((card) => item(`analyze:${card.state_id}`, plainResultCard(card).split("\n")[0] ?? card.resume_label, plainResultCard(card))),
+    ];
+  }
+  if (matchCards.length > 0) {
+    empty.match.items = [
+      ...empty.match.items,
+      ...matchCards.map((card) => item(`match:${card.state_id}`, plainResultCard(card).split("\n")[0] ?? card.resume_label, plainResultCard(card))),
+    ];
   }
 
   return empty;
@@ -327,6 +361,18 @@ export class CareerUiSession {
     return this.current === "workspace" && this.actions.workspace !== undefined && !this.busyFlag;
   }
 
+  get canAskPi(): boolean {
+    return this.current === "workbench" && this.actions.askPi !== undefined && !this.busyFlag;
+  }
+
+  get canDetach(): boolean {
+    return this.current === "applications" && this.actions.detach !== undefined && !this.busyFlag;
+  }
+
+  get canClearVacancy(): boolean {
+    return this.current === "vacancy" && this.actions.clearVacancy !== undefined && !this.busyFlag;
+  }
+
   rpcActions(): string[] {
     return [
       ...(this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : []),
@@ -339,6 +385,9 @@ export class CareerUiSession {
       ...(this.canEditVacancy ? [CAREER_UI_RPC_ACTIONS.editVacancy] : []),
       ...(this.canUpdateStatus ? [CAREER_UI_RPC_ACTIONS.updateStatus] : []),
       ...(this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : []),
+      ...(this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : []),
+      ...(this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : []),
+      ...(this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : []),
     ];
   }
 
@@ -455,6 +504,24 @@ export class CareerUiSession {
     return this.runBound(this.canWorkspace, action);
   }
 
+  async askPi(): Promise<boolean> {
+    const action = this.actions.askPi;
+    if (action === undefined) return false;
+    return this.runBound(this.canAskPi, action);
+  }
+
+  async detach(): Promise<boolean> {
+    const action = this.actions.detach;
+    if (action === undefined) return false;
+    return this.runBound(this.canDetach, action);
+  }
+
+  async clearVacancy(): Promise<boolean> {
+    const action = this.actions.clearVacancy;
+    if (action === undefined) return false;
+    return this.runBound(this.canClearVacancy, action);
+  }
+
   async runRpcAction(choice: string): Promise<boolean> {
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
@@ -466,6 +533,9 @@ export class CareerUiSession {
     if (choice === CAREER_UI_RPC_ACTIONS.editVacancy) return this.editVacancy();
     if (choice === CAREER_UI_RPC_ACTIONS.updateStatus) return this.updateStatus();
     if (choice === CAREER_UI_RPC_ACTIONS.workspace) return this.workspace();
+    if (choice === CAREER_UI_RPC_ACTIONS.askPi) return this.askPi();
+    if (choice === CAREER_UI_RPC_ACTIONS.detach) return this.detach();
+    if (choice === CAREER_UI_RPC_ACTIONS.clearVacancy) return this.clearVacancy();
     return false;
   }
 }
@@ -629,6 +699,9 @@ export class CareerOverlay implements Component {
       key === "e" && this.session.canEditVacancy ? this.session.editVacancy() :
       key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() :
       key === "m" && this.session.canWorkspace ? this.session.workspace() :
+      key === "p" && this.session.canAskPi ? this.session.askPi() :
+      key === "d" && this.session.canDetach ? this.session.detach() :
+      key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() :
       undefined;
     if (keyed !== undefined) {
       void keyed.finally(() => this.requestRender());
@@ -679,6 +752,9 @@ export class CareerOverlay implements Component {
       ...(this.session.canEditVacancy ? ["e edit"] : []),
       ...(this.session.canUpdateStatus ? ["s status"] : []),
       ...(this.session.canWorkspace ? ["m workspace"] : []),
+      ...(this.session.canAskPi ? ["p ask Pi"] : []),
+      ...(this.session.canDetach ? ["d detach"] : []),
+      ...(this.session.canClearVacancy ? ["k clear"] : []),
       "1-8 view",
     ];
     const footer = hints.join("   ");
