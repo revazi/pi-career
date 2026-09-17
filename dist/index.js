@@ -6238,6 +6238,8 @@ var ApplicationWorkspaceWorkflow = class {
       ...menuState.canRecord ? ["Record current status and vacancy"] : [],
       ...menuState.canSelectOriginal ? ["Select original resume"] : [],
       ...menuState.canAttach ? ["Attach current application"] : [],
+      ...menuState.canAttachCatalog ? ["Attach application"] : [],
+      ...menuState.canOpenInNewSession ? ["Open application in new Pi session"] : [],
       ...menuState.canDetachSession ? ["Detach current application from session"] : [],
       ...menuState.canActivateAssistance ? ["Activate Career assistance"] : [],
       "Configure application root",
@@ -6253,13 +6255,17 @@ var ApplicationWorkspaceWorkflow = class {
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
     if (action === "Attach current application") return this.attachCurrent(ctx);
+    if (action === "Attach application") return this.attachFromCatalog(ctx);
+    if (action === "Open application in new Pi session") return this.openInNewSession(ctx);
     if (action === "Detach current application from session") return this.detachCurrent(ctx);
     if (action === "Activate Career assistance") return this.activateAssistance(ctx);
   }
   async menuState(ctx, identity2) {
     const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    const catalogFlags = await this.catalogMenuFlags(records);
     const sessionFlags = {
       canAttach: false,
+      ...catalogFlags,
       canDetachSession: records.integrity === "valid" && records.attachment !== void 0,
       canActivateAssistance: records.integrity === "valid" && records.attachment !== void 0 && records.activation === void 0
     };
@@ -6286,6 +6292,8 @@ var ApplicationWorkspaceWorkflow = class {
         canRecord: attachment.application.head.status !== identity2.current.status || !sameSessionVacancy(attachment.application.head, identity2.vacancy),
         canSelectOriginal: attachment.application.head.resume_artifact === null,
         canAttach: records.integrity === "valid" && records.attachment === void 0 && (records.used_application_id === void 0 || records.used_application_id === identity2.identity.application_id),
+        canAttachCatalog: sessionFlags.canAttachCatalog,
+        canOpenInNewSession: sessionFlags.canOpenInNewSession,
         canDetachSession: sessionFlags.canDetachSession,
         canActivateAssistance: sessionFlags.canActivateAssistance
       };
@@ -6302,6 +6310,112 @@ var ApplicationWorkspaceWorkflow = class {
     if (records.integrity !== "valid") throw workflowError("attachment_unavailable");
     return records;
   }
+  async catalogMenuFlags(records) {
+    if (records.integrity !== "valid") return { canAttachCatalog: false, canOpenInNewSession: false };
+    const items = await this.listAttachable();
+    return {
+      canAttachCatalog: items.length > 0 && records.attachment === void 0 && records.used_application_id === void 0,
+      canOpenInNewSession: items.length > 0 && records.used_application_id !== void 0
+    };
+  }
+  async listAttachable() {
+    try {
+      const snapshot = await loadConfigSnapshot(this.options.agentDir);
+      const configured = snapshot.config.application_workspace;
+      if (configured === null) return [];
+      await assertApplicationWorkspaceDisjoint(snapshot.config);
+      const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+      const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+      if (!sameCatalogEvidence(initial, current)) return [];
+      const items = [];
+      for (const { record, inspected } of initial.validatedApplications) {
+        if (record.classification !== "valid" || record.identity === void 0) continue;
+        items.push({
+          option: `${record.identity.company_label} — ${record.identity.role_label} — ${record.status}`,
+          pointer: {
+            applicationId: inspected.manifest.application_id,
+            rootId: inspected.manifest.root_id,
+            rootCreatedAt: initial.root.marker.created_at,
+            applicationCreatedAt: inspected.manifest.application_created_at,
+            workspaceCreatedAt: inspected.manifest.workspace_created_at
+          }
+        });
+      }
+      const counts = /* @__PURE__ */ new Map();
+      for (const item of items) counts.set(item.option, (counts.get(item.option) ?? 0) + 1);
+      return items.map((item) => counts.get(item.option) === 1 ? item : {
+        ...item,
+        option: `${item.option} — ${item.pointer.applicationId}`
+      });
+    } catch {
+      return [];
+    }
+  }
+  async selectAttachable(ctx, title) {
+    const items = await this.listAttachable();
+    if (items.length === 0) throw workflowError("attachment_unavailable");
+    const byOption = new Map(items.map((item) => [item.option, item.pointer]));
+    if (byOption.size !== items.length) throw workflowError("workspace_drift");
+    const chosen = await ctx.ui.select(title, [...byOption.keys()]);
+    if (chosen === void 0) return void 0;
+    const pointer = byOption.get(chosen);
+    if (pointer === void 0) throw workflowError("workspace_unavailable");
+    return pointer;
+  }
+  async commitAttachment(ctx, pointer, title, message) {
+    const entry = createApplicationAttachmentEntry(pointer, this.options);
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const confirmed = await ctx.ui.confirm(title, message);
+    if (confirmed !== true) return false;
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment !== void 0) throw workflowError("workspace_unavailable");
+    if (latest.used_application_id !== void 0 && latest.used_application_id !== pointer.applicationId) {
+      throw workflowError("workspace_identity_conflict");
+    }
+    this.requireAppender()(APPLICATION_ATTACHMENT_CUSTOM_TYPE, entry);
+    ctx.ui.notify("Application attached. Career assistance remains inactive.", "info");
+    return true;
+  }
+  async attachFromCatalog(ctx) {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment !== void 0 || records.used_application_id !== void 0) {
+      throw workflowError("workspace_identity_conflict");
+    }
+    const pointer = await this.selectAttachable(ctx, "Attach application");
+    if (pointer === void 0) return;
+    await this.commitAttachment(
+      ctx,
+      pointer,
+      "Attach application",
+      "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
+    );
+  }
+  async openInNewSession(ctx) {
+    const pointer = await this.selectAttachable(ctx, "Open application in new Pi session");
+    if (pointer === void 0) return;
+    const entry = createApplicationAttachmentEntry(pointer, this.options);
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const confirmed = await ctx.ui.confirm(
+      "Open application in new Pi session",
+      "Open this application in a new Pi session? The current session is unchanged."
+    );
+    if (confirmed !== true) return;
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const parentSession = ctx.sessionManager.getSessionFile();
+    const result = await ctx.newSession({
+      ...parentSession === void 0 ? {} : { parentSession },
+      setup: async (sessionManager) => {
+        sessionManager.appendCustomEntry(APPLICATION_ATTACHMENT_CUSTOM_TYPE, entry);
+      },
+      withSession: async (replacement) => {
+        replacement.ui.notify("Application attached in the new session. Career assistance remains inactive.", "info");
+      }
+    });
+    if (result.cancelled) {
+      ctx.ui.notify("New session cancelled. This session was not changed.", "info");
+    }
+  }
   async attachCurrent(ctx) {
     const identity2 = sessionIdentity(ctx);
     if (identity2 === void 0) throw workflowError("workspace_unavailable");
@@ -6312,24 +6426,18 @@ var ApplicationWorkspaceWorkflow = class {
     if (records.attachment !== void 0) throw workflowError("workspace_unavailable");
     const inspected = await attachmentFor(this.options.agentDir, identity2);
     if (inspected.application?.identity === void 0) throw workflowError("attachment_unavailable");
-    const entry = createApplicationAttachmentEntry({
-      applicationId: inspected.application.manifest.application_id,
-      rootId: inspected.root.marker.root_id,
-      rootCreatedAt: inspected.root.marker.created_at,
-      applicationCreatedAt: inspected.application.manifest.application_created_at,
-      workspaceCreatedAt: inspected.application.manifest.workspace_created_at
-    }, this.options);
-    await validateApplicationAttachment(this.options.agentDir, entry);
-    const confirmed = await ctx.ui.confirm(
+    await this.commitAttachment(
+      ctx,
+      {
+        applicationId: inspected.application.manifest.application_id,
+        rootId: inspected.root.marker.root_id,
+        rootCreatedAt: inspected.root.marker.created_at,
+        applicationCreatedAt: inspected.application.manifest.application_created_at,
+        workspaceCreatedAt: inspected.application.manifest.workspace_created_at
+      },
       "Attach current application",
       "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
     );
-    if (confirmed !== true) return;
-    await validateApplicationAttachment(this.options.agentDir, entry);
-    const latest = this.sessionRecords(ctx);
-    if (latest.attachment !== void 0) throw workflowError("workspace_unavailable");
-    this.requireAppender()(APPLICATION_ATTACHMENT_CUSTOM_TYPE, entry);
-    ctx.ui.notify("Application attached. Career assistance remains inactive.", "info");
   }
   async detachCurrent(ctx) {
     const records = this.sessionRecords(ctx);
