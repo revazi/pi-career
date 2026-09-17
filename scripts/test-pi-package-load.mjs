@@ -66,6 +66,7 @@ try {
   const names = tools.map(({ name }) => name).sort();
   assert.deepEqual(names, ["career_core_discover", "career_core_job", "career_core_resume", "career_run"]);
   assert.deepEqual([...loaded[0].commands.keys()].sort(), [
+    "career",
     "career-analyze",
     "career-application",
     "career-library",

@@ -210,7 +210,7 @@ function verifyDescriptor(descriptor, expected) {
 }
 function inspectReferences(value, root) {
   if (Array.isArray(value)) {
-    for (const item of value) inspectReferences(item, root);
+    for (const item2 of value) inspectReferences(item2, root);
     return;
   }
   if (!isRecord(value)) return;
@@ -2681,12 +2681,12 @@ function rankMatches(values) {
   const secondScore = ranked[1]?.overallScore;
   const tie = topScore !== void 0 && secondScore === topScore;
   const close = topScore !== void 0 && secondScore !== void 0 && topScore - secondScore <= 3;
-  for (const [index, item] of ranked.entries()) {
-    item.tie = tie && item.overallScore === topScore;
-    item.closeCluster = close && index < 2;
-    item.projection = {
-      ...item.projection,
-      ui_flags: { ...item.projection.ui_flags, close_cluster: item.closeCluster }
+  for (const [index, item2] of ranked.entries()) {
+    item2.tie = tie && item2.overallScore === topScore;
+    item2.closeCluster = close && index < 2;
+    item2.projection = {
+      ...item2.projection,
+      ui_flags: { ...item2.projection.ui_flags, close_cluster: item2.closeCluster }
     };
   }
   return ranked;
@@ -3156,8 +3156,8 @@ function previewItems(summary, field) {
   const values = summary[field];
   if (!Array.isArray(values)) return "none";
   const items = values.slice(0, 2).flatMap((value) => {
-    const item = objectField(value, "item") ?? objectField(value, "title");
-    return typeof item === "string" ? [item.slice(0, 80)] : [];
+    const item2 = objectField(value, "item") ?? objectField(value, "title");
+    return typeof item2 === "string" ? [item2.slice(0, 80)] : [];
   });
   return items.length > 0 ? items.join(", ") : "none";
 }
@@ -3281,13 +3281,13 @@ function deriveMatchTieStateIds(cards) {
   return tied;
 }
 function rankedRows(ranked) {
-  return ranked.map((item, index) => {
+  return ranked.map((item2, index) => {
     const labels = [
-      ...item.tie ? ["tie"] : [],
-      ...item.closeCluster ? ["close cluster"] : [],
-      ...item.projection.ui_flags.provisional ? ["provisional"] : []
+      ...item2.tie ? ["tie"] : [],
+      ...item2.closeCluster ? ["close cluster"] : [],
+      ...item2.projection.ui_flags.provisional ? ["provisional"] : []
     ];
-    return `${index + 1}. ${item.resume.label} — ${item.overallScore} — ${item.recommendation}${labels.length ? ` — ${labels.join(", ")}` : ""}`;
+    return `${index + 1}. ${item2.resume.label} — ${item2.overallScore} — ${item2.recommendation}${labels.length ? ` — ${labels.join(", ")}` : ""}`;
   });
 }
 function analyzeDetailSections(result) {
@@ -4551,6 +4551,17 @@ function sameCatalogEvidence(left, right) {
   const fileFingerprints = (evidence) => evidence.files.map((file) => `${file.path}:${file.sha256}:${statsFingerprint(file.metadata)}`).sort();
   return JSON.stringify(directoryFingerprints(left)) === JSON.stringify(directoryFingerprints(right)) && JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
 }
+async function readApplicationCatalog(rootPath, expectedRootId) {
+  const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  let current;
+  try {
+    current = await deriveApplicationCatalog(rootPath, expectedRootId);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
+  return initial.projection;
+}
 function attachmentValidationError(error) {
   if (error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict") throw error;
   throw workflowError("attachment_unavailable");
@@ -4682,7 +4693,7 @@ async function loadAttachedApplicationSources(agentDir, attachment) {
   const selected = application.head.selected_original;
   let selectedOriginal;
   if (selected !== null) {
-    const root = scan.roots.find((item) => item.root_id === selected.library_root_id);
+    const root = scan.roots.find((item2) => item2.root_id === selected.library_root_id);
     const matches = eligibleOriginals(scan).filter((record) => record.id === selected.document_id && record.root_id === selected.library_root_id && record.text_sha256 === selected.text_sha256 && record.format === selected.format);
     if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
       throw workflowError("workspace_drift");
@@ -4886,12 +4897,12 @@ async function approve(plan, ctx) {
   if (reviewed === void 0) return false;
   if (reviewed !== plan.previewText) throw workflowError("workspace_preview_changed");
   const finalBasenames = [
-    ...plan.envelope.creates.map((item) => path6.basename(item.path)),
-    ...plan.envelope.replaces.map((item) => path6.basename(item.path))
+    ...plan.envelope.creates.map((item2) => path6.basename(item2.path)),
+    ...plan.envelope.replaces.map((item2) => path6.basename(item2.path))
   ];
   const objectDetails = [
-    ...plan.envelope.creates.map((item) => item.object_type === "directory" ? `${path6.basename(item.path)}: directory mode ${item.mode}` : `${path6.basename(item.path)}: ${item.utf8_bytes} bytes, ${item.sha256}`),
-    ...plan.envelope.replaces.map((item) => `${path6.basename(item.path)}: ${item.replacement.utf8_bytes} bytes, ${item.replacement.sha256}`)
+    ...plan.envelope.creates.map((item2) => item2.object_type === "directory" ? `${path6.basename(item2.path)}: directory mode ${item2.mode}` : `${path6.basename(item2.path)}: ${item2.utf8_bytes} bytes, ${item2.sha256}`),
+    ...plan.envelope.replaces.map((item2) => `${path6.basename(item2.path)}: ${item2.replacement.utf8_bytes} bytes, ${item2.replacement.sha256}`)
   ];
   const confirmed = await ctx.ui.confirm(
     "Apply application workspace mutation?",
@@ -5061,7 +5072,7 @@ async function reconciliationClassification(rootPath) {
 async function validateSelectedBinding(config, binding) {
   if (binding === null) return;
   const scan = await scanLibrary(config);
-  const root = scan.roots.find((item) => item.root_id === binding.library_root_id);
+  const root = scan.roots.find((item2) => item2.root_id === binding.library_root_id);
   const matches = eligibleOriginals(scan).filter((record) => record.id === binding.document_id && record.root_id === binding.library_root_id && record.text_sha256 === binding.text_sha256 && record.format === binding.format);
   if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
     throw workflowError("workspace_drift");
@@ -5088,7 +5099,7 @@ function vacancyBinding(fileName, bytes, vacancy) {
 }
 function assertApplicationCapacity(application, additions, revisionAdditions = 1) {
   const entryCount = application.entries.length + additions.length;
-  const byteCount = application.managedBytes + additions.reduce((total, item) => total + (item.bytes?.length ?? 0), 0);
+  const byteCount = application.managedBytes + additions.reduce((total, item2) => total + (item2.bytes?.length ?? 0), 0);
   if (entryCount > APPLICATION_MAX_ENTRIES || byteCount > APPLICATION_MAX_MANAGED_BYTES || application.revisions.length + revisionAdditions > STATE_MAX_REVISIONS) {
     throw workflowError("workspace_limit_reached");
   }
@@ -5149,7 +5160,7 @@ function prepareV2Mutation(application, mutationId, createdAt) {
   };
 }
 function freshRecord(scan, record) {
-  const root = scan.roots.find((item) => item.root_id === record.root_id);
+  const root = scan.roots.find((item2) => item2.root_id === record.root_id);
   const matches = eligibleOriginals(scan).filter((candidate) => candidate.id === record.id && candidate.root_id === record.root_id && candidate.format === record.format && candidate.text_sha256 === record.text_sha256);
   if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
     throw workflowError("workspace_drift");
@@ -5499,10 +5510,10 @@ var ApplicationWorkspaceWorkflow = class {
         });
       }
       const counts = /* @__PURE__ */ new Map();
-      for (const item of items) counts.set(item.option, (counts.get(item.option) ?? 0) + 1);
-      return items.map((item) => counts.get(item.option) === 1 ? item : {
-        ...item,
-        option: `${item.option} — ${item.pointer.applicationId}`
+      for (const item2 of items) counts.set(item2.option, (counts.get(item2.option) ?? 0) + 1);
+      return items.map((item2) => counts.get(item2.option) === 1 ? item2 : {
+        ...item2,
+        option: `${item2.option} — ${item2.pointer.applicationId}`
       });
     } catch {
       return [];
@@ -5511,7 +5522,7 @@ var ApplicationWorkspaceWorkflow = class {
   async selectAttachable(ctx, title) {
     const items = await this.listAttachable();
     if (items.length === 0) throw workflowError("attachment_unavailable");
-    const byOption = new Map(items.map((item) => [item.option, item.pointer]));
+    const byOption = new Map(items.map((item2) => [item2.option, item2.pointer]));
     if (byOption.size !== items.length) throw workflowError("workspace_drift");
     const chosen = await ctx.ui.select(title, [...byOption.keys()]);
     if (chosen === void 0) return void 0;
@@ -6120,7 +6131,7 @@ var ApplicationWorkspaceWorkflow = class {
       } catch (error) {
         const committed = await readApplicationIdentity(directoryPath, manifest).then((storedIdentity) => storedIdentity === void 0 || !canonicalJson(storedIdentity).equals(identityBytes) ? false : inspectApplicationDirectory(directoryPath, configured.root_id, path6.basename(directoryPath), storedIdentity).then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false), () => false);
         if (committed) return;
-        for (const item of [...published].reverse()) await unlinkOwned(item);
+        for (const item2 of [...published].reverse()) await unlinkOwned(item2);
         if (createdDirectory !== void 0) {
           try {
             const current = await lstat4(directoryPath);
@@ -6351,7 +6362,7 @@ var ApplicationWorkspaceWorkflow = class {
       } catch (error) {
         const committed = await inspectCommitted().then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false);
         if (committed) return;
-        for (const item of [...published].reverse()) await unlinkOwned(item);
+        for (const item2 of [...published].reverse()) await unlinkOwned(item2);
         if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
         throw workflowError(published.length > 0 ? "workspace_status_unknown" : "workspace_verification_failed");
       } finally {
@@ -6442,7 +6453,7 @@ function boundedInteger(value, minimum, maximum) {
 }
 function stringList(value, minimum, maximum, itemMaximum) {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) return void 0;
-  if (!value.every((item) => boundedString(item, 1, itemMaximum))) return void 0;
+  if (!value.every((item2) => boundedString(item2, 1, itemMaximum))) return void 0;
   const strings = value;
   return new Set(strings).size === strings.length ? [...strings] : void 0;
 }
@@ -6538,7 +6549,7 @@ function parseAnalysisReplacements(payload) {
   return replacements;
 }
 function parseSelectedChangeIds(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 50 || !value.every((item) => typeof item === "string" && /^change-[0-9]{4}$/.test(item)) || new Set(value).size !== value.length) throw new Error("managed_payload_invalid");
+  if (!Array.isArray(value) || value.length < 1 || value.length > 50 || !value.every((item2) => typeof item2 === "string" && /^change-[0-9]{4}$/.test(item2)) || new Set(value).size !== value.length) throw new Error("managed_payload_invalid");
   return [...value];
 }
 
@@ -6673,7 +6684,7 @@ function isRecord9(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function stringArray(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+  return Array.isArray(value) && value.every((item2) => typeof item2 === "string");
 }
 function validVariantSelectionChange(value, expectedId) {
   if (!isRecord9(value)) return false;
@@ -6949,8 +6960,8 @@ function reviewedItems(value) {
   if (!Array.isArray(items)) throw careerRunError("managed_result_invalid");
   return items;
 }
-function exactReviewedItem(items, item) {
-  const found = items.find((candidate) => isRecord9(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
+function exactReviewedItem(items, item2) {
+  const found = items.find((candidate) => isRecord9(candidate) && (candidate.change_id === item2 || candidate.suggestion_id === item2 || candidate.replacement_id === item2));
   if (found === void 0) throw careerRunError("result_not_found");
   return found;
 }
@@ -8375,6 +8386,274 @@ import {
   getAgentDir as getAgentDir2
 } from "@earendil-works/pi-coding-agent";
 
+// src/workflow/overlay.ts
+import { Key as Key2, matchesKey as matchesKey2, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
+var CAREER_OVERLAY_VIEWS = [
+  "setup",
+  "library",
+  "applications",
+  "vacancy",
+  "match",
+  "analyze",
+  "workbench",
+  "workspace"
+];
+var VIEW_LABELS = {
+  setup: "Setup",
+  library: "Library",
+  applications: "Applications",
+  vacancy: "Job description",
+  match: "Match",
+  analyze: "Analyze",
+  workbench: "Workbench",
+  workspace: "Workspace"
+};
+function unavailablePane() {
+  return { intro: "Local career data is unavailable.", items: [] };
+}
+function item(id, label, detail) {
+  return { id, label, detail };
+}
+async function buildCareerOverlayModel(agentDir, ctx) {
+  const persisted3 = ctx.sessionManager.getSessionFile() !== void 0;
+  const empty = {
+    setup: { intro: "pi-career is not configured.", items: [] },
+    library: { intro: "No resume library is configured.", items: [] },
+    applications: { intro: "Application workspace is not configured.", items: [] },
+    vacancy: { intro: "No persistent application is attached.", items: [] },
+    match: { intro: "No persistent application is attached.", items: [] },
+    analyze: { intro: "No persistent application is attached.", items: [] },
+    workbench: { intro: "Workbench/assistance is never submitted from overlay navigation.", items: [] },
+    workspace: { intro: "Workspace administration stays local. Opening this view does not mutate files.", items: [] }
+  };
+  try {
+    const config = await loadConfig(agentDir);
+    const scan = await scanLibrary(config);
+    empty.setup = {
+      intro: setupSummary(config, scan, persisted3),
+      items: config.library_roots.map((root) => item(
+        root.id,
+        root.label,
+        `${root.label}
+${privacyDisplayPath(root.path)}
+Indexed resumes stay local. Opening a root does not call Core.`
+      ))
+    };
+    empty.library = {
+      intro: scan.records.length === 0 ? "No indexed resumes." : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
+      items: scan.records.map((record) => {
+        const badges2 = [
+          record.format,
+          ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
+          ...record.too_large_for_core_input === true ? ["too large"] : []
+        ].join(" • ");
+        return item(
+          record.id,
+          `${record.label} — ${badges2}`,
+          `${record.label}
+${badges2}
+Overlay browse does not analyze or attach this resume.`
+        );
+      })
+    };
+    const workspace = config.application_workspace;
+    if (workspace !== null) {
+      const catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id);
+      empty.applications = {
+        intro: catalog.applications.length === 0 ? "No persistent applications. Opening this view does not attach or activate assistance." : "Browse applications without attaching. Enter opens local detail only.",
+        items: catalog.applications.map((application) => {
+          const label = application.identity === void 0 ? `Legacy application — ${application.status}` : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
+          const detail = application.identity === void 0 ? `Legacy application
+Status: ${application.status}
+Classification: ${application.classification}
+Opening does not attach this application.` : `${application.identity.company_label} — ${application.identity.role_label}
+Status: ${application.status}
+Classification: ${application.classification}
+Opening does not attach this application or activate Career assistance.`;
+          return item(application.application_id, label, detail);
+        })
+      };
+    }
+  } catch {
+    empty.setup = unavailablePane();
+    empty.library = unavailablePane();
+    empty.applications = unavailablePane();
+  }
+  try {
+    const attached = await attachedApplicationSourcesForSession(
+      agentDir,
+      ctx.sessionManager.getBranch(),
+      ctx.sessionManager.getEntries()
+    );
+    if (attached !== void 0) {
+      const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+      empty.vacancy = {
+        intro: heading,
+        items: attached.vacancy === void 0 ? [] : [item("vacancy", attached.vacancy.vacancy_label, `${heading}
+Current job description: ${attached.vacancy.vacancy_label}
+Browse does not replace workspace files.`)]
+      };
+      if (attached.vacancy === void 0) empty.vacancy.intro = `${heading}
+No current job description in the workspace.`;
+      empty.match = {
+        intro: heading,
+        items: attached.effective_resume === void 0 ? [] : [item("effective", attached.effective_resume.label, `${heading}
+Effective Resume: ${attached.effective_resume.label}
+Match is not run by opening this view.`)]
+      };
+      if (attached.effective_resume === void 0) empty.match.intro = `${heading}
+No effective Resume is available.`;
+      empty.analyze = {
+        intro: heading,
+        items: attached.selected_original === void 0 ? [] : [item("original", attached.selected_original.label, `${heading}
+Selected original: ${attached.selected_original.label}
+Analyze is not run by opening this view.`)]
+      };
+      if (attached.selected_original === void 0) empty.analyze.intro = `${heading}
+No selected original Resume is available.`;
+      empty.workbench = {
+        intro: `${heading}
+Assistance is not submitted from this overlay.`,
+        items: [item("workbench", "Career assistance", `${heading}
+Explicit activation remains a separate action. Overlay browse does not submit a message.`)]
+      };
+      empty.workspace = {
+        intro: `${heading}
+Workspace files are the current application authority.`,
+        items: [item("workspace", "Workspace", `${heading}
+Opening this view does not mutate files or attach another application.`)]
+      };
+    }
+  } catch {
+    empty.vacancy = unavailablePane();
+    empty.match = unavailablePane();
+    empty.analyze = unavailablePane();
+  }
+  return empty;
+}
+var CareerOverlay = class {
+  constructor(view, model, theme, keybindings, requestRender, close) {
+    this.view = view;
+    this.model = model;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.requestRender = requestRender;
+    this.close = close;
+    this.current = view;
+    this.cursors = {
+      setup: 0,
+      library: 0,
+      applications: 0,
+      vacancy: 0,
+      match: 0,
+      analyze: 0,
+      workbench: 0,
+      workspace: 0
+    };
+  }
+  view;
+  model;
+  theme;
+  keybindings;
+  requestRender;
+  close;
+  current;
+  cursors;
+  detail = false;
+  get currentView() {
+    return this.current;
+  }
+  get showingDetail() {
+    return this.detail;
+  }
+  get cursor() {
+    return this.cursors[this.current];
+  }
+  get currentItem() {
+    return this.model[this.current].items[this.cursor];
+  }
+  pane() {
+    return this.model[this.current];
+  }
+  move(delta) {
+    const items = this.pane().items;
+    if (items.length === 0) return;
+    this.cursors[this.current] = (this.cursor + delta + items.length) % items.length;
+    this.requestRender();
+  }
+  handleInput(data) {
+    if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
+      if (this.detail) {
+        this.detail = false;
+        this.requestRender();
+        return;
+      }
+      this.close();
+      return;
+    }
+    const index = Number.parseInt(data, 10);
+    const next = CAREER_OVERLAY_VIEWS[index - 1];
+    if (next !== void 0) {
+      this.current = next;
+      this.detail = false;
+      this.requestRender();
+      return;
+    }
+    if (this.detail) return;
+    if (this.keybindings.matches(data, "tui.select.up") || matchesKey2(data, Key2.up)) {
+      this.move(-1);
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.down") || matchesKey2(data, Key2.down)) {
+      this.move(1);
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.confirm") || matchesKey2(data, Key2.return) || matchesKey2(data, Key2.enter)) {
+      if (this.currentItem !== void 0) {
+        this.detail = true;
+        this.requestRender();
+      }
+    }
+  }
+  render(width) {
+    const renderWidth = Math.max(1, width);
+    const nav = CAREER_OVERLAY_VIEWS.map((view, index) => {
+      const label = `${index + 1}:${VIEW_LABELS[view]}`;
+      return view === this.current ? this.theme.bold(this.theme.fg("accent", label)) : this.theme.fg("dim", label);
+    }).join("  ");
+    const pane = this.pane();
+    const selected = this.currentItem;
+    const body = this.detail && selected !== void 0 ? selected.detail.split("\n") : [
+      pane.intro,
+      ...pane.items.map((entry, index) => index === this.cursor ? `> ${entry.label}` : `  ${entry.label}`)
+    ];
+    const footer = this.detail ? "Esc back • 1-8 view • no model or Core call" : "↑↓ move • Enter open • Esc close • 1-8 view • no model or Core call";
+    return [
+      this.theme.fg("accent", this.theme.bold(`Career • ${VIEW_LABELS[this.current]}`)),
+      nav,
+      ...body,
+      this.theme.fg("dim", footer)
+    ].map((line) => truncateToWidth2(line, renderWidth));
+  }
+  invalidate() {
+  }
+};
+async function openCareerOverlay(ctx, view, agentDir) {
+  if (ctx.mode !== "tui") return;
+  const model = await buildCareerOverlayModel(agentDir, ctx);
+  await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
+    view,
+    model,
+    theme,
+    keybindings,
+    () => tui.requestRender(),
+    () => done(void 0)
+  ), {
+    overlay: true,
+    overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 }
+  });
+}
+
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;
 var WORKBENCH_MAX_PROMPT_BYTES = 262144;
@@ -8695,7 +8974,7 @@ function matchBatchSummary(cards, ranked, unavailable, runId) {
     (card, index) => `${index + 1}. ${plainResultCard(card, ranked[index]?.tie === true)}`
   );
   const unavailableRows = [...unavailable.values()].map(
-    (item) => unavailableMatchResultMessage(runId, item.resume.label, item.code)
+    (item2) => unavailableMatchResultMessage(runId, item2.resume.label, item2.code)
   );
   const sections = [
     ...visibleCards.length === 0 ? [] : [visibleCards.join("\n\n")],
@@ -8732,6 +9011,11 @@ function registerCareerCommands(pi, options = {}) {
     ctx.sessionManager.getBranch(),
     ctx.sessionManager.getEntries()
   );
+  const openTuiOverlay = async (ctx, view) => {
+    if (ctx.mode !== "tui") return false;
+    await openCareerOverlay(ctx, view, dependencies.agentDir);
+    return true;
+  };
   const refreshState = async (ctx) => {
     const library = await loadLibrary(dependencies);
     const branch = ctx.sessionManager.getBranch();
@@ -8849,9 +9133,21 @@ function registerCareerCommands(pi, options = {}) {
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
     }
   };
+  pi.registerCommand("career", {
+    description: "Open the Career overlay",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() !== "") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
+      if (await openTuiOverlay(ctx, "applications")) return;
+      ctx.ui.notify("Career overlay requires TUI mode.", "warning");
+    })
+  });
   pi.registerCommand("career-workspace", {
     description: "Inspect and explicitly mutate the current application workspace",
-    handler: async (args, ctx) => handle(ctx, () => applicationWorkspace.run(args, ctx))
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() === "" && await openTuiOverlay(ctx, "workspace")) return;
+      await applicationWorkspace.run(args, ctx);
+    })
   });
   pi.registerCommand("career-setup", {
     description: "Configure deterministic resume-library roots",
@@ -8859,6 +9155,7 @@ function registerCareerCommands(pi, options = {}) {
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "setup")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -8934,6 +9231,7 @@ function registerCareerCommands(pi, options = {}) {
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "library")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -9010,6 +9308,7 @@ function registerCareerCommands(pi, options = {}) {
       if (argument !== "" && argument !== "status" && argument !== "clear") {
         throw workflowError("invalid_command_arguments");
       }
+      if (argument === "" && await openTuiOverlay(ctx, "applications")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9152,6 +9451,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      if (argument === "" && await openTuiOverlay(ctx, "vacancy")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9262,6 +9562,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "workbench")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9284,6 +9585,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "analyze")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9361,6 +9663,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "match")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9405,13 +9708,13 @@ Application context is session-scoped; no workspace files were created.${state.v
       owner.assert(run, ctx);
       const ranked = rankMatches(queue.matches);
       const applicationId = attached?.application_id ?? state.application?.application_id;
-      const cards = ranked.map((item2) => createResultCard({
+      const cards = ranked.map((item3) => createResultCard({
         workflow: "match",
         ...applicationId === void 0 ? {} : { applicationId },
         runId: run.runId,
-        resume: item2.resume,
+        resume: item3.resume,
         vacancy,
-        projection: item2.projection,
+        projection: item3.projection,
         uuid: dependencies.uuid,
         now: dependencies.now
       }));
@@ -9424,10 +9727,10 @@ Application context is session-scoped; no workspace files were created.${state.v
       );
       if (ranked.length === 0) return;
       const rows = rankedRows(ranked);
-      const byRow = new Map(ranked.map((item2, index) => [rows[index], item2]));
+      const byRow = new Map(ranked.map((item3, index) => [rows[index], item3]));
       const chosen = await ctx.ui.select("Career match detail", [...byRow.keys(), "Close"]);
-      const item = chosen === void 0 ? void 0 : byRow.get(chosen);
-      if (item !== void 0) await showDetail(ctx, matchDetailSections(item.result, vacancy.vacancy_text));
+      const item2 = chosen === void 0 ? void 0 : byRow.get(chosen);
+      if (item2 !== void 0) await showDetail(ctx, matchDetailSections(item2.result, vacancy.vacancy_text));
     })
   });
   pi.on("session_start", async (_event, ctx) => {

@@ -15,6 +15,7 @@ import {
   ApplicationWorkspaceWorkflow,
   attachedApplicationSourcesForSession,
 } from "./application-workspace.ts";
+import { openCareerOverlay, type CareerOverlayView } from "./overlay.ts";
 import {
   addLibraryRoot,
   clearGeneratedVariantsRoot,
@@ -403,6 +404,12 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     ctx.sessionManager.getEntries(),
   );
 
+  const openTuiOverlay = async (ctx: ExtensionCommandContext, view: CareerOverlayView): Promise<boolean> => {
+    if (ctx.mode !== "tui") return false;
+    await openCareerOverlay(ctx, view, dependencies.agentDir);
+    return true;
+  };
+
   const refreshState = async (ctx: ExtensionContext): Promise<{ config: CareerConfig; scan: LibraryScan }> => {
     const library = await loadLibrary(dependencies);
     const branch = ctx.sessionManager.getBranch();
@@ -539,9 +546,22 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     }
   };
 
+  pi.registerCommand("career", {
+    description: "Open the Career overlay",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() !== "") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
+      if (await openTuiOverlay(ctx, "applications")) return;
+      ctx.ui.notify("Career overlay requires TUI mode.", "warning");
+    }),
+  });
+
   pi.registerCommand("career-workspace", {
     description: "Inspect and explicitly mutate the current application workspace",
-    handler: async (args, ctx) => handle(ctx, () => applicationWorkspace.run(args, ctx)),
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() === "" && await openTuiOverlay(ctx, "workspace")) return;
+      await applicationWorkspace.run(args, ctx);
+    }),
   });
 
   pi.registerCommand("career-setup", {
@@ -550,6 +570,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "setup")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -628,6 +649,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "library")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -702,6 +724,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       if (argument !== "" && argument !== "status" && argument !== "clear") {
         throw workflowError("invalid_command_arguments");
       }
+      if (argument === "" && await openTuiOverlay(ctx, "applications")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -848,6 +871,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      if (argument === "" && await openTuiOverlay(ctx, "vacancy")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -961,6 +985,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "workbench")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -984,6 +1009,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "analyze")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -1060,6 +1086,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "match")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);

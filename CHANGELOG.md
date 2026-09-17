@@ -13,6 +13,7 @@
 - Documented that Gate 1 performs no Core/runtime/provider/model/network/child/session-append action and does not implement assisted workspace artifacts, deletion, broader application files, repair, adoption, archive, or sync. The separate `/career-save` workflow is unchanged.
 - When a persistent application is attached, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `career_run context` use workspace files as the only current vacancy/Resume authority: cancelled vacancy saves change neither workspace nor session, match uses the effective Resume, analyze uses only the selected original, and workbench/assistance never auto-submit.
 - Attached `/career-application` shows and updates workspace lifecycle only through a previewed file mutation, and `/career-application clear` detaches without a competing session-only status or vacancy.
+- TUI `/career` and the existing `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `/career-workspace` commands open one Career overlay at different views, with ↑↓/Enter list-detail navigation across applications and resumes; RPC dialogs remain the fallback and overlay navigation does not call Core or a provider.
 
 ## 0.3.0 - 2026-08-14
 
