@@ -11,9 +11,15 @@ import {
   projectResumeAnalysis,
   type CoreResult,
 } from "../workflow/result-projection.ts";
+import {
+  loadAttachedApplicationSources,
+  type AttachedApplicationSources,
+} from "../workflow/application-workspace.ts";
 import { eligibleOriginals, scanLibrary } from "../workflow/scan.ts";
+import { replayApplicationSessionRecords } from "../workflow/session-attachment.ts";
 import { createConsentEntry, reconstructWorkflowState } from "../workflow/session-state.ts";
 import {
+  CareerWorkflowError,
   type ResumeRecord,
   type VacancyEntry,
   type WorkflowDependencies,
@@ -216,20 +222,72 @@ async function currentResumes(agentDir: string): Promise<Map<string, ResumeRecor
   return resumeHandles(eligibleOriginals(scan));
 }
 
+function mapAttachedCareerError(error: unknown): never {
+  if (error instanceof CareerWorkflowError) {
+    if (error.code === "attachment_unavailable" || error.code === "workspace_identity_conflict") {
+      throw careerRunError("assistance_required");
+    }
+    if (error.code === "workspace_drift") throw careerRunError("resume_not_found");
+  }
+  throw error;
+}
+
+async function attachedCareerSources(
+  agentDir: string,
+  ctx: ExtensionContext,
+): Promise<AttachedApplicationSources | undefined> {
+  const branch = ctx.sessionManager.getBranch();
+  const allEntries = typeof ctx.sessionManager.getEntries === "function"
+    ? ctx.sessionManager.getEntries()
+    : branch;
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid" || records.attachment === undefined) return undefined;
+  if (records.activation === undefined) throw careerRunError("assistance_required");
+  try {
+    return await loadAttachedApplicationSources(agentDir, records.attachment);
+  } catch (error) {
+    return mapAttachedCareerError(error);
+  }
+}
+
+function attachedResumeHandles(sources: AttachedApplicationSources): Map<string, ResumeRecord> {
+  const records = [
+    ...(sources.selected_original === undefined ? [] : [sources.selected_original]),
+    ...(sources.effective_resume === undefined || sources.effective_resume.id === sources.selected_original?.id
+      ? []
+      : [sources.effective_resume]),
+  ];
+  return resumeHandles(records);
+}
+
 async function resolveResume(
   agentDir: string,
   ctx: ExtensionContext,
   registry: ManagedRegistry,
   handle: string | undefined,
+  role: "analyze" | "match" = "analyze",
 ): Promise<ResumeRecord> {
   if (!registry.hasContext(ctx.sessionManager.getSessionId())) throw careerRunError("context_required");
   if (handle === undefined) throw careerRunError("invalid_request");
+  const attached = await attachedCareerSources(agentDir, ctx);
+  if (attached !== undefined) {
+    const required = role === "match" ? attached.effective_resume : attached.selected_original;
+    if (required === undefined) throw careerRunError("resume_not_found");
+    const found = attachedResumeHandles(attached).get(handle);
+    if (found === undefined || found.id !== required.id) throw careerRunError("resume_not_found");
+    return found;
+  }
   const resume = (await currentResumes(agentDir)).get(handle);
   if (resume === undefined) throw careerRunError("resume_not_found");
   return resume;
 }
 
-function resolveVacancy(ctx: ExtensionContext): VacancyEntry {
+async function resolveVacancy(agentDir: string, ctx: ExtensionContext): Promise<VacancyEntry> {
+  const attached = await attachedCareerSources(agentDir, ctx);
+  if (attached !== undefined) {
+    if (attached.vacancy === undefined) throw careerRunError("vacancy_not_found");
+    return attached.vacancy;
+  }
   const vacancy = reconstructWorkflowState(ctx.sessionManager.getBranch()).vacancy;
   if (vacancy === undefined) throw careerRunError("vacancy_not_found");
   return vacancy;
@@ -556,10 +614,19 @@ export class CareerRunEngine {
     if (consent === "required" || consent === "declined") {
       return this.consentRequiredContext(coreVersion, consent);
     }
+    const attached = await attachedCareerSources(this.options.agentDir, ctx);
     const config = await loadConfig(this.options.agentDir);
     const scan = await scanLibrary(config);
-    const resumes = resumeHandles(eligibleOriginals(scan));
+    const resumes = attached === undefined
+      ? resumeHandles(eligibleOriginals(scan))
+      : attachedResumeHandles(attached);
     const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    const vacancy = attached === undefined ? state.vacancy : attached.vacancy;
+    const application = attached === undefined
+      ? state.application === undefined
+        ? null
+        : { company: state.application.company_label, role: state.application.role_label }
+      : { company: attached.company_label, role: attached.role_label };
     this.registry.markContextReady(ctx.sessionManager.getSessionId());
     return resultEnvelope("context", {
       core_version: coreVersion,
@@ -570,12 +637,10 @@ export class CareerRunEngine {
         handle, label: resume.label, format: resume.format,
       })),
       resumes_omitted: Math.max(0, resumes.size - 100),
-      vacancy: state.vacancy === undefined
+      vacancy: vacancy === undefined
         ? null
-        : { handle: "vacancy:current", label: state.vacancy.vacancy_label },
-      application: state.application === undefined
-        ? null
-        : { company: state.application.company_label, role: state.application.role_label },
+        : { handle: "vacancy:current", label: vacancy.vacancy_label },
+      application,
       notices: scan.warnings.length,
     }, {
       status: "ready",
@@ -640,8 +705,8 @@ export class CareerRunEngine {
   ): Promise<ManagedToolResult> {
     exactDefinedKeys(params, ["command", "handle"]);
     this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const vacancy = resolveVacancy(ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    const vacancy = await resolveVacancy(this.options.agentDir, ctx);
     const invocation = await this.options.invoke(
       { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
       signal,
@@ -732,8 +797,8 @@ export class CareerRunEngine {
   ): Promise<ManagedToolResult> {
     exactDefinedKeys(params, ["command", "handle", "payload"]);
     this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const vacancy = resolveVacancy(ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    const vacancy = await resolveVacancy(this.options.agentDir, ctx);
     const input = {
       schema_version: "career.resume_variant_review_input.v1",
       resume: buildResumeInput(resume),

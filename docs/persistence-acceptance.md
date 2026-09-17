@@ -338,7 +338,7 @@ The #60 fixture slice may encode these approved bytes and corruption cases witho
 
 Use fixed synthetic UUIDs/timestamps and generated temp-root paths. Hash expected bytes directly; do not import production parsers to manufacture the sole expected test oracle. Full fixtures for new schemas wait for their exact contract approval.
 
-## Approved #64 command-authority matrix — implementation pending
+## Approved #64 command-authority matrix — implemented for vacancy/Resume commands
 
 | Interface | No attachment | Valid attachment, no activation | Valid activated attachment |
 |---|---|---|---|
@@ -353,7 +353,7 @@ Use fixed synthetic UUIDs/timestamps and generated temp-root paths. Hash expecte
 | `/career-save` | Existing independent variant-save contract when a legacy ephemeral handle exists | No handle until assistance runs | Independent preview/confirmation; never attaches artifact to application implicitly |
 | Future `/career` | Browse without attachment | Open attached detail; browsing another application never replaces attachment | Same local browsing behavior; no automatic model message |
 
-This contract change does not itself change command behavior. Each command-convergence implementation must add behavioral tests and preserve the existing privacy, preview, consent, cancellation, and race gates. Opening the overlay is never consent.
+Vacancy, match, analyze, workbench, and `career_run context` now follow this matrix when a persistent application is attached. Unattached `/career-workbench` still prepares the legacy editor prompt. `/career-application` status writes remain a later convergence. Each remaining command-convergence implementation must add behavioral tests and preserve the existing privacy, preview, consent, cancellation, and race gates. Opening the overlay is never consent.
 
 ## Capacity findings and remaining decisions
 
@@ -406,9 +406,10 @@ Keep each PR independently testable. Add failing behavioral tests and the minima
 - `tests/workflow/session-model-surface.test.mjs` exercises context-on-demand resolution and Pi wiring: no Career tools/Skill path without activation, managed `career_run` plus `skills/` discovery after valid activation and pointer validation, raw-tool rejection outside activation, and `/skill:career-core` handled without a model turn.
 - `tests/workflow/session-attachment-commands.test.mjs` exercises explicit attach/detach/assistance-activation through `/career-workspace`: confirmation-gated pointer append, cancellation, document-free editor handoff, reload after activation/detach, and unchanged workspace bytes.
 - `tests/workflow/session-catalog-attach.test.mjs` exercises attaching a validated catalog application from a clean Pi session and opening another application only through replacement-session setup. Overlay UI remains later.
+- `tests/workflow/command-authority.test.mjs` exercises attached `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `career_run context`: workspace files are the only current vacancy/Resume authority, cancelled vacancy saves change neither workspace nor session, match uses the effective Resume, analyze uses only the selected original, and workbench/assistance never auto-submit.
 - The `P3-08` test in `tests/workflow/application-workspace.test.mjs` exercises existing v1 reconciliation twice and checks complete config/marker/workspace/original bytes, directory entry sets, session entries, and Core invocation count. The #63 cases separately exercise non-authoritative legacy slug projection, exact identity-only migration, cancellation, state/session races, blocked pre-migration writers, unchanged historical bytes, and the null-cover v1→v2 transition only when a later state mutation is requested. They do not prove overlay, provider/network, or session-attachment behavior.
 - Other ledger rows are specifications, not newly implemented tests. #60 remains open until the owning production boundaries exercise these fixtures or retain an explicit reviewed deferral.
 
 ## Next gate
 
-The exact state-v2/readiness contract, #60/#62 foundations, and #63 migration are implemented. #64's attachment bytes, branch/restart/detach lifecycle, command authority, and context-on-demand mechanism are fixed; parsing/replay, pointer validation, on-demand Skill/tool discovery, and explicit attach/detach/assistance-activation commands are implemented. Overlay UI remains later. #57 retains cover-letter writes. Keep #60 open until remaining filesystem-race/integration rows are exercised or explicitly deferred in review.
+The exact state-v2/readiness contract, #60/#62 foundations, and #63 migration are implemented. #64's attachment bytes, branch/restart/detach lifecycle, command authority, and context-on-demand mechanism are fixed; parsing/replay, pointer validation, on-demand Skill/tool discovery, explicit attach/detach/assistance-activation commands, catalog attach from any session, and vacancy/Resume command-authority convergence are implemented. Overlay UI remains later. #57 retains cover-letter writes. Keep #60 open until remaining filesystem-race/integration rows are exercised or explicitly deferred in review.

@@ -2,7 +2,7 @@
 
 ## Status and authorization boundary
 
-**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, and #63 explicit legacy migration are implemented in the current unreleased source for independent security/architecture review. They include strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest/display identity and full state/vacancy/selected-original revisions, bounded catalog derivation, fail-closed mixed-chain validation, pure readiness derivation, identity-only legacy migration, and an exact null-cover v1→v2 transition only when the next approved state mutation requires it. No catalog/detail overlay calls readiness yet. This status does not authorize merge, release, publication, tagging, session attachment, cover-letter writes, or any later gate.
+**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, #63 explicit legacy migration, and #64 attachment/command-authority slices through vacancy/Resume convergence are implemented in the current unreleased source for independent security/architecture review. They include strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest/display identity and full state/vacancy/selected-original revisions, bounded catalog derivation, fail-closed mixed-chain validation, pure readiness derivation, identity-only legacy migration, an exact null-cover v1→v2 transition only when the next approved state mutation requires it, session attachment/activation, and attached `/career-vacancy` / `/career-match` / `/career-analyze` / `/career-workbench` / `career_run context` using workspace files as the only current vacancy/Resume authority. No catalog/detail overlay calls readiness yet. This status does not authorize merge, release, publication, tagging, cover-letter writes, overlay UI, or any later gate.
 
 Career Core remains authoritative for every career-domain operation, schema, algorithm, warning, error, evidence rule, and assisted/non-authoritative result. This design defines only pi-career-owned configuration and local-file protocols. It does not copy a Core schema or algorithm.
 
@@ -56,7 +56,7 @@ All boundaries in [`design.md`](design.md) and [`product-flow.md`](product-flow.
 
 - `career_run` stays the primary managed tool; the exact raw compatibility names stay `career_core_discover`, `career_core_resume`, and `career_core_job`.
 - Application commands use local Node filesystem APIs only. They do not resolve or invoke Career Core, open private child stdin, acquire npm content, call a provider/model, or create a payload/result temporary file outside the destination transaction.
-- Existing `/career-vacancy` may validate its input through Core before a workspace action. A later workspace action consumes only the already accepted session entry and never repeats validation.
+- Unattached `/career-vacancy` may validate its input through Core before a session entry. Attached `/career-vacancy` validates through Core, then preview/confirm a workspace revision; cancellation changes neither workspace nor session and never appends a session-only vacancy.
 - No complete Core result, exact review input, provider response, prompt, credential, or raw model output enters config, a marker, a manifest, a state revision, a sidecar, an error, or a log.
 - The only artifact content eligible later is the exact current in-memory assisted materialization already eligible for `/career-save`; no conversation, projection, pager, session entry, sidecar, or prior file may reconstruct it.
 - Workspace UI may show private paths and complete private file bytes because that is the local approval surface. An RPC client may retain those UI payloads. They are never appended to the Pi session by pi-career.
@@ -66,12 +66,13 @@ All boundaries in [`design.md`](design.md) and [`product-flow.md`](product-flow.
 
 ### Existing commands
 
-The following current behavior remains unchanged:
+The following current behavior remains unchanged unless a persistent application is attached:
 
 - `/career-application` owns session-scoped application identity and status. It creates no workspace file.
-- `/career-vacancy` owns the current session vacancy. It does not imply workspace consent.
+- Unattached `/career-vacancy` owns the current session vacancy. It does not imply workspace consent. Once attached, workspace vacancy files are the only current job-description authority; `/career-vacancy` cannot append a competing session-only vacancy.
 - `/career-save <variant-handle>` owns the separate resume-library variation save protocol. Its handle argument and consent do not select or authorize an application-workspace artifact.
-- `/career-workbench` only prepares an editor message. The user's later ordinary Pi submission is the separate provider-submission decision.
+- Unattached `/career-workbench` only prepares an editor message. Attached `/career-workbench` is an assistance action: it appends activation if needed, prepares `/skill:career-core …`, and never submits. The user's later ordinary Pi submission is the separate provider-submission decision.
+- Unattached `/career-match` and `/career-analyze` keep their explicit library-source pickers. Once attached, match uses the effective Resume and analyze uses only the selected original.
 
 ### New workspace command
 
@@ -113,7 +114,7 @@ Mode behavior is exact:
 
 ## Independent authorization classes
 
-Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The attachment and model-context decisions are fixed here for #64. Strict record parsing/replay, fresh pointer validation, on-demand Skill/tool discovery, and explicit attach/detach/assistance-activation commands are implemented. A clean Pi session may attach a validated catalog application; a session already used by one application offers only `Open application in new Pi session`. Overlay UI remains later.
+Consent is specific and non-transitive. Gate 1 currently exercises session persistence, provider submission, and the file-mutation classes below. The attachment and model-context decisions are fixed here for #64. Strict record parsing/replay, fresh pointer validation, on-demand Skill/tool discovery, explicit attach/detach/assistance-activation commands, catalog attach from any session, and attached vacancy/Resume command-authority convergence are implemented. A clean Pi session may attach a validated catalog application; a session already used by one application offers only `Open application in new Pi session`. Overlay UI remains later.
 
 1. **Session persistence.** Current persisted-session consent governs custom entries. In a transient `pi --no-session` run, entries remain process-memory-only. This consent does not authorize attachment, model context, provider submission, or a file.
 2. **Application attachment.** An explicit Attach choice appends the bounded application/root identity pointer specified below. Browsing, highlighting, opening, or choosing an assistance action never substitutes for that choice. Attachment contains no document/result/prompt bytes and does not authorize model-context activation, provider submission, Core use, or mutation.
@@ -527,7 +528,7 @@ Preparation is read-only. Every mutation creates one canonical preview envelope:
 }
 ```
 
-`mutation_class` is exactly `workspace_file`, `artifact_file`, or `deletion`. `operation` is one of `configure_root`, `detach_root`, `initialize_application`, `record_state`, `select_original`, `save_resume`, or `delete_application`. All fields are always present and in the order shown.
+`mutation_class` is exactly `workspace_file`, `artifact_file`, or `deletion`. `operation` is one of `configure_root`, `detach_root`, `initialize_application`, `finish_application_migration`, `record_state`, `select_original`, `update_vacancy`, `save_resume`, or `delete_application`. All fields are always present and in the order shown.
 
 A created object is exactly:
 

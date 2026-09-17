@@ -21,6 +21,7 @@ import { TextDecoder } from "node:util";
 import {
   withFileMutationQueue,
   type ExtensionCommandContext,
+  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -39,9 +40,10 @@ import {
   type ConfigSnapshot,
 } from "./config.ts";
 import { privacyDisplayPath } from "./renderers.ts";
-import { eligibleOriginals, scanLibrary } from "./scan.ts";
-import { parseStrictJson } from "./strict-json.ts";
+import { deriveApplicationReadiness } from "./application-readiness.ts";
 export { deriveApplicationReadiness } from "./application-readiness.ts";
+import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
+import { parseStrictJson } from "./strict-json.ts";
 import {
   boundedLabel,
   workspaceApplicationIdentity,
@@ -66,6 +68,7 @@ import {
   type ResumeFormat,
   type ResumeRecord,
   type VacancyEntry,
+  WORKFLOW_STATE_SCHEMA,
   workflowError,
 } from "./types.ts";
 
@@ -249,6 +252,16 @@ export interface ValidatedApplicationAttachment {
   updated_at: string;
 }
 
+export interface AttachedApplicationSources {
+  application_id: string;
+  company_label: string;
+  role_label: string;
+  status: ApplicationStatus;
+  vacancy?: VacancyEntry;
+  selected_original?: ResumeRecord;
+  effective_resume?: ResumeRecord;
+}
+
 interface CurrentApplicationTarget {
   directoryPath: string;
   applicationId: string;
@@ -308,7 +321,8 @@ type WorkspaceOperation =
   | "initialize_application"
   | "finish_application_migration"
   | "record_state"
-  | "select_original";
+  | "select_original"
+  | "update_vacancy";
 
 interface PreviewEnvelope {
   schema_version: typeof PREVIEW_SCHEMA;
@@ -1471,10 +1485,17 @@ function assertExactAttachmentBinding(
   }
 }
 
-export async function validateApplicationAttachment(
+interface AttachedInspection {
+  snapshot: ConfigSnapshot;
+  evidence: CatalogEvidence;
+  inspected: InspectedApplication;
+  identity: NonNullable<ApplicationCatalogRecord["identity"]>;
+}
+
+async function inspectAttachedApplication(
   agentDir: string,
   attachment: ApplicationAttachmentEntry,
-): Promise<ValidatedApplicationAttachment> {
+): Promise<AttachedInspection> {
   try {
     const snapshot = await loadConfigSnapshot(agentDir);
     const configured = snapshot.config.application_workspace;
@@ -1488,17 +1509,164 @@ export async function validateApplicationAttachment(
     const match = exactValidatedMatch(initial, attachment);
     assertExactAttachmentBinding(initial, attachment, match);
     return {
-      attachment_id: attachment.attachment_id,
-      application_id: attachment.application_id,
-      root_id: attachment.root_id,
-      company_label: match.identity.company_label,
-      role_label: match.identity.role_label,
-      status: match.record.status,
-      updated_at: match.record.updated_at,
+      snapshot,
+      evidence: initial,
+      inspected: match.inspected,
+      identity: match.identity,
     };
   } catch (error) {
     return attachmentValidationError(error);
   }
+}
+
+function managedFile(application: InspectedApplication, relativePath: string): ExactFile | undefined {
+  return application.managedFiles.find((file) => path.basename(file.path) === relativePath);
+}
+
+function decodeManagedUtf8(file: ExactFile): string {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (file.bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])) || /[\u0000\r]/.test(text) ||
+    hasUnpairedSurrogate(text) || !isWithinCoreCharacterLimit(text)) {
+    throw workflowError("workspace_drift");
+  }
+  return text;
+}
+
+function vacancyLabelFromText(text: string): string {
+  const label = text.split("\n").find((line) => line.trim().length > 0)?.trim() || "Current vacancy";
+  return label.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 120);
+}
+
+function vacancyFromBinding(application: InspectedApplication): VacancyEntry | undefined {
+  const binding = application.head.vacancy;
+  if (binding === null) return undefined;
+  const file = managedFile(application, binding.relative_path);
+  if (file === undefined || file.sha256 !== binding.content_sha256 || file.bytes.length !== binding.utf8_bytes) {
+    throw workflowError("workspace_drift");
+  }
+  const text = decodeManagedUtf8(file);
+  if (sha256(text) !== binding.content_sha256) throw workflowError("workspace_drift");
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    kind: "vacancy",
+    state_id: binding.source_state_id,
+    created_at: application.head.updated_at,
+    application_id: application.head.application_id,
+    vacancy_label: vacancyLabelFromText(text),
+    vacancy_text: text,
+    vacancy_text_sha256: binding.content_sha256,
+    source: "paste",
+  };
+}
+
+function tailoredResumeRecord(
+  application: InspectedApplication,
+  original: ResumeRecord,
+): ResumeRecord {
+  const artifact = application.head.resume_artifact;
+  if (artifact === null) throw workflowError("workspace_drift");
+  const file = managedFile(application, artifact.relative_path);
+  if (file === undefined || file.sha256 !== artifact.artifact_sha256) throw workflowError("workspace_drift");
+  const text = decodeManagedUtf8(file);
+  const format: ResumeFormat = artifact.relative_path.endsWith(".md") ? "markdown" : "text";
+  return {
+    id: artifact.artifact_sha256,
+    root_id: original.root_id,
+    path: artifact.relative_path,
+    relative_path: artifact.relative_path,
+    label: original.label,
+    kind: "assisted_variant",
+    format,
+    modified_at: application.head.updated_at,
+    size_bytes: file.bytes.length,
+    text,
+    text_sha256: sha256(text),
+  };
+}
+
+export async function validateApplicationAttachment(
+  agentDir: string,
+  attachment: ApplicationAttachmentEntry,
+): Promise<ValidatedApplicationAttachment> {
+  const loaded = await inspectAttachedApplication(agentDir, attachment);
+  return {
+    attachment_id: attachment.attachment_id,
+    application_id: attachment.application_id,
+    root_id: attachment.root_id,
+    company_label: loaded.identity.company_label,
+    role_label: loaded.identity.role_label,
+    status: loaded.inspected.head.status,
+    updated_at: loaded.inspected.head.updated_at,
+  };
+}
+
+export async function loadAttachedApplicationSources(
+  agentDir: string,
+  attachment: ApplicationAttachmentEntry,
+): Promise<AttachedApplicationSources> {
+  const loaded = await inspectAttachedApplication(agentDir, attachment);
+  const application = loaded.inspected;
+  if (application.identity === undefined) throw workflowError("attachment_unavailable");
+  const scan = await scanLibrary(loaded.snapshot.config);
+  const selected = application.head.selected_original;
+  let selectedOriginal: ResumeRecord | undefined;
+  if (selected !== null) {
+    const root = scan.roots.find((item) => item.root_id === selected.library_root_id);
+    const matches = eligibleOriginals(scan).filter((record) =>
+      record.id === selected.document_id && record.root_id === selected.library_root_id &&
+      record.text_sha256 === selected.text_sha256 && record.format === selected.format);
+    if (scan.total_capped || root === undefined || root.capped || root.stale || matches.length !== 1) {
+      throw workflowError("workspace_drift");
+    }
+    selectedOriginal = matches[0];
+  }
+  const readiness = deriveApplicationReadiness({
+    vacancy: application.head.vacancy === null ? null : { content_sha256: application.head.vacancy.content_sha256 },
+    selected_original: selected,
+    resume_artifact: application.head.resume_artifact === null
+      ? null
+      : { artifact_sha256: application.head.resume_artifact.artifact_sha256 },
+    cover_letter_artifact: application.head.schema_version === STATE_SCHEMA_V2
+      ? application.head.cover_letter_artifact
+      : null,
+  }, {
+    vacancy: "valid",
+    resume_artifact: "valid",
+    cover_letter_artifact: "valid",
+    library_scan: scan,
+  });
+  if (application.head.resume_artifact !== null && readiness.effective_resume !== "tailored") {
+    throw workflowError("workspace_drift");
+  }
+  if (selected !== null && readiness.effective_resume === null) throw workflowError("workspace_drift");
+  const effective = readiness.effective_resume === "tailored" && selectedOriginal !== undefined
+    ? tailoredResumeRecord(application, selectedOriginal)
+    : selectedOriginal;
+  const vacancy = vacancyFromBinding(application);
+  return {
+    application_id: application.manifest.application_id,
+    company_label: loaded.identity.company_label,
+    role_label: loaded.identity.role_label,
+    status: application.head.status,
+    ...(vacancy === undefined ? {} : { vacancy }),
+    ...(selectedOriginal === undefined ? {} : { selected_original: selectedOriginal }),
+    ...(effective === undefined ? {} : { effective_resume: effective }),
+  };
+}
+
+export async function attachedApplicationSourcesForSession(
+  agentDir: string,
+  branch: readonly SessionEntry[],
+  allEntries: readonly SessionEntry[] = branch,
+): Promise<AttachedApplicationSources | undefined> {
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid" || records.attachment === undefined) return undefined;
+  return loadAttachedApplicationSources(agentDir, records.attachment);
 }
 
 function slug(value: string, fallback: "company" | "role"): string {
@@ -1945,13 +2113,17 @@ function stateName(sequence: number): string {
   return `.pi-career-state-${String(sequence).padStart(6, "0")}.json`;
 }
 
-function vacancyBinding(fileName: string, bytes: Buffer, vacancy: VacancyEntry): VacancyBinding {
+function vacancyBindingFromBytes(fileName: string, bytes: Buffer, sourceStateId: string): VacancyBinding {
   return {
     relative_path: fileName,
     content_sha256: hashBytes(bytes),
     utf8_bytes: bytes.length,
-    source_state_id: vacancy.state_id,
+    source_state_id: sourceStateId,
   };
+}
+
+function vacancyBinding(fileName: string, bytes: Buffer, vacancy: VacancyEntry): VacancyBinding {
+  return vacancyBindingFromBytes(fileName, bytes, vacancy.state_id);
 }
 
 function assertApplicationCapacity(
@@ -2109,6 +2281,131 @@ export class ApplicationWorkspaceWorkflow {
     if (action === "Open application in new Pi session") return this.openInNewSession(ctx);
     if (action === "Detach current application from session") return this.detachCurrent(ctx);
     if (action === "Activate Career assistance") return this.activateAssistance(ctx);
+  }
+
+  async writeAttachedVacancy(
+    ctx: ExtensionCommandContext,
+    text: string | null,
+  ): Promise<"written" | "unchanged" | "cancelled"> {
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
+    if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    if (records.integrity !== "valid" || records.attachment === undefined) {
+      throw workflowError("attachment_unavailable");
+    }
+    const loaded = await inspectAttachedApplication(this.options.agentDir, records.attachment);
+    const application = loaded.inspected;
+    const configured = loaded.snapshot.config.application_workspace;
+    if (configured === null || application.identity === undefined) throw workflowError("attachment_unavailable");
+    await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
+    const identity = sessionIdentity(ctx);
+    if (identity !== undefined && (
+      identity.identity.application_id !== application.manifest.application_id ||
+      identity.identity.created_at !== application.manifest.application_created_at ||
+      identity.identity.company_label !== application.identity.company_label ||
+      identity.identity.role_label !== application.identity.role_label
+    )) throw workflowError("workspace_identity_conflict");
+    const nextBytes = text === null ? undefined : Buffer.from(text, "utf8");
+    if (text !== null && (nextBytes === undefined || nextBytes.length === 0 || nextBytes.length > VACANCY_MAX_BYTES ||
+      text.includes("\r") || hasUnpairedSurrogate(text) || !isWithinCoreCharacterLimit(text) ||
+      sha256(text) !== hashBytes(nextBytes))) {
+      throw workflowError("invalid_command_arguments");
+    }
+    const current = application.head.vacancy;
+    const unchanged = text === null ? current === null
+      : current !== null && nextBytes !== undefined && current.content_sha256 === hashBytes(nextBytes) &&
+        current.utf8_bytes === nextBytes.length;
+    if (unchanged) {
+      ctx.ui.notify("Workspace vacancy already matches this input; no revision was added.", "info");
+      return "unchanged";
+    }
+    const mutationId = this.options.uuid().toLowerCase();
+    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const { createdAt, sequence } = prepared;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
+    const vacancyFile = path.join(application.directoryPath, vacancyName);
+    const sourceStateId = this.options.uuid().toLowerCase();
+    const nextVacancy = text === null || nextBytes === undefined
+      ? null
+      : vacancyBindingFromBytes(vacancyName, nextBytes, sourceStateId);
+    const state: ApplicationStateRevisionV2 = {
+      schema_version: STATE_SCHEMA_V2,
+      kind: "application_state_revision",
+      application_id: application.manifest.application_id,
+      sequence,
+      parent_sha256: prepared.parentSha256,
+      status: application.head.status,
+      vacancy: nextVacancy,
+      selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact,
+      cover_letter_artifact: prepared.coverLetterArtifact,
+      updated_at: createdAt,
+    };
+    const stateBuffer = stateBytes(state);
+    const files = [
+      ...prepared.transitionFiles,
+      ...(nextBytes === undefined ? [] : [{
+        final: vacancyFile,
+        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
+        bytes: nextBytes,
+      }]),
+      {
+        final: path.join(application.directoryPath, stateName(sequence)),
+        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer,
+      },
+    ];
+    for (const file of files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, files, prepared.revisionAdditions);
+    if (ctx.sessionManager.getSessionFile() === undefined) {
+      ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
+    }
+    const target: CurrentApplicationTarget = {
+      directoryPath: application.directoryPath,
+      applicationId: application.manifest.application_id,
+      applicationCreatedAt: application.manifest.application_created_at,
+      companyLabel: application.identity.company_label,
+      roleLabel: application.identity.role_label,
+    };
+    const root = await inspectRoot(configured.root_path, {
+      expectedRootId: configured.root_id,
+      currentApplication: target,
+    });
+    const attachment: Attachment = {
+      snapshot: loaded.snapshot,
+      root,
+      application,
+    };
+    const plan = buildPlan(
+      this.options, ctx, "update_vacancy", application.manifest.application_id, identity,
+      loaded.snapshot.sha256, application.headFile.sha256,
+      files.map((file) => createPreview(file.final, file.bytes)), [],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      ctx.sessionManager.getSessionFile() === undefined ? ["Transient session: the revision outlives this process."] : [],
+      mutationId, createdAt,
+    );
+    if (!(await approve(plan, ctx))) return "cancelled";
+    await this.commitRevision(plan, ctx, attachment, identity, files, stateBuffer, async () => {
+      await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
+    }, target);
+    ctx.ui.notify(
+      `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`,
+      "info",
+    );
+    return "written";
+  }
+
+  async prepareAssistanceHandoff(ctx: ExtensionCommandContext): Promise<void> {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === undefined) throw workflowError("attachment_unavailable");
+    await validateApplicationAttachment(this.options.agentDir, records.attachment);
+    if (records.activation !== undefined) {
+      ctx.ui.setEditorText(CAREER_ASSISTANCE_HANDOFF);
+      ctx.ui.notify("Career assistance is already active. Review the editor handoff; nothing was submitted.", "info");
+      return;
+    }
+    await this.activateAssistance(ctx);
   }
 
   private async menuState(ctx: ExtensionCommandContext, identity: WorkspaceApplicationIdentity | undefined): Promise<{
@@ -2927,11 +3224,17 @@ export class ApplicationWorkspaceWorkflow {
     );
     if (!(await approve(plan, ctx))) return;
     await this.commitRevision(plan, ctx, attachment, identity, files, stateBuffer, async (current) => {
-      if (current.current.status !== identity.current.status ||
+      if (current === undefined || current.current.status !== identity.current.status ||
         (current.vacancy?.state_id ?? null) !== (identity.vacancy?.state_id ?? null)) {
         throw workflowError("workspace_identity_conflict");
       }
       await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    }, {
+      directoryPath: application.directoryPath,
+      applicationId: identity.identity.application_id,
+      applicationCreatedAt: identity.identity.created_at,
+      companyLabel: identity.identity.company_label,
+      roleLabel: identity.identity.role_label,
     });
     ctx.ui.notify(`Recorded immutable workspace state revision ${sequence}. Earlier vacancy files remain unchanged.`, "info");
   }
@@ -3004,6 +3307,12 @@ export class ApplicationWorkspaceWorkflow {
     await this.commitRevision(plan, ctx, attachment, identity, files, bytes, async () => {
       const freshScan = await scanLibrary(attachment.snapshot.config);
       freshRecord(freshScan, selected);
+    }, {
+      directoryPath: application.directoryPath,
+      applicationId: identity.identity.application_id,
+      applicationCreatedAt: identity.identity.created_at,
+      companyLabel: identity.identity.company_label,
+      roleLabel: identity.identity.role_label,
     });
     ctx.ui.notify(`Recorded selected-original binding in immutable revision ${sequence}; no original bytes were copied or changed.`, "info");
   }
@@ -3012,10 +3321,11 @@ export class ApplicationWorkspaceWorkflow {
     plan: WorkspacePlan,
     ctx: ExtensionCommandContext,
     attachment: Attachment,
-    identity: WorkspaceApplicationIdentity,
+    identity: WorkspaceApplicationIdentity | undefined,
     files: Array<{ final: string; temp: string; bytes: Buffer }>,
     stateBuffer: Buffer,
-    sourceValidation: (current: WorkspaceApplicationIdentity) => Promise<void>,
+    sourceValidation: (current: WorkspaceApplicationIdentity | undefined) => Promise<void>,
+    target: CurrentApplicationTarget,
   ): Promise<void> {
     const configured = attachment.snapshot.config.application_workspace;
     const application = attachment.application;
@@ -3033,7 +3343,9 @@ export class ApplicationWorkspaceWorkflow {
       const published: PublishedFile[] = [];
       try {
         const current = assertSessionPlan(plan, ctx);
-        if (current === undefined || current.identity.application_id !== identity.identity.application_id) {
+        if ((identity === undefined) !== (current === undefined) ||
+          (identity !== undefined && current?.identity.application_id !== identity.identity.application_id) ||
+          target.applicationId !== application.manifest.application_id) {
           throw workflowError("workspace_identity_conflict");
         }
         await assertConfigSnapshotCurrent(attachment.snapshot);
@@ -3041,13 +3353,7 @@ export class ApplicationWorkspaceWorkflow {
         const root = await inspectRoot(configured.root_path, {
           expectedRootId: configured.root_id,
           ownedLock: rootLock.path,
-          currentApplication: {
-            directoryPath: application.directoryPath,
-            applicationId: identity.identity.application_id,
-            applicationCreatedAt: identity.identity.created_at,
-            companyLabel: identity.identity.company_label,
-            roleLabel: identity.identity.role_label,
-          },
+          currentApplication: target,
         });
         assertRootPlanCurrent(attachment.root, root);
         const currentApplication = root.currentApplication;

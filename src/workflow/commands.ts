@@ -11,7 +11,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { CareerInvocationError, invokeCareerCli } from "../process.ts";
-import { ApplicationWorkspaceWorkflow } from "./application-workspace.ts";
+import {
+  ApplicationWorkspaceWorkflow,
+  attachedApplicationSourcesForSession,
+} from "./application-workspace.ts";
 import {
   addLibraryRoot,
   clearGeneratedVariantsRoot,
@@ -394,10 +397,25 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
   const renderedData = new Map<string, WorkflowEntryData>();
   const renderedTieStateIds = new Set<string>();
 
+  const attachedSources = (ctx: ExtensionContext) => attachedApplicationSourcesForSession(
+    dependencies.agentDir,
+    ctx.sessionManager.getBranch(),
+    ctx.sessionManager.getEntries(),
+  );
+
   const refreshState = async (ctx: ExtensionContext): Promise<{ config: CareerConfig; scan: LibraryScan }> => {
     const library = await loadLibrary(dependencies);
     const branch = ctx.sessionManager.getBranch();
-    const state = withCurrentStaleness(reconstructWorkflowState(branch), library.scan);
+    const attached = await attachedSources(ctx);
+    const state = withCurrentStaleness(
+      reconstructWorkflowState(branch),
+      library.scan,
+      attached === undefined ? undefined : attached.vacancy?.vacancy_text_sha256 ?? null,
+      [
+        ...(attached?.selected_original === undefined ? [] : [attached.selected_original]),
+        ...(attached?.effective_resume === undefined ? [] : [attached.effective_resume]),
+      ],
+    );
     renderedData.clear();
     for (const entry of [
       ...(state.application === undefined ? [] : [state.application]),
@@ -783,6 +801,60 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== undefined) {
+        requireInteractive(ctx);
+        const persistWorkspaceVacancy = async (text: string | null): Promise<void> => {
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, text);
+          owner.assert(run, ctx);
+          if (outcome === "cancelled") {
+            ctx.ui.notify("Vacancy change cancelled; workspace and session were not changed.", "info");
+          }
+        };
+        if (argument === "clear") {
+          if (attached.vacancy !== undefined) await persistWorkspaceVacancy(null);
+          return;
+        }
+        let prefill = "";
+        if (attached.vacancy !== undefined) {
+          const action = await ctx.ui.select("Current career vacancy", ["Replace", "View", "Clear", "Cancel"]);
+          owner.assert(run, ctx);
+          if (action === "View") {
+            ctx.ui.notify(`Current vacancy: ${attached.vacancy.vacancy_label}`, "info");
+            return;
+          }
+          if (action === "Clear") {
+            await persistWorkspaceVacancy(null);
+            return;
+          }
+          if (action !== "Replace") return;
+          prefill = attached.vacancy.vacancy_text;
+        }
+        const edited = await ctx.ui.editor(
+          attached.vacancy === undefined ? "Paste career vacancy" : "Replace career vacancy",
+          prefill,
+        );
+        if (edited === undefined) return;
+        const text = edited.replace(/\r\n?/g, "\n");
+        if (text.trim().length === 0 || !isWithinCoreCharacterLimit(text)) {
+          throw workflowError("invalid_command_arguments");
+        }
+        const vacancy = createVacancyEntry(text, attached.vacancy === undefined ? "paste" : "replace", {
+          ...dependencies,
+          applicationId: attached.application_id,
+        });
+        await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
+          const result = await dependencies.invoke(
+            { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+            signal,
+          );
+          const parsed = parseCoreJson(result.json);
+          if (parsed.schema_version !== "career.job_normalization.v1") throw workflowError("core_result_invalid");
+        });
+        await persistWorkspaceVacancy(text);
+        return;
+      }
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
       if (argument === "clear") {
         if (state.vacancy !== undefined) {
@@ -842,6 +914,12 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== undefined) {
+        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        return;
+      }
       const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
@@ -859,13 +937,21 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
       const { config, scan } = await refreshState(ctx);
-      const candidates = filteredResumes(eligibleOriginals(scan), filter);
-      if (candidates.length === 0) throw workflowError("library_empty");
-      const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
-      const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
-      const resume = selected === undefined ? undefined : byOption.get(selected);
-      if (resume === undefined) return;
+      let resume: ResumeRecord | undefined;
+      if (attached !== undefined) {
+        resume = attached.selected_original;
+        if (resume === undefined) throw workflowError("library_empty");
+      } else {
+        const candidates = filteredResumes(eligibleOriginals(scan), filter);
+        if (candidates.length === 0) throw workflowError("library_empty");
+        const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
+        const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+        resume = selected === undefined ? undefined : byOption.get(selected);
+        if (resume === undefined) return;
+      }
       owner.assert(run, ctx);
       await ensureConsent(ctx, run);
 
@@ -888,20 +974,20 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       }
       const projection = projectResumeAnalysis(result);
       const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      const applicationId = attached?.application_id ?? currentState.application?.application_id;
       const card = createResultCard({
         workflow: "analyze",
-        ...(currentState.application === undefined
-          ? {}
-          : { applicationId: currentState.application.application_id }),
+        ...(applicationId === undefined ? {} : { applicationId }),
         runId: run.runId, resume, projection,
         uuid: dependencies.uuid, now: dependencies.now,
       });
       appendData(pi, owner, run, ctx, card);
       renderedData.set(card.state_id, card);
       ctx.ui.notify(plainResultCard(card), "info");
+      const matchVacancy = attached === undefined ? currentState.vacancy : attached.vacancy;
       const actions = [
         "View all analysis or one section",
-        ...(currentState.vacancy === undefined ? [] : ["Career match this resume"]),
+        ...(matchVacancy === undefined ? [] : ["Career match this resume"]),
         "Open guided Pi rebuild workbench",
         "Close",
       ];
@@ -912,6 +998,10 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
       } else if (action === "Open guided Pi rebuild workbench") {
+        if (attached !== undefined) {
+          await applicationWorkspace.prepareAssistanceHandoff(ctx);
+          return;
+        }
         await prepareWorkbenchPrompt(ctx, run, resume, config);
       }
     }),
@@ -923,28 +1013,36 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
       const { scan } = await refreshState(ctx);
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
-      const vacancy = state.vacancy;
+      const vacancy = attached === undefined ? state.vacancy : attached.vacancy;
       if (vacancy === undefined) throw workflowError("vacancy_required");
-      const candidates = filteredResumes(eligibleOriginals(scan), filter);
-      if (candidates.length === 0) throw workflowError("library_empty");
-      const scope = await ctx.ui.select("Career match", ["All original resumes", "Select subset", "Cancel"]);
-      if (scope === undefined || scope === "Cancel") return;
-      let selected = candidates;
-      if (scope === "Select subset") {
-        const remaining = new Map(candidates.map((record) => [recordOption(record), record]));
-        selected = [];
-        while (remaining.size > 0) {
-          const choice = await ctx.ui.select("Select resumes", ["Done", ...remaining.keys()]);
-          if (choice === undefined || choice === "Done") break;
-          const record = remaining.get(choice);
-          if (record !== undefined) {
-            selected.push(record);
-            remaining.delete(choice);
+      let selected: ResumeRecord[];
+      if (attached !== undefined) {
+        if (attached.effective_resume === undefined) throw workflowError("library_empty");
+        selected = [attached.effective_resume];
+      } else {
+        const candidates = filteredResumes(eligibleOriginals(scan), filter);
+        if (candidates.length === 0) throw workflowError("library_empty");
+        const scope = await ctx.ui.select("Career match", ["All original resumes", "Select subset", "Cancel"]);
+        if (scope === undefined || scope === "Cancel") return;
+        selected = candidates;
+        if (scope === "Select subset") {
+          const remaining = new Map(candidates.map((record) => [recordOption(record), record]));
+          selected = [];
+          while (remaining.size > 0) {
+            const choice = await ctx.ui.select("Select resumes", ["Done", ...remaining.keys()]);
+            if (choice === undefined || choice === "Done") break;
+            const record = remaining.get(choice);
+            if (record !== undefined) {
+              selected.push(record);
+              remaining.delete(choice);
+            }
           }
+          if (selected.length === 0) return;
         }
-        if (selected.length === 0) return;
       }
       owner.assert(run, ctx);
       await ensureConsent(ctx, run);
@@ -959,9 +1057,10 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
       owner.assert(run, ctx);
       const ranked = rankMatches(queue.matches);
+      const applicationId = attached?.application_id ?? state.application?.application_id;
       const cards: ResultCardEntry[] = ranked.map((item) => createResultCard({
         workflow: "match",
-        ...(state.application === undefined ? {} : { applicationId: state.application.application_id }),
+        ...(applicationId === undefined ? {} : { applicationId }),
         runId: run.runId, resume: item.resume, vacancy,
         projection: item.projection, uuid: dependencies.uuid, now: dependencies.now,
       }));

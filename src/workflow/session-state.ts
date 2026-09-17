@@ -15,6 +15,7 @@ import {
   type ReconstructedWorkflowState,
   type ResultCardEntry,
   type ResultProjection,
+  type ResumeRecord,
   type VacancyClearEntry,
   type VacancyEntry,
   type WorkflowEntryData,
@@ -411,14 +412,22 @@ export function createConsentClearEntry(
 export function withCurrentStaleness(
   state: ReconstructedWorkflowState,
   scan: LibraryScan,
+  vacancyDigest?: string | null,
+  extraRecords: readonly ResumeRecord[] = [],
 ): ReconstructedWorkflowState {
-  const records = new Map(scan.records.map((record) => [record.id, record]));
+  const records = new Map([
+    ...scan.records.map((record) => [record.id, record] as const),
+    ...extraRecords.map((record) => [record.id, record] as const),
+  ]);
+  const authoritativeVacancy = vacancyDigest === undefined
+    ? state.vacancy?.vacancy_text_sha256
+    : vacancyDigest ?? undefined;
   const cards = state.result_cards.map((card) => {
     const current = records.get(card.resume_id);
     const resumeStale = current === undefined || current.text_sha256 !== card.input_digests.resume_text_sha256;
     const vacancyStale =
       card.workflow === "match" &&
-      state.vacancy?.vacancy_text_sha256 !== card.input_digests.vacancy_text_sha256;
+      authoritativeVacancy !== card.input_digests.vacancy_text_sha256;
     const stale = resumeStale || vacancyStale;
     return {
       ...card,
