@@ -47,7 +47,16 @@ import {
   workspaceApplicationIdentity,
   type WorkspaceApplicationIdentity,
 } from "./session-state.ts";
-import type { ApplicationAttachmentEntry } from "./session-attachment.ts";
+import {
+  APPLICATION_ASSISTANCE_CUSTOM_TYPE,
+  APPLICATION_ATTACHMENT_CUSTOM_TYPE,
+  CAREER_ASSISTANCE_HANDOFF,
+  createApplicationAssistanceActivationEntry,
+  createApplicationAttachmentEntry,
+  createApplicationDetachmentEntry,
+  replayApplicationSessionRecords,
+  type ApplicationAttachmentEntry,
+} from "./session-attachment.ts";
 import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
   type ApplicationStatus,
@@ -93,6 +102,7 @@ interface WorkspaceOptions {
   agentDir: string;
   now: () => Date;
   uuid: () => string;
+  appendEntry?: (customType: string, data: unknown) => void;
 }
 
 interface RootMarker {
@@ -2069,13 +2079,16 @@ export class ApplicationWorkspaceWorkflow {
     if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
     if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
     const identity = sessionIdentity(ctx);
-    const menuState = await this.menuState(identity);
+    const menuState = await this.menuState(ctx, identity);
     const action = await ctx.ui.select("Career application workspace", [
       "Status and reconcile",
       ...(menuState.canInitialize ? ["Initialize current application"] : []),
       ...(menuState.canMigrate ? ["Finish application migration"] : []),
       ...(menuState.canRecord ? ["Record current status and vacancy"] : []),
       ...(menuState.canSelectOriginal ? ["Select original resume"] : []),
+      ...(menuState.canAttach ? ["Attach current application"] : []),
+      ...(menuState.canDetachSession ? ["Detach current application from session"] : []),
+      ...(menuState.canActivateAssistance ? ["Activate Career assistance"] : []),
       "Configure application root",
       "Detach application root from config",
       "Close",
@@ -2088,15 +2101,30 @@ export class ApplicationWorkspaceWorkflow {
     if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
+    if (action === "Attach current application") return this.attachCurrent(ctx);
+    if (action === "Detach current application from session") return this.detachCurrent(ctx);
+    if (action === "Activate Career assistance") return this.activateAssistance(ctx);
   }
 
-  private async menuState(identity: WorkspaceApplicationIdentity | undefined): Promise<{
+  private async menuState(ctx: ExtensionCommandContext, identity: WorkspaceApplicationIdentity | undefined): Promise<{
     canInitialize: boolean;
     canMigrate: boolean;
     canRecord: boolean;
     canSelectOriginal: boolean;
+    canAttach: boolean;
+    canDetachSession: boolean;
+    canActivateAssistance: boolean;
   }> {
-    const unavailable = { canInitialize: false, canMigrate: false, canRecord: false, canSelectOriginal: false };
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    const sessionFlags = {
+      canAttach: false,
+      canDetachSession: records.integrity === "valid" && records.attachment !== undefined,
+      canActivateAssistance: records.integrity === "valid" && records.attachment !== undefined &&
+        records.activation === undefined,
+    };
+    const unavailable = {
+      canInitialize: false, canMigrate: false, canRecord: false, canSelectOriginal: false, ...sessionFlags,
+    };
     if (identity === undefined) return unavailable;
     try {
       const attachment = await attachmentFor(this.options.agentDir, identity);
@@ -2113,10 +2141,105 @@ export class ApplicationWorkspaceWorkflow {
         canRecord: attachment.application.head.status !== identity.current.status ||
           !sameSessionVacancy(attachment.application.head, identity.vacancy),
         canSelectOriginal: attachment.application.head.resume_artifact === null,
+        canAttach: records.integrity === "valid" && records.attachment === undefined &&
+          (records.used_application_id === undefined ||
+            records.used_application_id === identity.identity.application_id),
+        canDetachSession: sessionFlags.canDetachSession,
+        canActivateAssistance: sessionFlags.canActivateAssistance,
       };
     } catch {
       return unavailable;
     }
+  }
+
+  private requireAppender(): (customType: string, data: unknown) => void {
+    if (this.options.appendEntry === undefined) throw workflowError("workspace_unavailable");
+    return this.options.appendEntry;
+  }
+
+  private sessionRecords(ctx: ExtensionCommandContext) {
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    if (records.integrity !== "valid") throw workflowError("attachment_unavailable");
+    return records;
+  }
+
+  private async attachCurrent(ctx: ExtensionCommandContext): Promise<void> {
+    const identity = sessionIdentity(ctx);
+    if (identity === undefined) throw workflowError("workspace_unavailable");
+    const records = this.sessionRecords(ctx);
+    if (records.used_application_id !== undefined &&
+      records.used_application_id !== identity.identity.application_id) {
+      throw workflowError("workspace_identity_conflict");
+    }
+    if (records.attachment !== undefined) throw workflowError("workspace_unavailable");
+    const inspected = await attachmentFor(this.options.agentDir, identity);
+    if (inspected.application?.identity === undefined) throw workflowError("attachment_unavailable");
+    const entry = createApplicationAttachmentEntry({
+      applicationId: inspected.application.manifest.application_id,
+      rootId: inspected.root.marker.root_id,
+      rootCreatedAt: inspected.root.marker.created_at,
+      applicationCreatedAt: inspected.application.manifest.application_created_at,
+      workspaceCreatedAt: inspected.application.manifest.workspace_created_at,
+    }, this.options);
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const confirmed = await ctx.ui.confirm(
+      "Attach current application",
+      "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive.",
+    );
+    if (confirmed !== true) return;
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment !== undefined) throw workflowError("workspace_unavailable");
+    this.requireAppender()(APPLICATION_ATTACHMENT_CUSTOM_TYPE, entry);
+    ctx.ui.notify("Application attached. Career assistance remains inactive.", "info");
+  }
+
+  private async detachCurrent(ctx: ExtensionCommandContext): Promise<void> {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === undefined) throw workflowError("attachment_unavailable");
+    const confirmed = await ctx.ui.confirm(
+      "Detach current application",
+      "Detach this application from the Pi session? Workspace files are not changed.",
+    );
+    if (confirmed !== true) return;
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment === undefined || latest.attachment.attachment_id !== records.attachment.attachment_id) {
+      throw workflowError("workspace_unavailable");
+    }
+    this.requireAppender()(
+      APPLICATION_ATTACHMENT_CUSTOM_TYPE,
+      createApplicationDetachmentEntry(latest.attachment, this.options),
+    );
+    ctx.ui.notify("Application detached from the session. Workspace files were not changed.", "info");
+    if (latest.activation !== undefined) {
+      await ctx.reload();
+    }
+  }
+
+  private async activateAssistance(ctx: ExtensionCommandContext): Promise<void> {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === undefined || records.activation !== undefined) {
+      throw workflowError("attachment_unavailable");
+    }
+    await validateApplicationAttachment(this.options.agentDir, records.attachment);
+    const confirmed = await ctx.ui.confirm(
+      "Activate Career assistance",
+      "Prepare a Career Skill handoff in the editor? Nothing will be submitted.",
+    );
+    if (confirmed !== true) return;
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment === undefined || latest.activation !== undefined ||
+      latest.attachment.attachment_id !== records.attachment.attachment_id) {
+      throw workflowError("workspace_unavailable");
+    }
+    await validateApplicationAttachment(this.options.agentDir, latest.attachment);
+    this.requireAppender()(
+      APPLICATION_ASSISTANCE_CUSTOM_TYPE,
+      createApplicationAssistanceActivationEntry(latest.attachment, this.options),
+    );
+    ctx.ui.setEditorText(CAREER_ASSISTANCE_HANDOFF);
+    ctx.ui.notify("Career assistance prepared in the editor. Review and submit manually.", "info");
+    await ctx.reload();
   }
 
   private async status(ctx: ExtensionCommandContext): Promise<void> {

@@ -4625,6 +4625,217 @@ import { TextDecoder as TextDecoder5 } from "node:util";
 import {
   withFileMutationQueue as withFileMutationQueue2
 } from "@earendil-works/pi-coding-agent";
+
+// src/workflow/session-attachment.ts
+var APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
+var APPLICATION_ASSISTANCE_CUSTOM_TYPE = "career.application_assistance";
+var CAREER_ASSISTANCE_HANDOFF = '/skill:career-core Use career_run for the attached application. Start with {"command":"context"}.';
+var APPLICATION_ATTACHMENT_SCHEMA = "pi.career.application_attachment.v1";
+var APPLICATION_ASSISTANCE_SCHEMA = "pi.career.application_assistance.v1";
+var LOWERCASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var CANONICAL_TIMESTAMP2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+function isRecord8(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function hasOrderedKeys(value, expected) {
+  const actual = Object.keys(value);
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+function isUuid2(value) {
+  return typeof value === "string" && LOWERCASE_UUID.test(value);
+}
+function isTimestamp(value) {
+  if (typeof value !== "string" || !CANONICAL_TIMESTAMP2.test(value)) return false;
+  try {
+    return new Date(value).toISOString() === value;
+  } catch {
+    return false;
+  }
+}
+function parseAttachment(value) {
+  if (!hasOrderedKeys(value, [
+    "schema_version",
+    "kind",
+    "attachment_id",
+    "application_id",
+    "root_id",
+    "root_created_at",
+    "application_created_at",
+    "workspace_created_at"
+  ])) return void 0;
+  const validIds = [value.attachment_id, value.application_id, value.root_id].every(isUuid2);
+  const validTimes = [value.root_created_at, value.application_created_at, value.workspace_created_at].every(isTimestamp);
+  return validIds && validTimes ? value : void 0;
+}
+function parseDetachment(value) {
+  const validKeys = hasOrderedKeys(
+    value,
+    ["schema_version", "kind", "detachment_id", "attachment_id"]
+  );
+  return validKeys && [value.detachment_id, value.attachment_id].every(isUuid2) ? value : void 0;
+}
+function parseApplicationAttachmentEntryData(value) {
+  if (!isRecord8(value) || value.schema_version !== APPLICATION_ATTACHMENT_SCHEMA) return void 0;
+  if (value.kind === "application_attachment") return parseAttachment(value);
+  if (value.kind === "application_detachment") return parseDetachment(value);
+  return void 0;
+}
+function parseApplicationAssistanceEntryData(value) {
+  if (!isRecord8(value) || !hasOrderedKeys(value, [
+    "schema_version",
+    "kind",
+    "activation_id",
+    "attachment_id",
+    "application_id"
+  ])) return void 0;
+  const validConstants = value.schema_version === APPLICATION_ASSISTANCE_SCHEMA && value.kind === "application_assistance_activation";
+  return validConstants && [value.activation_id, value.attachment_id, value.application_id].every(isUuid2) ? value : void 0;
+}
+function invalidRecords() {
+  return { integrity: "invalid" };
+}
+function relevantRecordId(data) {
+  if (data.kind === "application_attachment") return data.attachment_id;
+  if (data.kind === "application_detachment") return data.detachment_id;
+  return data.activation_id;
+}
+function attachmentClaim(value) {
+  const data = parseApplicationAttachmentEntryData(value);
+  if (data === void 0) return { kind: "invalid" };
+  return {
+    kind: "record",
+    recordId: relevantRecordId(data),
+    ...data.kind === "application_attachment" ? { applicationId: data.application_id } : {}
+  };
+}
+function assistanceClaim(value) {
+  const data = parseApplicationAssistanceEntryData(value);
+  return data === void 0 ? { kind: "invalid" } : { kind: "record", recordId: data.activation_id, applicationId: data.application_id };
+}
+function workflowClaim(value) {
+  if (!isRecord8(value) || value.kind !== "application") return { kind: "ignore" };
+  const workflow = parseWorkflowEntryData(value);
+  return workflow?.kind === "application" ? { kind: "record", applicationId: workflow.application_id } : { kind: "invalid" };
+}
+function claimFromEntry(entry) {
+  if (entry.type !== "custom") return { kind: "ignore" };
+  switch (entry.customType) {
+    case APPLICATION_ATTACHMENT_CUSTOM_TYPE:
+      return attachmentClaim(entry.data);
+    case APPLICATION_ASSISTANCE_CUSTOM_TYPE:
+      return assistanceClaim(entry.data);
+    case WORKFLOW_CUSTOM_TYPE:
+      return workflowClaim(entry.data);
+    default:
+      return { kind: "ignore" };
+  }
+}
+function scanSessionClaims(entries) {
+  const recordIds = /* @__PURE__ */ new Set();
+  const applicationIds = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    const claim = claimFromEntry(entry);
+    if (claim.kind === "invalid") return void 0;
+    if (claim.kind === "ignore") continue;
+    if (claim.recordId !== void 0) {
+      if (recordIds.has(claim.recordId)) return void 0;
+      recordIds.add(claim.recordId);
+    }
+    if (claim.applicationId !== void 0) applicationIds.add(claim.applicationId);
+  }
+  if (applicationIds.size > 1) return void 0;
+  const usedApplicationId = applicationIds.values().next().value;
+  return usedApplicationId === void 0 ? {} : { usedApplicationId };
+}
+function applyAttachmentRecord(current, data, usedApplicationId) {
+  if (data.kind === "application_attachment") {
+    if (current.attachment !== void 0 || data.application_id !== usedApplicationId) return void 0;
+    return { attachment: data };
+  }
+  if (current.attachment === void 0 || data.attachment_id !== current.attachment.attachment_id) {
+    return void 0;
+  }
+  return {};
+}
+function applyAssistanceRecord(current, data) {
+  if (current.attachment === void 0 || current.activation !== void 0 || data.attachment_id !== current.attachment.attachment_id || data.application_id !== current.attachment.application_id) return void 0;
+  return { attachment: current.attachment, activation: data };
+}
+function replayActiveBranch(entries, usedApplicationId) {
+  let current = {};
+  for (const entry of entries) {
+    if (entry.type !== "custom") continue;
+    if (entry.customType === APPLICATION_ATTACHMENT_CUSTOM_TYPE) {
+      const data = parseApplicationAttachmentEntryData(entry.data);
+      if (data === void 0) return void 0;
+      const next = applyAttachmentRecord(current, data, usedApplicationId);
+      if (next === void 0) return void 0;
+      current = next;
+    } else if (entry.customType === APPLICATION_ASSISTANCE_CUSTOM_TYPE) {
+      const data = parseApplicationAssistanceEntryData(entry.data);
+      if (data === void 0) return void 0;
+      const next = applyAssistanceRecord(current, data);
+      if (next === void 0) return void 0;
+      current = next;
+    }
+  }
+  return current;
+}
+function replayApplicationSessionRecords(branchEntries, allEntries = branchEntries) {
+  const claims = scanSessionClaims(allEntries);
+  if (claims === void 0) return invalidRecords();
+  const active = replayActiveBranch(branchEntries, claims.usedApplicationId);
+  if (active === void 0) return invalidRecords();
+  return {
+    integrity: "valid",
+    ...claims.usedApplicationId === void 0 ? {} : { used_application_id: claims.usedApplicationId },
+    ...active.attachment === void 0 ? {} : { attachment: active.attachment },
+    ...active.activation === void 0 ? {} : { activation: active.activation }
+  };
+}
+function createApplicationAttachmentEntry(pointer, options) {
+  const data = {
+    schema_version: APPLICATION_ATTACHMENT_SCHEMA,
+    kind: "application_attachment",
+    attachment_id: options.uuid(),
+    application_id: pointer.applicationId,
+    root_id: pointer.rootId,
+    root_created_at: pointer.rootCreatedAt,
+    application_created_at: pointer.applicationCreatedAt,
+    workspace_created_at: pointer.workspaceCreatedAt
+  };
+  if (parseApplicationAttachmentEntryData(data) === void 0) {
+    throw new TypeError("invalid application attachment record");
+  }
+  return data;
+}
+function createApplicationDetachmentEntry(attachment, options) {
+  const data = {
+    schema_version: APPLICATION_ATTACHMENT_SCHEMA,
+    kind: "application_detachment",
+    detachment_id: options.uuid(),
+    attachment_id: attachment.attachment_id
+  };
+  if (parseApplicationAttachmentEntryData(data) === void 0) {
+    throw new TypeError("invalid application detachment record");
+  }
+  return data;
+}
+function createApplicationAssistanceActivationEntry(attachment, options) {
+  const data = {
+    schema_version: APPLICATION_ASSISTANCE_SCHEMA,
+    kind: "application_assistance_activation",
+    activation_id: options.uuid(),
+    attachment_id: attachment.attachment_id,
+    application_id: attachment.application_id
+  };
+  if (parseApplicationAssistanceEntryData(data) === void 0) {
+    throw new TypeError("invalid application assistance record");
+  }
+  return data;
+}
+
+// src/workflow/application-workspace.ts
 var ROOT_MARKER_NAME = ".pi-career-applications.json";
 var MANIFEST_NAME = "application.json";
 var IDENTITY_NAME = ".pi-career-identity.json";
@@ -4657,7 +4868,7 @@ var APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "in
 function hashBytes2(bytes) {
   return createHash4("sha256").update(bytes).digest("hex");
 }
-function isRecord8(value) {
+function isRecord9(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function exactKeys6(value, keys) {
@@ -4722,7 +4933,7 @@ function assertRootPlanCurrent(expected, current) {
   }
 }
 function parseMarker(value) {
-  if (!isRecord8(value) || !exactKeys6(value, ["schema_version", "kind", "root_id", "created_at"]) || value.schema_version !== ROOT_MARKER_SCHEMA || value.kind !== "application_workspace_root" || !validUuid(value.root_id) || !validTimestamp(value.created_at)) return void 0;
+  if (!isRecord9(value) || !exactKeys6(value, ["schema_version", "kind", "root_id", "created_at"]) || value.schema_version !== ROOT_MARKER_SCHEMA || value.kind !== "application_workspace_root" || !validUuid(value.root_id) || !validTimestamp(value.created_at)) return void 0;
   return {
     schema_version: ROOT_MARKER_SCHEMA,
     kind: "application_workspace_root",
@@ -4731,7 +4942,7 @@ function parseMarker(value) {
   };
 }
 function parseManifest(value) {
-  if (!isRecord8(value) || !exactKeys6(value, [
+  if (!isRecord9(value) || !exactKeys6(value, [
     "schema_version",
     "kind",
     "application_id",
@@ -4750,7 +4961,7 @@ function parseManifest(value) {
 }
 function decodeApplicationIdentity(bytes, manifest) {
   return decodeCanonical(bytes, (value) => {
-    if (!isRecord8(value) || !exactKeys6(value, [
+    if (!isRecord9(value) || !exactKeys6(value, [
       "schema_version",
       "kind",
       "application_id",
@@ -4823,7 +5034,7 @@ async function readApplicationIdentity(directory, manifest) {
 }
 function parseVacancyBinding(value) {
   if (value === null) return null;
-  if (!isRecord8(value) || !exactKeys6(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) || !validRelativeBasename(value.relative_path) || !VACANCY_BASENAME.test(value.relative_path) || !validHash(value.content_sha256) || !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 1 || value.utf8_bytes > VACANCY_MAX_BYTES || !validSessionUuid(value.source_state_id)) return void 0;
+  if (!isRecord9(value) || !exactKeys6(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) || !validRelativeBasename(value.relative_path) || !VACANCY_BASENAME.test(value.relative_path) || !validHash(value.content_sha256) || !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 1 || value.utf8_bytes > VACANCY_MAX_BYTES || !validSessionUuid(value.source_state_id)) return void 0;
   return {
     relative_path: value.relative_path,
     content_sha256: value.content_sha256,
@@ -4833,7 +5044,7 @@ function parseVacancyBinding(value) {
 }
 function parseSelectedOriginal(value) {
   if (value === null) return null;
-  if (!isRecord8(value) || !exactKeys6(value, ["document_id", "library_root_id", "text_sha256", "format"]) || !validHash(value.document_id) || !validHash(value.library_root_id) || !validHash(value.text_sha256) || !["markdown", "text", "pdf"].includes(value.format)) return void 0;
+  if (!isRecord9(value) || !exactKeys6(value, ["document_id", "library_root_id", "text_sha256", "format"]) || !validHash(value.document_id) || !validHash(value.library_root_id) || !validHash(value.text_sha256) || !["markdown", "text", "pdf"].includes(value.format)) return void 0;
   return {
     document_id: value.document_id,
     library_root_id: value.library_root_id,
@@ -4843,7 +5054,7 @@ function parseSelectedOriginal(value) {
 }
 function parseResumeArtifact(value) {
   if (value === null) return null;
-  if (!isRecord8(value) || !exactKeys6(value, [
+  if (!isRecord9(value) || !exactKeys6(value, [
     "relative_path",
     "artifact_sha256",
     "sidecar_relative_path",
@@ -4858,7 +5069,7 @@ function parseResumeArtifact(value) {
 }
 function parseCoverLetterArtifact(value) {
   if (value === null) return null;
-  if (!isRecord8(value) || !exactKeys6(value, [
+  if (!isRecord9(value) || !exactKeys6(value, [
     "relative_path",
     "artifact_sha256",
     "utf8_bytes",
@@ -4898,7 +5109,7 @@ function parseStateBase(value) {
   };
 }
 function parseState(value) {
-  if (!isRecord8(value)) return void 0;
+  if (!isRecord9(value)) return void 0;
   const v1 = value.schema_version === STATE_SCHEMA_V1;
   const v2 = value.schema_version === STATE_SCHEMA_V2;
   if (!v1 && !v2 || !exactKeys6(value, [
@@ -5073,7 +5284,7 @@ function assertCanonicalArtifactText(file) {
 }
 function parseApplicationSidecar(bytes, artifact, selected) {
   decodeCanonical(bytes, (value) => {
-    if (!isRecord8(value) || !exactKeys6(value, [
+    if (!isRecord9(value) || !exactKeys6(value, [
       "schema_version",
       "kind",
       "authority",
@@ -5332,7 +5543,7 @@ async function hasUnsupportedSchema(file, kind, schemaPrefix, supportedSchema, a
     if (bytes.length !== metadata.size) return false;
     const value = parseStrictJson(new TextDecoder5("utf-8", { fatal: true }).decode(bytes));
     const supportedSchemas = typeof supportedSchema === "string" ? [supportedSchema] : supportedSchema;
-    return isRecord8(value) && value.kind === kind && typeof value.schema_version === "string" && value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) && value.application_id === applicationId && (binding.createdAt === void 0 || value.created_at === binding.createdAt) && (binding.sequence === void 0 || value.sequence === binding.sequence) && canonicalJson(value).equals(bytes);
+    return isRecord9(value) && value.kind === kind && typeof value.schema_version === "string" && value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) && value.application_id === applicationId && (binding.createdAt === void 0 || value.created_at === binding.createdAt) && (binding.sequence === void 0 || value.sequence === binding.sequence) && canonicalJson(value).equals(bytes);
   } catch {
     return false;
   }
@@ -6019,13 +6230,16 @@ var ApplicationWorkspaceWorkflow = class {
     if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
     if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
     const identity2 = sessionIdentity(ctx);
-    const menuState = await this.menuState(identity2);
+    const menuState = await this.menuState(ctx, identity2);
     const action = await ctx.ui.select("Career application workspace", [
       "Status and reconcile",
       ...menuState.canInitialize ? ["Initialize current application"] : [],
       ...menuState.canMigrate ? ["Finish application migration"] : [],
       ...menuState.canRecord ? ["Record current status and vacancy"] : [],
       ...menuState.canSelectOriginal ? ["Select original resume"] : [],
+      ...menuState.canAttach ? ["Attach current application"] : [],
+      ...menuState.canDetachSession ? ["Detach current application from session"] : [],
+      ...menuState.canActivateAssistance ? ["Activate Career assistance"] : [],
       "Configure application root",
       "Detach application root from config",
       "Close"
@@ -6038,9 +6252,24 @@ var ApplicationWorkspaceWorkflow = class {
     if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
+    if (action === "Attach current application") return this.attachCurrent(ctx);
+    if (action === "Detach current application from session") return this.detachCurrent(ctx);
+    if (action === "Activate Career assistance") return this.activateAssistance(ctx);
   }
-  async menuState(identity2) {
-    const unavailable = { canInitialize: false, canMigrate: false, canRecord: false, canSelectOriginal: false };
+  async menuState(ctx, identity2) {
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    const sessionFlags = {
+      canAttach: false,
+      canDetachSession: records.integrity === "valid" && records.attachment !== void 0,
+      canActivateAssistance: records.integrity === "valid" && records.attachment !== void 0 && records.activation === void 0
+    };
+    const unavailable = {
+      canInitialize: false,
+      canMigrate: false,
+      canRecord: false,
+      canSelectOriginal: false,
+      ...sessionFlags
+    };
     if (identity2 === void 0) return unavailable;
     try {
       const attachment = await attachmentFor(this.options.agentDir, identity2);
@@ -6055,11 +6284,97 @@ var ApplicationWorkspaceWorkflow = class {
         canInitialize: false,
         canMigrate: false,
         canRecord: attachment.application.head.status !== identity2.current.status || !sameSessionVacancy(attachment.application.head, identity2.vacancy),
-        canSelectOriginal: attachment.application.head.resume_artifact === null
+        canSelectOriginal: attachment.application.head.resume_artifact === null,
+        canAttach: records.integrity === "valid" && records.attachment === void 0 && (records.used_application_id === void 0 || records.used_application_id === identity2.identity.application_id),
+        canDetachSession: sessionFlags.canDetachSession,
+        canActivateAssistance: sessionFlags.canActivateAssistance
       };
     } catch {
       return unavailable;
     }
+  }
+  requireAppender() {
+    if (this.options.appendEntry === void 0) throw workflowError("workspace_unavailable");
+    return this.options.appendEntry;
+  }
+  sessionRecords(ctx) {
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    if (records.integrity !== "valid") throw workflowError("attachment_unavailable");
+    return records;
+  }
+  async attachCurrent(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 === void 0) throw workflowError("workspace_unavailable");
+    const records = this.sessionRecords(ctx);
+    if (records.used_application_id !== void 0 && records.used_application_id !== identity2.identity.application_id) {
+      throw workflowError("workspace_identity_conflict");
+    }
+    if (records.attachment !== void 0) throw workflowError("workspace_unavailable");
+    const inspected = await attachmentFor(this.options.agentDir, identity2);
+    if (inspected.application?.identity === void 0) throw workflowError("attachment_unavailable");
+    const entry = createApplicationAttachmentEntry({
+      applicationId: inspected.application.manifest.application_id,
+      rootId: inspected.root.marker.root_id,
+      rootCreatedAt: inspected.root.marker.created_at,
+      applicationCreatedAt: inspected.application.manifest.application_created_at,
+      workspaceCreatedAt: inspected.application.manifest.workspace_created_at
+    }, this.options);
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const confirmed = await ctx.ui.confirm(
+      "Attach current application",
+      "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
+    );
+    if (confirmed !== true) return;
+    await validateApplicationAttachment(this.options.agentDir, entry);
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment !== void 0) throw workflowError("workspace_unavailable");
+    this.requireAppender()(APPLICATION_ATTACHMENT_CUSTOM_TYPE, entry);
+    ctx.ui.notify("Application attached. Career assistance remains inactive.", "info");
+  }
+  async detachCurrent(ctx) {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === void 0) throw workflowError("attachment_unavailable");
+    const confirmed = await ctx.ui.confirm(
+      "Detach current application",
+      "Detach this application from the Pi session? Workspace files are not changed."
+    );
+    if (confirmed !== true) return;
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment === void 0 || latest.attachment.attachment_id !== records.attachment.attachment_id) {
+      throw workflowError("workspace_unavailable");
+    }
+    this.requireAppender()(
+      APPLICATION_ATTACHMENT_CUSTOM_TYPE,
+      createApplicationDetachmentEntry(latest.attachment, this.options)
+    );
+    ctx.ui.notify("Application detached from the session. Workspace files were not changed.", "info");
+    if (latest.activation !== void 0) {
+      await ctx.reload();
+    }
+  }
+  async activateAssistance(ctx) {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === void 0 || records.activation !== void 0) {
+      throw workflowError("attachment_unavailable");
+    }
+    await validateApplicationAttachment(this.options.agentDir, records.attachment);
+    const confirmed = await ctx.ui.confirm(
+      "Activate Career assistance",
+      "Prepare a Career Skill handoff in the editor? Nothing will be submitted."
+    );
+    if (confirmed !== true) return;
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment === void 0 || latest.activation !== void 0 || latest.attachment.attachment_id !== records.attachment.attachment_id) {
+      throw workflowError("workspace_unavailable");
+    }
+    await validateApplicationAttachment(this.options.agentDir, latest.attachment);
+    this.requireAppender()(
+      APPLICATION_ASSISTANCE_CUSTOM_TYPE,
+      createApplicationAssistanceActivationEntry(latest.attachment, this.options)
+    );
+    ctx.ui.setEditorText(CAREER_ASSISTANCE_HANDOFF);
+    ctx.ui.notify("Career assistance prepared in the editor. Review and submit manually.", "info");
+    await ctx.reload();
   }
   async status(ctx) {
     const identity2 = sessionIdentity(ctx);
@@ -6795,173 +7110,6 @@ var ApplicationWorkspaceWorkflow = class {
     });
   }
 };
-
-// src/workflow/session-attachment.ts
-var APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
-var APPLICATION_ASSISTANCE_CUSTOM_TYPE = "career.application_assistance";
-var APPLICATION_ATTACHMENT_SCHEMA = "pi.career.application_attachment.v1";
-var APPLICATION_ASSISTANCE_SCHEMA = "pi.career.application_assistance.v1";
-var LOWERCASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var CANONICAL_TIMESTAMP2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-function isRecord9(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function hasOrderedKeys(value, expected) {
-  const actual = Object.keys(value);
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-function isUuid2(value) {
-  return typeof value === "string" && LOWERCASE_UUID.test(value);
-}
-function isTimestamp(value) {
-  if (typeof value !== "string" || !CANONICAL_TIMESTAMP2.test(value)) return false;
-  try {
-    return new Date(value).toISOString() === value;
-  } catch {
-    return false;
-  }
-}
-function parseAttachment(value) {
-  if (!hasOrderedKeys(value, [
-    "schema_version",
-    "kind",
-    "attachment_id",
-    "application_id",
-    "root_id",
-    "root_created_at",
-    "application_created_at",
-    "workspace_created_at"
-  ])) return void 0;
-  const validIds = [value.attachment_id, value.application_id, value.root_id].every(isUuid2);
-  const validTimes = [value.root_created_at, value.application_created_at, value.workspace_created_at].every(isTimestamp);
-  return validIds && validTimes ? value : void 0;
-}
-function parseDetachment(value) {
-  const validKeys = hasOrderedKeys(
-    value,
-    ["schema_version", "kind", "detachment_id", "attachment_id"]
-  );
-  return validKeys && [value.detachment_id, value.attachment_id].every(isUuid2) ? value : void 0;
-}
-function parseApplicationAttachmentEntryData(value) {
-  if (!isRecord9(value) || value.schema_version !== APPLICATION_ATTACHMENT_SCHEMA) return void 0;
-  if (value.kind === "application_attachment") return parseAttachment(value);
-  if (value.kind === "application_detachment") return parseDetachment(value);
-  return void 0;
-}
-function parseApplicationAssistanceEntryData(value) {
-  if (!isRecord9(value) || !hasOrderedKeys(value, [
-    "schema_version",
-    "kind",
-    "activation_id",
-    "attachment_id",
-    "application_id"
-  ])) return void 0;
-  const validConstants = value.schema_version === APPLICATION_ASSISTANCE_SCHEMA && value.kind === "application_assistance_activation";
-  return validConstants && [value.activation_id, value.attachment_id, value.application_id].every(isUuid2) ? value : void 0;
-}
-function invalidRecords() {
-  return { integrity: "invalid" };
-}
-function relevantRecordId(data) {
-  if (data.kind === "application_attachment") return data.attachment_id;
-  if (data.kind === "application_detachment") return data.detachment_id;
-  return data.activation_id;
-}
-function attachmentClaim(value) {
-  const data = parseApplicationAttachmentEntryData(value);
-  if (data === void 0) return { kind: "invalid" };
-  return {
-    kind: "record",
-    recordId: relevantRecordId(data),
-    ...data.kind === "application_attachment" ? { applicationId: data.application_id } : {}
-  };
-}
-function assistanceClaim(value) {
-  const data = parseApplicationAssistanceEntryData(value);
-  return data === void 0 ? { kind: "invalid" } : { kind: "record", recordId: data.activation_id, applicationId: data.application_id };
-}
-function workflowClaim(value) {
-  if (!isRecord9(value) || value.kind !== "application") return { kind: "ignore" };
-  const workflow = parseWorkflowEntryData(value);
-  return workflow?.kind === "application" ? { kind: "record", applicationId: workflow.application_id } : { kind: "invalid" };
-}
-function claimFromEntry(entry) {
-  if (entry.type !== "custom") return { kind: "ignore" };
-  switch (entry.customType) {
-    case APPLICATION_ATTACHMENT_CUSTOM_TYPE:
-      return attachmentClaim(entry.data);
-    case APPLICATION_ASSISTANCE_CUSTOM_TYPE:
-      return assistanceClaim(entry.data);
-    case WORKFLOW_CUSTOM_TYPE:
-      return workflowClaim(entry.data);
-    default:
-      return { kind: "ignore" };
-  }
-}
-function scanSessionClaims(entries) {
-  const recordIds = /* @__PURE__ */ new Set();
-  const applicationIds = /* @__PURE__ */ new Set();
-  for (const entry of entries) {
-    const claim = claimFromEntry(entry);
-    if (claim.kind === "invalid") return void 0;
-    if (claim.kind === "ignore") continue;
-    if (claim.recordId !== void 0) {
-      if (recordIds.has(claim.recordId)) return void 0;
-      recordIds.add(claim.recordId);
-    }
-    if (claim.applicationId !== void 0) applicationIds.add(claim.applicationId);
-  }
-  if (applicationIds.size > 1) return void 0;
-  const usedApplicationId = applicationIds.values().next().value;
-  return usedApplicationId === void 0 ? {} : { usedApplicationId };
-}
-function applyAttachmentRecord(current, data, usedApplicationId) {
-  if (data.kind === "application_attachment") {
-    if (current.attachment !== void 0 || data.application_id !== usedApplicationId) return void 0;
-    return { attachment: data };
-  }
-  if (current.attachment === void 0 || data.attachment_id !== current.attachment.attachment_id) {
-    return void 0;
-  }
-  return {};
-}
-function applyAssistanceRecord(current, data) {
-  if (current.attachment === void 0 || current.activation !== void 0 || data.attachment_id !== current.attachment.attachment_id || data.application_id !== current.attachment.application_id) return void 0;
-  return { attachment: current.attachment, activation: data };
-}
-function replayActiveBranch(entries, usedApplicationId) {
-  let current = {};
-  for (const entry of entries) {
-    if (entry.type !== "custom") continue;
-    if (entry.customType === APPLICATION_ATTACHMENT_CUSTOM_TYPE) {
-      const data = parseApplicationAttachmentEntryData(entry.data);
-      if (data === void 0) return void 0;
-      const next = applyAttachmentRecord(current, data, usedApplicationId);
-      if (next === void 0) return void 0;
-      current = next;
-    } else if (entry.customType === APPLICATION_ASSISTANCE_CUSTOM_TYPE) {
-      const data = parseApplicationAssistanceEntryData(entry.data);
-      if (data === void 0) return void 0;
-      const next = applyAssistanceRecord(current, data);
-      if (next === void 0) return void 0;
-      current = next;
-    }
-  }
-  return current;
-}
-function replayApplicationSessionRecords(branchEntries, allEntries = branchEntries) {
-  const claims = scanSessionClaims(allEntries);
-  if (claims === void 0) return invalidRecords();
-  const active = replayActiveBranch(branchEntries, claims.usedApplicationId);
-  if (active === void 0) return invalidRecords();
-  return {
-    integrity: "valid",
-    ...claims.usedApplicationId === void 0 ? {} : { used_application_id: claims.usedApplicationId },
-    ...active.attachment === void 0 ? {} : { attachment: active.attachment },
-    ...active.activation === void 0 ? {} : { activation: active.activation }
-  };
-}
 
 // src/workflow/session-model-surface.ts
 var CAREER_MODEL_TOOL_NAMES = [MANAGED_TOOL_NAME, ...RAW_TOOL_NAMES];
@@ -8036,7 +8184,8 @@ function registerCareerCommands(pi, options = {}) {
   const applicationWorkspace = new ApplicationWorkspaceWorkflow({
     agentDir: dependencies.agentDir,
     now: dependencies.now,
-    uuid: dependencies.uuid
+    uuid: dependencies.uuid,
+    appendEntry: (customType, data) => pi.appendEntry(customType, data)
   });
   let transientNoticeSession;
   const renderedData = /* @__PURE__ */ new Map();
