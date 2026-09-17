@@ -235,6 +235,17 @@ export function makeContext(fake, options = {}) {
     getSystemPromptOptions: () => ({}),
     waitForIdle: async () => {},
     reload: async () => { await options.reload?.(); },
+    async newSession(request) {
+      options.newSessions?.push(request);
+      if (options.newSessionCancelled) return { cancelled: true };
+      await request.setup?.({
+        appendCustomEntry(customType, data) {
+          options.replacementEntries?.push({ customType, data });
+        },
+      });
+      await request.withSession?.(ctx);
+      return { cancelled: false };
+    },
   };
   return { ctx, notifications, widgets, get customCalls() { return customCalls; } };
 }
