@@ -9,8 +9,9 @@ import test from "node:test";
 
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
-import { loadAttachedApplicationSources } from "../../src/workflow/application-workspace.ts";
+import { ApplicationWorkspaceWorkflow, loadAttachedApplicationSources } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
+import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import {
@@ -186,11 +187,12 @@ function attach(fake, { activate = false } = {}) {
 
 function registerCommands(fake, agentDir, invoke) {
   let tick = 10;
-  registerCareerCommands(fake.api, {
-    agentDir,
-    now: () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`),
-    uuid: uuidSequence(),
-    invoke,
+  const now = () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`);
+  const uuid = uuidSequence();
+  registerCareerCommands(fake.api, { agentDir, now, uuid, invoke });
+  return new ApplicationWorkspaceWorkflow({
+    agentDir, now, uuid,
+    appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
   });
 }
 
@@ -200,47 +202,42 @@ test("P3-45 attached vacancy writes workspace files and cancelled saves change n
     const fake = makeFakePi();
     attach(fake);
     const calls = [];
-    registerCommands(fake, value.agentDir, async (invocation) => {
+    const workspace = registerCommands(fake, value.agentDir, async (invocation) => {
       calls.push(invocation);
-      return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      throw new Error("attached vacancy writes must not invoke Career Core");
     });
     const beforeRoot = await snapshot(value.root);
     const beforeEntries = structuredClone(fake.entries);
-    const cancelledEditor = makeContext(fake, {
-      mode: "rpc", persisted: false, selects: ["Replace"], editors: [undefined],
+    const browse = makeContext(fake, {
+      mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
     });
-    await fake.commands.get("career-vacancy").handler("", cancelledEditor.ctx);
+    await fake.commands.get("career-vacancy").handler("", browse.ctx);
     assert.deepEqual(fake.entries, beforeEntries);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
+    assert.equal(calls.length, 0);
 
     const cancelledPreview = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Replace"],
-      editors: ["Replacement vacancy text\n", undefined],
+      mode: "rpc", persisted: false, editors: [undefined],
     });
-    await fake.commands.get("career-vacancy").handler("", cancelledPreview.ctx);
+    assert.equal(await workspace.writeAttachedVacancy(cancelledPreview.ctx, "Replacement vacancy text\n"), "cancelled");
     assert.deepEqual(fake.entries, beforeEntries);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
-    assert.equal(calls.length, 1);
 
     const cancelledConfirm = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: ["Replace"],
-      editors: ["Replacement vacancy text\n", (_title, preview) => preview],
+      editors: [(_title, preview) => preview],
       confirms: [false],
     });
-    await fake.commands.get("career-vacancy").handler("", cancelledConfirm.ctx);
+    assert.equal(await workspace.writeAttachedVacancy(cancelledConfirm.ctx, "Replacement vacancy text\n"), "cancelled");
     assert.deepEqual(fake.entries, beforeEntries);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
-    assert.ok(cancelledConfirm.notifications.some(({ message }) => message.includes("cancelled")));
 
     const saved = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: ["Replace"],
-      editors: ["Replacement vacancy text\n", (_title, preview) => preview],
+      editors: [(_title, preview) => preview],
       confirms: [true],
     });
-    await fake.commands.get("career-vacancy").handler("", saved.ctx);
+    assert.equal(await workspace.writeAttachedVacancy(saved.ctx, "Replacement vacancy text\n"), "written");
     assert.deepEqual(fake.entries, beforeEntries);
     assert.equal(fake.entries.some((entry) => entry.data?.kind === "vacancy"), false);
     const after = await snapshot(value.directory);
@@ -273,7 +270,7 @@ test("P3-45 print/JSON attached vacancy clear fails closed without mutation", as
   }
 });
 
-test("P3-48 attached analyze uses only the selected original", async () => {
+test("P3-48 attached analyze command opens the shared UI without running Core", async () => {
   const value = await materializePackage({ tailored: true });
   try {
     const fake = makeFakePi();
@@ -283,17 +280,17 @@ test("P3-48 attached analyze uses only the selected original", async () => {
       texts.push(JSON.parse(invocation.inputJson).text);
       return { operation: "resume.analyze", json: JSON.stringify(resumeResult(81)) };
     });
-    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: ["Close"] });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close] });
     await fake.commands.get("career-analyze").handler("", rpc.ctx);
-    assert.deepEqual(texts, [ORIGINAL_TEXT]);
-    assert.equal(texts.some((text) => text.includes("Tailored") || text.includes("Other")), false);
-    assert.ok(fake.entries.some((entry) => entry.data?.kind === "result_card"));
+    assert.deepEqual(texts, []);
+    assert.equal(rpc.customCalls, 0);
+    assert.equal(fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
 });
 
-test("P3-48 attached match uses the effective tailored resume and workspace vacancy", async () => {
+test("P3-48 attached match command opens the shared UI without running Core", async () => {
   const value = await materializePackage({ tailored: true });
   try {
     const fake = makeFakePi();
@@ -309,20 +306,17 @@ test("P3-48 attached match uses the effective tailored resume and workspace vaca
       }
       return { operation: "job.match", json: JSON.stringify(matchResult(77)) };
     });
-    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: ["Close"] });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close] });
     await fake.commands.get("career-match").handler("", rpc.ctx);
-    const match = payloads.find((item) => item.operation === "match");
-    assert.ok(match);
-    assert.equal(match.input.resume.text, TAILORED_TEXT);
-    assert.equal(match.input.job.text, VACANCY_TEXT);
-    assert.equal(payloads.some((item) => JSON.stringify(item).includes("Other")), false);
+    assert.deepEqual(payloads, []);
+    assert.equal(rpc.customCalls, 0);
     assert.equal(fake.entries.some((entry) => entry.data?.kind === "vacancy"), false);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
 });
 
-test("P3-51 attached workbench prepares a document-free handoff and never submits", async () => {
+test("P3-51 attached workbench command opens the shared UI without activating assistance", async () => {
   const value = await materializePackage();
   try {
     const fake = makeFakePi();
@@ -330,30 +324,14 @@ test("P3-51 attached workbench prepares a document-free handoff and never submit
     registerCommands(fake, value.agentDir, async () => {
       throw new Error("workbench assistance must not invoke Career Core");
     });
-    const cancelled = makeContext(fake, { mode: "rpc", persisted: false, confirms: [false] });
-    await fake.commands.get("career-workbench").handler("", cancelled.ctx);
-    assert.equal(fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
-
-    const editorText = [];
-    let reloads = 0;
-    const activated = makeContext(fake, {
-      mode: "rpc", persisted: false, confirms: [true], editorText,
-      reload: async () => { reloads += 1; },
+    const browse = makeContext(fake, {
+      mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
     });
-    await fake.commands.get("career-workbench").handler("", activated.ctx);
-    assert.equal(reloads, 1);
-    assert.deepEqual(editorText, [CAREER_ASSISTANCE_HANDOFF]);
+    await fake.commands.get("career-workbench").handler("", browse.ctx);
+    assert.equal(browse.customCalls, 0);
+    assert.equal(fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
     assert.doesNotMatch(CAREER_ASSISTANCE_HANDOFF, /Synthetic|resume\.md|vacancy/);
-    assert.equal(fake.entries.filter((entry) => entry.customType === "career.application_assistance").length, 1);
-
-    const reused = [];
-    reloads = 0;
-    await fake.commands.get("career-workbench").handler("", makeContext(fake, {
-      mode: "rpc", persisted: false, editorText: reused, reload: async () => { reloads += 1; },
-    }).ctx);
-    assert.equal(reloads, 0);
-    assert.deepEqual(reused, [CAREER_ASSISTANCE_HANDOFF]);
-    assert.equal(fake.entries.filter((entry) => entry.customType === "career.application_assistance").length, 1);
+    assert.equal(fake.entries.filter((entry) => entry.customType === "career.application_attachment").length, 1);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }

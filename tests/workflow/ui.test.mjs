@@ -9,9 +9,9 @@ import test from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 
-import { adapterError } from "../../src/errors.ts";
 import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
+import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import {
   analyzeDetailSections,
   DetailViewer,
@@ -19,7 +19,6 @@ import {
   matchDetailSections,
 } from "../../src/workflow/renderers.ts";
 import { createResultCard, projectJobMatch } from "../../src/workflow/result-projection.ts";
-import { sha256 } from "../../src/workflow/scan.ts";
 import { makeContext, makeFakePi, matchResult, prepareConfigDirectory, resumeResult, uuidSequence } from "./helpers.mjs";
 
 const now = () => new Date("2026-08-04T17:56:06.000Z");
@@ -36,8 +35,7 @@ async function fixture() {
   await writeFile(resumePath, "# Synthetic Resume\nDeterministic content\n");
   await prepareConfigDirectory(agentDir);
   await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root), uuidSequence());
-  const option = `Synthetic Resume — ${sha256(await realpath(resumePath)).slice(0, 12)}`;
-  return { temp, agentDir, option };
+  return { temp, agentDir };
 }
 
 test("TUI analyze opens the Career overlay analyze view without running Core", async () => {
@@ -183,44 +181,25 @@ test("tie status is re-derived for durable match cards after session reload", as
   }
 });
 
-test("a newer career command aborts ownership and prevents stale card publication", async () => {
-  const { temp, agentDir, option } = await fixture();
+test("RPC analyze opens the shared Career UI without running Core", async () => {
+  const { temp, agentDir } = await fixture();
   try {
     const fake = makeFakePi();
-    let started;
-    const startedPromise = new Promise((resolve) => { started = resolve; });
+    let calls = 0;
     registerCareerCommands(fake.api, {
       agentDir, uuid: uuidSequence(), now,
-      invoke: async (_invocation, signal) => new Promise((_resolve, reject) => {
-        started();
-        signal.addEventListener("abort", () => reject(adapterError("cancelled")), { once: true });
-      }),
+      invoke: async () => {
+        calls += 1;
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
     });
-    const analyze = makeContext(fake, { mode: "rpc", persisted: false, selects: [option] });
-    const pending = fake.commands.get("career-analyze").handler("", analyze.ctx);
-    await startedPromise;
-    const setup = makeContext(fake, { mode: "rpc", selects: [] });
-    await fake.commands.get("career-setup").handler("status", setup.ctx);
-    await pending;
-    assert.equal(fake.entries.some((entry) => entry.data.kind === "result_card"), false);
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("oversized Core results produce fixed no-partial UI and no stored card", async () => {
-  const { temp, agentDir, option } = await fixture();
-  try {
-    const fake = makeFakePi();
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async () => { throw adapterError("result_too_large"); },
+    const rpc = makeContext(fake, {
+      mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
     });
-    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: [option] });
     await fake.commands.get("career-analyze").handler("", rpc.ctx);
-    assert.equal(fake.entries.some((entry) => entry.data.kind === "result_card"), false);
-    assert.ok(rpc.notifications.some(({ message }) =>
-      message.includes("No partial output exists and the result was not stored.")));
+    assert.equal(rpc.customCalls, 0);
+    assert.equal(calls, 0);
+    assert.equal(fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

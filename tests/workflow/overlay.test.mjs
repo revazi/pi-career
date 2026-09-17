@@ -8,7 +8,12 @@ import path from "node:path";
 import test from "node:test";
 
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
-import { CAREER_OVERLAY_COMMAND_VIEWS, CareerOverlay } from "../../src/workflow/overlay.ts";
+import {
+  CAREER_UI_COMMAND_VIEWS,
+  CAREER_UI_RPC_ACTIONS,
+  CAREER_UI_VIEW_LABELS,
+  CareerOverlay,
+} from "../../src/workflow/career-ui.ts";
 import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
 
 async function register(temp) {
@@ -53,7 +58,7 @@ test("TUI career commands open overlay views without Core, provider, or session 
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-")));
   try {
     const { fake, calls } = await register(temp);
-    for (const [command, view] of Object.entries(CAREER_OVERLAY_COMMAND_VIEWS)) {
+    for (const [command, view] of Object.entries(CAREER_UI_COMMAND_VIEWS)) {
       await openAndClose(fake, command, view);
     }
     assert.equal(calls.length, 0);
@@ -62,14 +67,20 @@ test("TUI career commands open overlay views without Core, provider, or session 
   }
 });
 
-test("RPC career commands keep dialog fallbacks instead of the overlay", async () => {
+test("RPC career commands render the same view model through select dialogs", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-rpc-")));
   try {
-    const { fake } = await register(temp);
-    const rpc = makeContext(fake, { mode: "rpc", persisted: false, selects: ["Close"] });
-    await fake.commands.get("career-setup").handler("", rpc.ctx);
-    assert.equal(rpc.customCalls, 0);
-    assert.ok(rpc.notifications.some(({ message }) => message.includes("pi-career")));
+    const { fake, calls } = await register(temp);
+    for (const command of Object.keys(CAREER_UI_COMMAND_VIEWS)) {
+      const rpc = makeContext(fake, {
+        mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
+      });
+      const before = fake.entries.length;
+      await fake.commands.get(command).handler("", rpc.ctx);
+      assert.equal(rpc.customCalls, 0);
+      assert.equal(fake.entries.length, before);
+    }
+    assert.equal(calls.length, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
@@ -291,5 +302,111 @@ test("overlay a attaches a selected application only after confirmation", async 
     assert.equal(calls.length, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
+  }
+});
+
+async function catalogFixture(prefix) {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
+  const agentDir = path.join(temp, "agent");
+  const library = path.join(temp, "library");
+  const root = path.join(temp, "applications");
+  await prepareConfigDirectory(agentDir);
+  await mkdir(library);
+  await writeFile(path.join(library, "alpha.md"), "# Synthetic Alpha\n");
+  const libraryPath = await realpath(library);
+  const libraryRootId = createHash("sha256").update(libraryPath).digest("hex");
+  await mkdir(root, { mode: 0o700 });
+  await chmod(root, 0o700);
+  const rootId = "00000000-0000-4000-8000-000000000099";
+  await privateJson(path.join(agentDir, "career", "config.v1.json"), {
+    schema_version: "pi.career.config.v2",
+    library_roots: [{ id: libraryRootId, path: libraryPath, label: "Synthetic library" }],
+    generated_variants_root: null,
+    application_workspace: { root_id: rootId, root_path: root },
+  });
+  await privateJson(path.join(root, ".pi-career-applications.json"), {
+    schema_version: "pi.career.application_root.v1",
+    kind: "application_workspace_root",
+    root_id: rootId,
+    created_at: "2026-08-01T00:00:00.000Z",
+  });
+  await writeApplication(root, {
+    applicationId: "00000000-0000-4000-8000-000000000077",
+    company: "Synthetic Company",
+    role: "Synthetic Engineer",
+    status: "preparing",
+    createdAt: "2026-08-02T00:00:00.000Z",
+    workspaceCreatedAt: "2026-08-03T00:00:00.000Z",
+    rootId,
+  });
+  const fake = makeFakePi();
+  const calls = [];
+  registerCareerCommands(fake.api, {
+    agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+    invoke: async (invocation) => {
+      calls.push(invocation);
+      throw new Error("Career UI must not invoke Career Core");
+    },
+  });
+  return { temp, fake, calls };
+}
+
+test("RPC hierarchical dialogs browse, switch views, and open detail without attaching", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-nav-");
+  try {
+    const before = value.fake.entries.length;
+    const rpc = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [
+        "Synthetic Company — Synthetic Engineer — preparing",
+        CAREER_UI_RPC_ACTIONS.back,
+        CAREER_UI_RPC_ACTIONS.switchView,
+        CAREER_UI_VIEW_LABELS.library,
+        CAREER_UI_RPC_ACTIONS.close,
+      ],
+    });
+    await value.fake.commands.get("career").handler("", rpc.ctx);
+    assert.equal(rpc.customCalls, 0);
+    assert.equal(value.calls.length, 0);
+    assert.equal(value.fake.entries.length, before);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC attach uses the same confirmation-gated action as the overlay", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-attach-");
+  try {
+    const cancelled = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [
+        "Synthetic Company — Synthetic Engineer — preparing",
+        CAREER_UI_RPC_ACTIONS.attach,
+        CAREER_UI_RPC_ACTIONS.close,
+      ],
+      confirms: [false],
+    });
+    await value.fake.commands.get("career-application").handler("", cancelled.ctx);
+    assert.equal(value.fake.entries.length, 0);
+    assert.equal(cancelled.customCalls, 0);
+
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [
+        "Synthetic Company — Synthetic Engineer — preparing",
+        CAREER_UI_RPC_ACTIONS.attach,
+        CAREER_UI_RPC_ACTIONS.close,
+      ],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+    assert.equal(value.fake.entries.length, 1);
+    assert.equal(value.fake.entries[0].customType, "career.application_attachment");
+    assert.equal(value.fake.entries[0].data.kind, "application_attachment");
+    assert.doesNotMatch(JSON.stringify(value.fake.entries[0].data), /Synthetic|applications/);
+    assert.equal(value.calls.length, 0);
+    assert.equal(attached.customCalls, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
   }
 });

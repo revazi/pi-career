@@ -47,7 +47,7 @@ Every overlay slice must prove with synthetic scenarios that:
 9. no persisted index, watcher, prompt/result cache, document duplication, telemetry, or background work is introduced; and
 10. benchmarks report ordinary model turns outside activated Career assistance sessions as zero Career-specific context tokens, separately from activated workflows, and preserve stable activated-session surfaces for prompt caching.
 
-TUI overlay navigation exists for `/career` and the listed slash-command views. RPC keeps the previous hierarchical dialogs. Overlay open/browse still does not call a provider/model, submit a message, or activate Career assistance.
+TUI overlay and RPC select/confirm dialogs render one Career view model. `/career` and the listed slash-command views only choose the starting view. Opening, browsing, and highlighting do not attach, activate assistance, call Core or a provider, or submit a message. Attach stays confirmation-gated and assistance-inactive.
 
 ## Implemented current phase: managed agent tool and deterministic slash commands
 
@@ -59,19 +59,15 @@ The normal active model surface is one compact `career_run` tool. The exact raw 
 
 It also registers:
 
-- `/career-setup` for library/privacy onboarding and a suggestion-only preferred variation directory—not external CLI installation
-- `/career-library` for explicitly configured searchable PDF, Markdown, and text resume roots, with actionable extraction notices
-- `/career-application` for session-scoped company/role identity and vacancy/result isolation
-- `/career-vacancy` for bounded vacancy input after session-persistence consent, or a previewed workspace revision when a persistent application is attached
-- `/career-match` for deterministic multi-resume matching and conservative ranking; an attached application matches the effective Resume only
-- `/career-analyze` for deterministic single-resume readiness detail; an attached application analyzes only the selected original
-- `/career-workbench` for a bounded, guided, visibly reviewable rebuild handoff to the user's normal Pi editor, or an attached assistance handoff that never auto-submits
+- `/career` and `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `/career-workspace` to open one Career view model at different starting views; TUI overlay and RPC select/confirm dialogs are only renderers of that model
+- `/career-setup status` and `/career-library status` for local configuration/library notices
+- `/career-application status|clear` for attached detach or session-scoped application context
+- `/career-vacancy clear` for the existing fail-closed vacancy clear, including print/JSON when unattached
 - `/career-review` for TUI-only, bounded inspection and explicit selection of current non-PDF retained variant changes
 - `/career-save` for user-only TUI/RPC exact preview, confirmation, and no-clobber local saving of one current Markdown/text materialization
-- `/career-workspace` for user-only no-argument TUI/RPC Gate 1 root configuration, immutable application state/vacancy/original binding, and read-only reconciliation
 - `/career-tools` to switch between the managed-only and advanced raw model-tool surfaces
 
-`career_run`, the raw compatibility tools, `/career-vacancy`, `/career-match`, and `/career-analyze` invoke the compatible Career Core route selected by the external resolver on supported macOS/Linux systems. Package metadata rejects other systems, and direct local/Git extension initialization registers no command/tool and fails with `unsupported_platform` before route work or private stdin. Managed compatibility is validated before private input, and the reviewed exact package may be acquired only after local routes fail unless `PI_OFFLINE=1`. `career_run` validates Phase 8 operation/schema contracts internally, resolves current originals/vacancy through ephemeral handles (workspace sources when a persistent application is attached and activated), keeps complete results in bounded process memory, and exposes compact detail hydration without nested `input_json`. Setup/library scanning remains local. `/career-application` manages consented session state only. `/career-workbench` does not invoke Core or a provider/model itself. Unattached, it prepares an ordinary editor message containing one original resume and, only for tailoring, the current vacancy. Attached, it prepares a document-free `/skill:career-core` handoff and never calls `sendMessage()` or `sendUserMessage()`. Guided modes cover complete score explanation, reviewed improvement suggestions, a question-led factual interview before reviewed replacements, direct reviewed exact replacements, and vacancy-specific variant review. The user must review and submit that message separately through Pi. `/career-review` also invokes neither Core nor a provider: it reads one current in-memory non-PDF variant review, requires warnings/discards acknowledgment and exact per-change inspection before inclusion, then prepares a later editor message containing only the unchanged review handle and selected canonical IDs.
+`career_run` and the raw compatibility tools invoke the compatible Career Core route selected by the external resolver on supported macOS/Linux systems. The `/career*` view commands do not invoke Core while browsing. Package metadata rejects other systems, and direct local/Git extension initialization registers no command/tool and fails with `unsupported_platform` before route work or private stdin. Managed compatibility is validated before private input, and the reviewed exact package may be acquired only after local routes fail unless `PI_OFFLINE=1`. `career_run` validates Phase 8 operation/schema contracts internally, resolves current originals/vacancy through ephemeral handles (workspace sources when a persistent application is attached and activated), keeps complete results in bounded process memory, and exposes compact detail hydration without nested `input_json`. Setup/library scanning remains local. Opening or browsing a Career view never attaches, activates assistance, calls Core or a provider, or submits a message. Attach remains confirmation-gated, path-free, and assistance-inactive. `/career-review` also invokes neither Core nor a provider: it reads one current in-memory non-PDF variant review, requires warnings/discards acknowledgment and exact per-change inspection before inclusion, then prepares a later editor message containing only the unchanged review handle and selected canonical IDs.
 
 Binding boundaries:
 

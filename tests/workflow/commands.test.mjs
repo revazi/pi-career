@@ -1,28 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adapterError } from "../../src/errors.ts";
-import { addLibraryRoot, configPath, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, configPath, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
+import { CAREER_UI_COMMAND_VIEWS, CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import {
-  createConsentEntry,
+  createApplicationEntry,
   createVacancyEntry,
   reconstructWorkflowState,
 } from "../../src/workflow/session-state.ts";
-import { CORE_MAX_CHARACTERS } from "../../src/workflow/text-limit.ts";
 import {
   makeContext,
   makeFakePi,
-  matchResult,
-  normalizationResult,
   prepareConfigDirectory,
-  resumeResult,
-  syntheticTextPdf,
   uuidSequence,
 } from "./helpers.mjs";
 
@@ -48,30 +43,6 @@ test("registers the approved deterministic commands and reviewable workbench han
   ]);
 });
 
-test("fresh career-setup creates only private package config and writes canonical v1", async () => {
-  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-first-setup-")));
-  try {
-    const agentDir = path.join(temp, "agent");
-    const library = path.join(temp, "library");
-    await mkdir(agentDir);
-    await mkdir(library);
-    await writeFile(path.join(library, "resume.md"), "# Synthetic resume\n");
-    const fake = makeFakePi();
-    registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
-    const rpc = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Add root"], inputs: [library],
-    });
-    await fake.commands.get("career-setup").handler("", rpc.ctx);
-    const file = configPath(agentDir);
-    assert.equal((await lstat(path.dirname(file))).mode & 0o7777, 0o700);
-    assert.equal((await lstat(file)).mode & 0o7777, 0o600);
-    assert.equal(JSON.parse(await readFile(file, "utf8")).schema_version, "pi.career.config.v1");
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
 test("print/JSON modes fail closed except pure vacancy clear", async () => {
   const fake = makeFakePi();
   registerCareerCommands(fake.api, { agentDir: "/synthetic/agent", uuid: uuidSequence(), now });
@@ -85,147 +56,63 @@ test("print/JSON modes fail closed except pure vacancy clear", async () => {
   assert.equal(fake.entries.at(-1).data.kind, "vacancy_clear");
 });
 
-test("RPC vacancy flow uses supported dialogs, explicit consent, and direct Core invocation", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-vacancy-"));
+test("empty career commands open the shared UI without Core, custom overlays, or session append", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-ui-"));
   try {
     const { agentDir } = await configuredAgent(temp);
     const fake = makeFakePi();
     const calls = [];
     registerCareerCommands(fake.api, {
       agentDir, uuid: uuidSequence(), now,
-      invoke: async (invocation, signal) => {
-        assert.equal(signal.aborted, false);
+      invoke: async (invocation) => {
         calls.push(invocation);
-        return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+        throw new Error("empty career commands must not invoke Career Core");
       },
     });
-    const rpc = makeContext(fake, {
-      mode: "rpc", persisted: true,
-      editors: ["Synthetic Backend Engineer\nRequirements\n- Testing"],
-      selects: ["Continue in this session"],
-    });
-    await fake.commands.get("career-vacancy").handler("", rpc.ctx);
-    assert.equal(rpc.customCalls, 0, "RPC must never call custom()");
-    assert.deepEqual(fake.entries.map((entry) => entry.data.kind), ["consent", "vacancy"]);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].kind, "job");
-    assert.equal(calls[0].operation, "normalize");
-    assert.equal(JSON.parse(calls[0].inputJson).schema_version, "career.job_input.v1");
-    assert.ok(rpc.notifications.every(({ message }) => !message.includes("Requirements\n- Testing")));
+    for (const command of Object.keys(CAREER_UI_COMMAND_VIEWS)) {
+      const rpc = makeContext(fake, {
+        mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
+      });
+      const before = fake.entries.length;
+      await fake.commands.get(command).handler("", rpc.ctx);
+      assert.equal(rpc.customCalls, 0);
+      assert.equal(fake.entries.length, before);
+    }
+    assert.equal(calls.length, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
 });
 
-test("vacancy validation counts Unicode code points and preserves exact untrimmed text", async () => {
-  const accepted = ` ${"😀".repeat(CORE_MAX_CHARACTERS - 2)} `;
-  const acceptedFake = makeFakePi();
-  let acceptedCalls = 0;
-  registerCareerCommands(acceptedFake.api, {
-    agentDir: "/synthetic/agent", uuid: uuidSequence(), now,
-    invoke: async () => {
-      acceptedCalls += 1;
-      return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
-    },
-  });
-  const acceptedRpc = makeContext(acceptedFake, {
-    mode: "rpc", persisted: false, editors: [accepted],
-  });
-  await acceptedFake.commands.get("career-vacancy").handler("", acceptedRpc.ctx);
-  assert.equal(acceptedCalls, 1);
-  assert.equal(acceptedFake.entries.at(-1).data.vacancy_text, accepted);
-
-  const rejectedFake = makeFakePi();
-  let rejectedCalls = 0;
-  registerCareerCommands(rejectedFake.api, {
-    agentDir: "/synthetic/agent", uuid: uuidSequence(), now,
-    invoke: async () => {
-      rejectedCalls += 1;
-      return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
-    },
-  });
-  const rejectedRpc = makeContext(rejectedFake, {
-    mode: "rpc", persisted: false, editors: [`${accepted}😀`],
-  });
-  await rejectedFake.commands.get("career-vacancy").handler("", rejectedRpc.ctx);
-  assert.equal(rejectedCalls, 0);
-  assert.equal(rejectedFake.entries.some((entry) => entry.data.kind === "vacancy"), false);
-  assert.ok(rejectedRpc.notifications.some(({ message }) => message.includes("arguments are invalid")));
+test("fresh career-setup browse does not write package config", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-first-setup-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    await mkdir(agentDir);
+    const fake = makeFakePi();
+    registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
+    const rpc = makeContext(fake, {
+      mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-setup").handler("", rpc.ctx);
+    await assert.rejects(lstat(configPath(agentDir)), (error) => error?.code === "ENOENT");
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
 });
 
-test("application context scopes a new vacancy and names an unnamed session", async () => {
-  const fake = makeFakePi();
-  registerCareerCommands(fake.api, {
-    agentDir: "/synthetic/agent", uuid: uuidSequence(), now,
-    invoke: async () => ({ operation: "job.normalize", json: JSON.stringify(normalizationResult()) }),
-  });
-  const applicationRpc = makeContext(fake, {
-    mode: "rpc", persisted: false,
-    selects: ["Create application"], inputs: ["Synthetic Company", "Senior Engineer"],
-  });
-  await fake.commands.get("career-application").handler("", applicationRpc.ctx);
-  const application = reconstructWorkflowState(fake.entries).application;
-  assert.ok(application);
-  assert.equal(application.company_label, "Synthetic Company");
-  assert.equal(application.role_label, "Senior Engineer");
-  assert.equal(fake.api.getSessionName(), "Synthetic Company — Senior Engineer");
-
-  const vacancyRpc = makeContext(fake, {
-    mode: "rpc", persisted: false, editors: ["Synthetic vacancy\nTesting required"],
-  });
-  await fake.commands.get("career-vacancy").handler("", vacancyRpc.ctx);
-  const state = reconstructWorkflowState(fake.entries);
-  assert.equal(state.vacancy.application_id, application.application_id);
-  assert.equal(state.application.application_id, application.application_id);
-
-  const clearRpc = makeContext(fake, { mode: "rpc", persisted: false });
-  await fake.commands.get("career-application").handler("clear", clearRpc.ctx);
-  const cleared = reconstructWorkflowState(fake.entries);
-  assert.equal(cleared.application, undefined);
-  assert.equal(cleared.vacancy, undefined);
-  assert.equal(cleared.application_context_seen, true);
-
-  const retryRpc = makeContext(fake, {
-    mode: "rpc", persisted: false,
-    selects: ["Create application"], inputs: ["Other Company", "Platform Engineer"],
-  });
-  await fake.commands.get("career-application").handler("", retryRpc.ctx);
-  assert.equal(reconstructWorkflowState(fake.entries).application, undefined);
-  assert.ok(retryRpc.notifications.some(({ message }) => message.includes("Run /new")));
-  assert.equal(fake.api.getSessionName(), "Synthetic Company — Senior Engineer");
-});
-
-test("setup suggests a variants directory under the first root and stores an explicit suggestion without creating it", async () => {
+test("setup status explains the configured variation suggestion without opening a mutation menu", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-variants-"));
   try {
     const { agentDir } = await configuredAgent(temp);
-    const preferred = path.join(temp, "preferred-variants");
     const fake = makeFakePi();
     registerCareerCommands(fake.api, { agentDir, uuid: uuidSequence(), now });
-
     const status = makeContext(fake, { mode: "rpc", persisted: false });
     await fake.commands.get("career-setup").handler("status", status.ctx);
     assert.ok(status.notifications.some(({ message }) =>
       message.includes("Resume variation suggestion") && message.includes("variants") &&
       message.includes("default under the first configured root")));
-
-    const configure = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Set resume variations directory"],
-      inputs: [preferred],
-    });
-    const configuredRoot = (await loadConfig(agentDir)).library_roots[0].path;
-    const input = configure.ctx.ui.input;
-    configure.ctx.ui.input = async (title, placeholder) => {
-      assert.equal(title, "Resume variations directory");
-      assert.equal(placeholder, path.join(configuredRoot, "variants"));
-      return input(title, placeholder);
-    };
-    await fake.commands.get("career-setup").handler("", configure.ctx);
-    assert.equal((await loadConfig(agentDir)).generated_variants_root, preferred);
-    await assert.rejects(lstat(preferred), (error) => error?.code === "ENOENT");
-    assert.ok(configure.notifications.some(({ message }) =>
-      message.includes("No directory or resume file was created")));
+    assert.equal(status.customCalls, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
@@ -254,296 +141,29 @@ test("library status explains why an unusable PDF was not indexed", async () => 
   }
 });
 
-test("searchable PDF resumes reach deterministic analysis without manual conversion", async () => {
-  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-command-pdf-analyze-")));
-  try {
-    const root = path.join(temp, "library");
-    const agentDir = path.join(temp, "agent");
-    await mkdir(root);
-    await writeFile(path.join(root, "synthetic-resume.pdf"), syntheticTextPdf([
-      "Synthetic Resume",
-      "TypeScript testing experience",
-    ]));
-    await prepareConfigDirectory(agentDir);
-    await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), root, "Synthetic library"), uuidSequence());
+test("application status and clear remain available beside the shared UI", async () => {
+  const fake = makeFakePi();
+  registerCareerCommands(fake.api, {
+    agentDir: "/synthetic/agent", uuid: uuidSequence(), now,
+    invoke: async () => { throw new Error("application status must not invoke Career Core"); },
+  });
+  const ids = uuidSequence();
+  const application = createApplicationEntry("Synthetic Company", "Senior Engineer", "preparing", { uuid: ids, now });
+  const vacancy = createVacancyEntry("Synthetic vacancy\nTesting required", "paste", {
+    uuid: ids, now, applicationId: application.application_id,
+  });
+  fake.entries.push(
+    { type: "custom", customType: "career.workflow", data: application, id: "a", parentId: null, timestamp: now().toISOString() },
+    { type: "custom", customType: "career.workflow", data: vacancy, id: "v", parentId: "a", timestamp: now().toISOString() },
+  );
+  const status = makeContext(fake, { mode: "rpc", persisted: false });
+  await fake.commands.get("career-application").handler("status", status.ctx);
+  assert.ok(status.notifications.some(({ message }) => message.includes("Synthetic Company")));
 
-    const fake = makeFakePi();
-    let analyzedText;
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async (invocation) => {
-        analyzedText = JSON.parse(invocation.inputJson).text;
-        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
-      },
-    });
-    const rpc = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Close"],
-    });
-    const recordSelection = rpc.ctx.ui.select;
-    rpc.ctx.ui.select = async (title, options) => title === "Choose an original resume"
-      ? options[0]
-      : recordSelection(title, options);
-
-    await fake.commands.get("career-analyze").handler("", rpc.ctx);
-    assert.match(analyzedText, /Synthetic Resume/);
-    assert.match(analyzedText, /TypeScript testing experience/);
-    assert.equal(fake.entries.filter((entry) => entry.data.kind === "result_card").length, 1);
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("analyze result opens the guided workbench and asks Pi to rerun the complete analysis", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-analyze-workbench-"));
-  try {
-    const { agentDir } = await configuredAgent(temp);
-    const fake = makeFakePi();
-    let calls = 0;
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async () => {
-        calls += 1;
-        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
-      },
-    });
-    const editorText = [];
-    const rpc = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Open guided Pi rebuild workbench", "Explain my score — resume only", "Prepare in editor"],
-      editors: ["Explain the complete score."],
-      editorText,
-    });
-    const select = rpc.ctx.ui.select;
-    rpc.ctx.ui.select = async (title, options) => title === "Choose an original resume"
-      ? options[0]
-      : select(title, options);
-
-    await fake.commands.get("career-analyze").handler("", rpc.ctx);
-    assert.equal(calls, 1, "the command analyzes once but the prepared model prompt performs no hidden second run");
-    assert.equal(editorText.length, 1);
-    assert.match(editorText[0], /Explain the complete score/);
-    assert.match(editorText[0], /complete result, not a prior score or card/);
-    assert.match(editorText[0], /then stop/);
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("workbench prepares a guided reviewed-variation prompt without calling a model or Core", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-workbench-"));
-  try {
-    const { agentDir } = await configuredAgent(temp);
-    const fake = makeFakePi();
-    const seedUuid = uuidSequence();
-    fake.entries.push({
-      type: "custom", customType: "career.workflow",
-      data: createVacancyEntry("Synthetic Backend Vacancy\nTypeScript required", "paste", { uuid: seedUuid, now }),
-      id: "seed", parentId: null, timestamp: now().toISOString(),
-    });
-    let calls = 0;
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async () => { calls += 1; throw new Error("must not run"); },
-    });
-    const editorText = [];
-    const rpc = makeContext(fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Create a tailored variation — current vacancy", "Prepare in editor"],
-      editors: ["Show me the safest targeted changes."],
-      editorText,
-    });
-    const select = rpc.ctx.ui.select;
-    rpc.ctx.ui.select = async (title, options) => title === "Choose an original resume"
-      ? options[0]
-      : select(title, options);
-
-    await fake.commands.get("career-workbench").handler("", rpc.ctx);
-    assert.equal(calls, 0);
-    assert.equal(editorText.length, 1);
-    assert.match(editorText[0], /Show me the safest targeted changes/);
-    assert.match(editorText[0], /Synthetic resume content/);
-    assert.match(editorText[0], /Synthetic Backend Vacancy/);
-    assert.match(editorText[0], /original resume is immutable/);
-    assert.match(editorText[0], /Use only career_run for normal analysis/);
-    assert.match(editorText[0], /use both complete baselines/);
-    assert.match(editorText[0], /Call career_run "variant-review" once/);
-    assert.match(editorText[0], /select retained IDs, then stop/);
-    assert.match(editorText[0], /Only after later selection/);
-    assert.match(editorText[0], /call career_run "materialize"/);
-    assert.match(editorText[0], /local_save_guidance/);
-    assert.match(editorText[0], /preferred_variants_directory/);
-    assert.match(editorText[0], /destination guidance only/);
-    assert.ok(rpc.notifications.some(({ message }) => message.includes("Nothing was sent automatically")));
-    assert.ok(rpc.notifications.every(({ message }) => !message.includes("Synthetic resume content")));
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("workbench exposes guided resume-only modes and withholds tailored variation without a vacancy", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-workbench-modes-"));
-  try {
-    const { agentDir } = await configuredAgent(temp);
-    const fake = makeFakePi();
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async () => { throw new Error("must not run"); },
-    });
-    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
-    let modeOptions;
-    rpc.ctx.ui.select = async (title, options) => {
-      if (title === "Choose an original resume") return options[0];
-      if (title === "Career workbench") {
-        modeOptions = options;
-        return "Cancel";
-      }
-      return undefined;
-    };
-
-    await fake.commands.get("career-workbench").handler("", rpc.ctx);
-    assert.deepEqual(modeOptions, [
-      "Explain my score — resume only",
-      "Create a reviewed improvement plan — resume only",
-      "Guided rewrite interview — resume only",
-      "Draft reviewed replacements — resume only",
-      "Ask my own question — resume only",
-      "Cancel",
-    ]);
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("match runs normalize, all analyses, then all matches sequentially with no model or network", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-match-"));
-  const previousFetch = globalThis.fetch;
-  let network = false;
-  globalThis.fetch = async () => { network = true; throw new Error("forbidden"); };
-  try {
-    const { agentDir } = await configuredAgent(temp, ["a.md", "b.md"]);
-    const fake = makeFakePi();
-    const seedUuid = uuidSequence();
-    const consent = createConsentEntry(true, { uuid: seedUuid, now });
-    const vacancy = createVacancyEntry("Synthetic Backend Engineer", "paste", { uuid: seedUuid, now });
-    fake.entries.push(
-      { type: "custom", customType: "career.workflow", data: consent, id: "seed1", parentId: null, timestamp: now().toISOString() },
-      { type: "custom", customType: "career.workflow", data: vacancy, id: "seed2", parentId: "seed1", timestamp: now().toISOString() },
-    );
-    const operations = [];
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async (invocation) => {
-        operations.push(`${invocation.kind}.${invocation.operation}`);
-        if (invocation.kind === "job" && invocation.operation === "normalize") {
-          return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
-        }
-        if (invocation.kind === "resume") {
-          return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
-        }
-        return { operation: "job.match", json: JSON.stringify(matchResult()) };
-      },
-    });
-    const rpc = makeContext(fake, { mode: "rpc", selects: ["All original resumes", "Close"] });
-    await fake.commands.get("career-match").handler("", rpc.ctx);
-    assert.deepEqual(operations, [
-      "job.normalize", "resume.analyze", "resume.analyze", "job.match", "job.match",
-    ]);
-    const cards = fake.entries.filter((entry) => entry.data.kind === "result_card");
-    assert.equal(cards.length, 2);
-    assert.ok(cards.every((entry) => entry.data.workflow === "match"));
-    const theme = { fg(_color, text) { return text; }, bold(text) { return text; } };
-    const rendered = fake.renderers.get("career.workflow")(
-      { data: cards[0].data }, { expanded: false }, theme,
-    ).render(80).join("\n");
-    assert.match(rendered, /tie/, "current-run durable cards must derive tie status in memory");
-    assert.equal(network, false);
-    assert.equal(rpc.customCalls, 0);
-  } finally {
-    globalThis.fetch = previousFetch;
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("match keeps every oversized resume visible as an unavailable row and continues", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-match-unavailable-"));
-  try {
-    const { agentDir } = await configuredAgent(temp, ["a.md", "b.md", "c.md"]);
-    const fake = makeFakePi();
-    const seedUuid = uuidSequence();
-    const consent = createConsentEntry(true, { uuid: seedUuid, now });
-    const vacancy = createVacancyEntry("Synthetic Backend Engineer", "paste", { uuid: seedUuid, now });
-    fake.entries.push(
-      { type: "custom", customType: "career.workflow", data: consent, id: "seed1", parentId: null, timestamp: now().toISOString() },
-      { type: "custom", customType: "career.workflow", data: vacancy, id: "seed2", parentId: "seed1", timestamp: now().toISOString() },
-    );
-    const operations = [];
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async (invocation) => {
-        operations.push(`${invocation.kind}.${invocation.operation}`);
-        if (invocation.kind === "job" && invocation.operation === "normalize") {
-          return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
-        }
-        if (invocation.kind === "resume") {
-          const text = JSON.parse(invocation.inputJson).text;
-          if (text.includes("# a.md")) throw adapterError("result_too_large");
-          if (text.includes("# b.md")) throw adapterError("result_too_many_lines");
-          return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
-        }
-        return { operation: "job.match", json: JSON.stringify(matchResult()) };
-      },
-    });
-    const rpc = makeContext(fake, { mode: "rpc", selects: ["All original resumes", "Close"] });
-    await fake.commands.get("career-match").handler("", rpc.ctx);
-
-    assert.deepEqual(operations, [
-      "job.normalize",
-      "resume.analyze", "resume.analyze", "resume.analyze",
-      "job.match", "job.match", "job.match",
-    ]);
-    const cards = fake.entries.filter((entry) => entry.data.kind === "result_card");
-    assert.equal(cards.length, 1);
-    assert.equal(cards[0].data.resume_label, "c.md");
-    for (const [label, code] of [["a.md", "result_too_large"], ["b.md", "result_too_many_lines"]]) {
-      assert.ok(rpc.notifications.some(({ message }) =>
-        message.includes(label) &&
-        message.includes(code) &&
-        message.includes("result unavailable") &&
-        message.includes("No partial output exists and the result was not stored.")));
-    }
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
-});
-
-test("match validates every batch resume-analysis schema before job matching", async () => {
-  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-command-match-analysis-schema-"));
-  try {
-    const { agentDir } = await configuredAgent(temp);
-    const fake = makeFakePi();
-    const seedUuid = uuidSequence();
-    fake.entries.push(
-      { type: "custom", customType: "career.workflow", data: createConsentEntry(true, { uuid: seedUuid, now }), id: "seed1", parentId: null, timestamp: now().toISOString() },
-      { type: "custom", customType: "career.workflow", data: createVacancyEntry("Synthetic vacancy", "paste", { uuid: seedUuid, now }), id: "seed2", parentId: "seed1", timestamp: now().toISOString() },
-    );
-    const operations = [];
-    registerCareerCommands(fake.api, {
-      agentDir, uuid: uuidSequence(), now,
-      invoke: async (invocation) => {
-        operations.push(`${invocation.kind}.${invocation.operation}`);
-        if (invocation.kind === "job" && invocation.operation === "normalize") {
-          return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
-        }
-        return { operation: "resume.analyze", json: JSON.stringify({ schema_version: "unexpected.v1" }) };
-      },
-    });
-    const rpc = makeContext(fake, { mode: "rpc", selects: ["All original resumes"] });
-    await fake.commands.get("career-match").handler("", rpc.ctx);
-    assert.deepEqual(operations, ["job.normalize", "resume.analyze"]);
-    assert.equal(fake.entries.some((entry) => entry.data.kind === "result_card"), false);
-    assert.ok(rpc.notifications.some(({ message }) => message.includes("unexpected result shape")));
-  } finally {
-    await rm(temp, { recursive: true, force: true });
-  }
+  const clearRpc = makeContext(fake, { mode: "rpc", persisted: false });
+  await fake.commands.get("career-application").handler("clear", clearRpc.ctx);
+  const cleared = reconstructWorkflowState(fake.entries);
+  assert.equal(cleared.application, undefined);
+  assert.equal(cleared.vacancy, undefined);
+  assert.equal(cleared.application_context_seen, true);
 });

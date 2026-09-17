@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_ASSISTANCE_HANDOFF } from "../../src/workflow/session-attachment.ts";
 import { createApplicationEntry } from "../../src/workflow/session-state.ts";
@@ -90,18 +91,24 @@ async function fixture() {
   });
   const fake = makeFakePi();
   let tick = 10;
+  const workspaceNow = () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`);
+  const ids = uuidSequence();
   registerCareerCommands(fake.api, {
     agentDir,
-    now: () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`),
-    uuid: uuidSequence(),
+    now: workspaceNow,
+    uuid: ids,
     invoke: async () => { throw new Error("catalog attach must not invoke Career Core"); },
   });
-  return { temp, root, agentDir, fake };
+  const workspace = new ApplicationWorkspaceWorkflow({
+    agentDir, now: workspaceNow, uuid: ids,
+    appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
+  });
+  return { temp, root, agentDir, fake, workspace };
 }
 
-async function runWorkspace(fake, options = {}) {
-  const context = makeContext(fake, { mode: "rpc", persisted: false, ...options });
-  await fake.commands.get("career-workspace").handler("", context.ctx);
+async function runWorkspace(value, options = {}) {
+  const context = makeContext(value.fake, { mode: "rpc", persisted: false, ...options });
+  await value.workspace.run("", context.ctx);
   return context;
 }
 
@@ -109,13 +116,13 @@ test("P3-16/P3-28 a clean Pi session can attach a validated catalog application"
   const value = await fixture();
   try {
     const beforeRoot = await snapshot(value.root);
-    const cancelled = await runWorkspace(value.fake, {
+    const cancelled = await runWorkspace(value, {
       selects: ["Attach application", OPTION], confirms: [false],
     });
     assert.equal(value.fake.entries.length, 0);
     assert.ok(cancelled.notifications.every(({ message }) => !message.includes("attached")));
     const editorText = [];
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Attach application", OPTION], confirms: [true], editorText,
     });
     assert.equal(value.fake.entries.length, 1);
@@ -125,7 +132,7 @@ test("P3-16/P3-28 a clean Pi session can attach a validated catalog application"
     assert.doesNotMatch(JSON.stringify(entry.data), /Synthetic|applications|resume/);
     assert.deepEqual(editorText, []);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Activate Career assistance"], confirms: [true], editorText,
       reload: async () => {},
     });
@@ -149,7 +156,7 @@ test("P3-29/P3-55 a used session opens another application only in a replacement
     const beforeEntries = structuredClone(value.fake.entries);
     const replacementEntries = [];
     const newSessions = [];
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Open application in new Pi session", OPTION],
       confirms: [true],
       replacementEntries,
@@ -162,7 +169,7 @@ test("P3-29/P3-55 a used session opens another application only in a replacement
     assert.equal(newSessions.length, 1);
     assert.doesNotMatch(JSON.stringify(replacementEntries), /applications|resume\.md/);
     const cancelledEntries = [];
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Open application in new Pi session", OPTION],
       confirms: [true],
       replacementEntries: cancelledEntries,
