@@ -1104,6 +1104,13 @@ import { randomUUID as randomUUID2 } from "node:crypto";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text as Text2 } from "@earendil-works/pi-tui";
 
+// src/career-paths.ts
+import path2 from "node:path";
+import { fileURLToPath } from "node:url";
+function careerSkillsDirectory() {
+  return path2.resolve(path2.dirname(fileURLToPath(import.meta.url)), "..", "skills");
+}
+
 // src/workflow/config.ts
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -1118,7 +1125,7 @@ import {
   rename,
   unlink
 } from "node:fs/promises";
-import path2 from "node:path";
+import path3 from "node:path";
 import { TextDecoder as TextDecoder3 } from "node:util";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
@@ -1345,19 +1352,19 @@ function validLabel(value) {
   return typeof value === "string" && value.length > 0 && value.length <= LABEL_MAX_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
 }
 function canonicalBoundedAbsolutePath(value) {
-  return typeof value === "string" && value.length > 0 && path2.isAbsolute(value) && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES2 && !/[\u0000-\u001f\u007f]/.test(value) && path2.resolve(value) === value && path2.parse(value).root !== value && !value.endsWith(path2.sep);
+  return typeof value === "string" && value.length > 0 && path3.isAbsolute(value) && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES2 && !/[\u0000-\u001f\u007f]/.test(value) && path3.resolve(value) === value && path3.parse(value).root !== value && !value.endsWith(path3.sep);
 }
 function normalizeLegacyGeneratedVariantsRoot(value) {
-  if (typeof value !== "string" || value.length === 0 || !path2.isAbsolute(value) || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
-  const normalized = path2.resolve(value);
-  return path2.dirname(normalized) === normalized ? void 0 : normalized;
+  if (typeof value !== "string" || value.length === 0 || !path3.isAbsolute(value) || Buffer.byteLength(value, "utf8") > PATH_MAX_BYTES2 || /[\u0000-\u001f\u007f]/.test(value)) return void 0;
+  const normalized = path3.resolve(value);
+  return path3.dirname(normalized) === normalized ? void 0 : normalized;
 }
 function rootId(canonicalPath) {
   return createHash("sha256").update(canonicalPath).digest("hex");
 }
 function parseRoot(value) {
   if (!isPlainRecord(value) || !exactKeys3(value, ["id", "path", "label"])) return void 0;
-  if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path2.isAbsolute(value.path) || !canonicalBoundedAbsolutePath(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
+  if (typeof value.id !== "string" || !SHA256.test(value.id) || typeof value.path !== "string" || !path3.isAbsolute(value.path) || !canonicalBoundedAbsolutePath(value.path) || value.id !== rootId(value.path) || !validLabel(value.label)) return void 0;
   return { id: value.id, path: value.path, label: value.label };
 }
 function parseRoots(value) {
@@ -1376,10 +1383,10 @@ function parseRoots(value) {
 }
 function componentOverlap(left, right) {
   if (left === right) return true;
-  const relativeLeft = path2.relative(left, right);
-  if (relativeLeft !== "" && relativeLeft !== ".." && !relativeLeft.startsWith(`..${path2.sep}`) && !path2.isAbsolute(relativeLeft)) return true;
-  const relativeRight = path2.relative(right, left);
-  return relativeRight !== "" && relativeRight !== ".." && !relativeRight.startsWith(`..${path2.sep}`) && !path2.isAbsolute(relativeRight);
+  const relativeLeft = path3.relative(left, right);
+  if (relativeLeft !== "" && relativeLeft !== ".." && !relativeLeft.startsWith(`..${path3.sep}`) && !path3.isAbsolute(relativeLeft)) return true;
+  const relativeRight = path3.relative(right, left);
+  return relativeRight !== "" && relativeRight !== ".." && !relativeRight.startsWith(`..${path3.sep}`) && !path3.isAbsolute(relativeRight);
 }
 function parseApplicationWorkspace(value) {
   if (value === null) return null;
@@ -1497,8 +1504,8 @@ function emptyConfig() {
   return config;
 }
 function configPath(agentDir) {
-  if (!path2.isAbsolute(agentDir)) throw workflowError("config_invalid");
-  return path2.join(agentDir, "career", "config.v1.json");
+  if (!path3.isAbsolute(agentDir)) throw workflowError("config_invalid");
+  return path3.join(agentDir, "career", "config.v1.json");
 }
 function attachSnapshot(config, snapshot) {
   const complete = { ...snapshot, config };
@@ -1518,11 +1525,11 @@ function inheritSnapshot(source, target) {
   return target;
 }
 async function noSymlinkComponentWalk(value, errorCode) {
-  const parsed = path2.parse(value);
+  const parsed = path3.parse(value);
   let current = parsed.root;
   try {
-    for (const component of value.slice(parsed.root.length).split(path2.sep).filter(Boolean)) {
-      current = path2.join(current, component);
+    for (const component of value.slice(parsed.root.length).split(path3.sep).filter(Boolean)) {
+      current = path3.join(current, component);
       const metadata = await lstat2(current);
       if (metadata.isSymbolicLink()) throw workflowError(errorCode);
     }
@@ -1580,7 +1587,7 @@ async function readPresentSnapshot(file, directory) {
 }
 async function loadConfigSnapshotInternal(agentDir, allowMissingDirectory) {
   const file = configPath(agentDir);
-  const directory = path2.dirname(file);
+  const directory = path3.dirname(file);
   const directoryExists = await validateConfigDirectory(directory, allowMissingDirectory);
   const absent = () => {
     const config = emptyConfig();
@@ -1611,7 +1618,7 @@ async function loadConfig(agentDir) {
 async function canonicalizeRoot(inputPath) {
   if (typeof inputPath !== "string" || inputPath.length === 0 || inputPath.includes("\0") || Buffer.byteLength(inputPath, "utf8") > PATH_MAX_BYTES2) throw workflowError("root_invalid");
   try {
-    const absolute = path2.resolve(inputPath);
+    const absolute = path3.resolve(inputPath);
     const suppliedMetadata = await lstat2(absolute);
     if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) throw workflowError("root_invalid");
     const canonical = await realpath2(absolute);
@@ -1625,7 +1632,7 @@ async function canonicalizeRoot(inputPath) {
   }
 }
 function defaultRootLabel(canonicalPath) {
-  const label = path2.basename(canonicalPath).trim();
+  const label = path3.basename(canonicalPath).trim();
   return (label || "Resume library").slice(0, LABEL_MAX_CHARACTERS);
 }
 async function addLibraryRoot(config, inputPath, label) {
@@ -1648,7 +1655,7 @@ function removeLibraryRoot(config, id) {
 function suggestedGeneratedVariantsRoot(config, selectedRootId) {
   if (config.generated_variants_root !== null) return config.generated_variants_root;
   const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
-  return selectedRoot === void 0 ? void 0 : path2.join(selectedRoot.path, "variants");
+  return selectedRoot === void 0 ? void 0 : path3.join(selectedRoot.path, "variants");
 }
 function setGeneratedVariantsRoot(config, inputPath) {
   const normalized = normalizeLegacyGeneratedVariantsRoot(inputPath);
@@ -1664,7 +1671,7 @@ function setApplicationWorkspace(config, applicationWorkspace) {
   return inheritSnapshot(config, canonicalConfig({ ...config, application_workspace: applicationWorkspace }));
 }
 async function validateApplicationRootPath(value) {
-  if (!canonicalBoundedAbsolutePath(value) || Buffer.byteLength(path2.join(value, "x".repeat(180)), "utf8") > PATH_MAX_BYTES2) {
+  if (!canonicalBoundedAbsolutePath(value) || Buffer.byteLength(path3.join(value, "x".repeat(180)), "utf8") > PATH_MAX_BYTES2) {
     throw workflowError("workspace_root_invalid");
   }
   try {
@@ -1791,10 +1798,10 @@ async function ensureConfigDirectoryForOrdinaryWrite(agentDir, directory) {
   }
 }
 function configLockPath(agentDir) {
-  return path2.join(path2.dirname(configPath(agentDir)), ".pi-career-config.lock");
+  return path3.join(path3.dirname(configPath(agentDir)), ".pi-career-config.lock");
 }
 function workspaceLockPath(rootPath) {
-  return path2.join(rootPath, ".pi-career-workspace.lock");
+  return path3.join(rootPath, ".pi-career-workspace.lock");
 }
 async function acquireMutationLock(lockPath, kind, mutationId, createdAt) {
   if (!UUID.test(mutationId) || !ISO_UTC.test(createdAt) || new Date(createdAt).toISOString() !== createdAt) {
@@ -1816,7 +1823,7 @@ async function acquireMutationLock(lockPath, kind, mutationId, createdAt) {
     if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size !== bytes.length || !exactPrivateMode(metadata, 384) || !(await readFile2(lockPath)).equals(bytes)) {
       throw workflowError("workspace_verification_failed");
     }
-    await syncDirectory(path2.dirname(lockPath));
+    await syncDirectory(path3.dirname(lockPath));
     return { path: lockPath, identity: identity(metadata) };
   } catch (error) {
     if (handle !== void 0) await handle.close().catch(() => void 0);
@@ -1825,7 +1832,7 @@ async function acquireMutationLock(lockPath, kind, mutationId, createdAt) {
         const current = await lstat2(lockPath);
         if (current.dev === createdIdentity.dev && current.ino === createdIdentity.ino) {
           await unlink(lockPath);
-          await syncDirectory(path2.dirname(lockPath));
+          await syncDirectory(path3.dirname(lockPath));
         }
       } catch {
       }
@@ -1840,7 +1847,7 @@ async function releaseMutationLock(lock) {
     const metadata = await lstat2(lock.path);
     if (!sameIdentity(metadata, lock.identity)) throw workflowError("workspace_status_unknown");
     await unlink(lock.path);
-    await syncDirectory(path2.dirname(lock.path));
+    await syncDirectory(path3.dirname(lock.path));
   } catch (error) {
     if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
     throw workflowError("workspace_status_unknown");
@@ -1961,7 +1968,7 @@ async function commitConfigUnderLock(snapshot, next, temporaryPath, targetFormat
 }
 function configTemporaryPath(agentDir, mutationId) {
   if (!UUID.test(mutationId)) throw workflowError("config_invalid");
-  return path2.join(path2.dirname(configPath(agentDir)), `.config.v1.${mutationId}.tmp`);
+  return path3.join(path3.dirname(configPath(agentDir)), `.config.v1.${mutationId}.tmp`);
 }
 async function withQueues(keys, operation) {
   const unique = [...new Set(keys)].sort();
@@ -1973,7 +1980,7 @@ async function writeConfig(agentDir, config, uuid = randomUUID, options = {}) {
   const createdAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
   if (!UUID.test(mutationId)) throw workflowError("config_invalid");
   const file = configPath(agentDir);
-  const directory = path2.dirname(file);
+  const directory = path3.dirname(file);
   const inherited = SNAPSHOTS.get(config);
   const snapshot = inherited?.filePath === file ? inherited : await loadConfigSnapshotInternal(agentDir, true);
   const targetFormat = snapshot.sourceFormat === "v2" ? "v2" : "v1";
@@ -2042,7 +2049,7 @@ function serializeCoreInput(value) {
 // src/workflow/scan.ts
 import { createHash as createHash3 } from "node:crypto";
 import { lstat as lstat3, opendir, readFile as readFile3, realpath as realpath3 } from "node:fs/promises";
-import path3 from "node:path";
+import path4 from "node:path";
 import { TextDecoder as TextDecoder4 } from "node:util";
 
 // src/workflow/pdf.ts
@@ -2231,7 +2238,7 @@ function normalizeDocumentText(value) {
   return value.replace(/\r\n?/g, "\n");
 }
 function supportedFormat(file) {
-  const extension = path3.extname(file).toLowerCase();
+  const extension = path4.extname(file).toLowerCase();
   if (extension === ".md") return "markdown";
   if (extension === ".txt") return "text";
   if (extension === ".pdf") return "pdf";
@@ -2242,7 +2249,7 @@ function safeLabel(value, fallback) {
   return (cleaned || fallback).slice(0, 120);
 }
 function resumeLabel(file, format, text) {
-  const fallback = path3.basename(file, path3.extname(file));
+  const fallback = path4.basename(file, path4.extname(file));
   if (format === "markdown") {
     let nonEmpty = 0;
     for (const line of text.split("\n")) {
@@ -2256,7 +2263,7 @@ function resumeLabel(file, format, text) {
   return safeLabel(fallback, "Resume");
 }
 function sidecarPath(file) {
-  return path3.join(path3.dirname(file), `${path3.basename(file, path3.extname(file))}.pi-career.json`);
+  return path4.join(path4.dirname(file), `${path4.basename(file, path4.extname(file))}.pi-career.json`);
 }
 function privateMode(metadata, expected) {
   const userId = process.geteuid?.() ?? process.getuid?.();
@@ -2284,8 +2291,8 @@ async function readSidecar(file, artifactBytes, required) {
   }
 }
 function managedVariantsPath(config, root) {
-  const configured = config.generated_variants_root === null ? void 0 : path3.resolve(config.generated_variants_root);
-  return configured !== void 0 && path3.dirname(configured) === root.path ? configured : path3.join(root.path, "variants");
+  const configured = config.generated_variants_root === null ? void 0 : path4.resolve(config.generated_variants_root);
+  return configured !== void 0 && path4.dirname(configured) === root.path ? configured : path4.join(root.path, "variants");
 }
 async function managedVariantsDirectory(config, root) {
   const directoryPath = managedVariantsPath(config, root);
@@ -2293,7 +2300,7 @@ async function managedVariantsDirectory(config, root) {
     const directory = await lstat3(directoryPath);
     const canonical = await realpath3(directoryPath);
     if (!directory.isDirectory() || directory.isSymbolicLink() || canonical !== directoryPath || !privateMode(directory, 448)) return { path: directoryPath, markerValid: false };
-    const markerPath = path3.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
+    const markerPath = path4.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
     const marker = await lstat3(markerPath);
     if (!marker.isFile() || marker.isSymbolicLink() || marker.size <= 0 || marker.size > ASSISTED_SIDECAR_MAX_BYTES || !privateMode(marker, 384)) return { path: directoryPath, markerValid: false };
     const bytes = await readFile3(markerPath);
@@ -2308,7 +2315,7 @@ async function managedVariantsDirectory(config, root) {
   }
 }
 function containingManagedVariants(file, managedDirectories) {
-  return managedDirectories.filter((managed) => file.startsWith(`${managed.path}${path3.sep}`));
+  return managedDirectories.filter((managed) => file.startsWith(`${managed.path}${path4.sep}`));
 }
 async function scanRootIsCurrent(root) {
   try {
@@ -2337,8 +2344,8 @@ async function directoryChildren(current, rootId2, warnings2, maximumEntries) {
   const children = [];
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
-    const relative = current.relative ? path3.posix.join(current.relative, entry.name) : entry.name;
-    const absolute = path3.join(current.absolute, entry.name);
+    const relative = current.relative ? path4.posix.join(current.relative, entry.name) : entry.name;
+    const absolute = path4.join(current.absolute, entry.name);
     const depth = current.depth + 1;
     if (entry.isDirectory() && depth <= SCAN_MAX_DEPTH) {
       children.push({ absolute, relative, depth, kind: "directory" });
@@ -2388,7 +2395,7 @@ async function collectCandidates(root, maximum, warnings2) {
   candidates.sort((left, right) => {
     const relative = compareText(left.relative, right.relative);
     if (relative !== 0) return relative;
-    return compareText(path3.basename(left.relative), path3.basename(right.relative));
+    return compareText(path4.basename(left.relative), path4.basename(right.relative));
   });
   return { candidates, capped, stale: false };
 }
@@ -2398,7 +2405,7 @@ async function scanCandidate(root, candidate, managedDirectories, warnings2) {
   try {
     metadata = await lstat3(candidate.absolute);
     canonical = await realpath3(candidate.absolute);
-    if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== candidate.absolute || !canonical.startsWith(`${root.path}${path3.sep}`)) return void 0;
+    if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== candidate.absolute || !canonical.startsWith(`${root.path}${path4.sep}`)) return void 0;
   } catch {
     warnings2.push({ code: "scan_entry_unavailable", root_id: root.id, relative_path: candidate.relative });
     return void 0;
@@ -3007,6 +3014,7 @@ var MESSAGES = {
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
   session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
+  assistance_required: "Career assistance is inactive in this session.",
   variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
   variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
   variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
@@ -4004,7 +4012,7 @@ var CareerRunEngine = class {
 
 // src/workflow/renderers.ts
 import os from "node:os";
-import path4 from "node:path";
+import path5 from "node:path";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import {
   Container,
@@ -4015,11 +4023,11 @@ import {
 } from "@earendil-works/pi-tui";
 function privacyDisplayPath(absolutePath) {
   const home = os.homedir();
-  const relative = path4.relative(home, absolutePath);
-  if (relative && !relative.startsWith("..") && !path4.isAbsolute(relative)) {
-    return `~${path4.sep}${relative}`;
+  const relative = path5.relative(home, absolutePath);
+  if (relative && !relative.startsWith("..") && !path5.isAbsolute(relative)) {
+    return `~${path5.sep}${relative}`;
   }
-  return path4.basename(absolutePath) || "resume root";
+  return path5.basename(absolutePath) || "resume root";
 }
 function setupSummary(config, scan, persisted3) {
   const resumes = scan.records.length;
@@ -4597,7 +4605,7 @@ function materializeEditorText(reviewHandle, selectedChangeIds) {
   ].join("\n");
 }
 
-// src/workflow/variant-save.ts
+// src/workflow/application-workspace.ts
 import { createHash as createHash4 } from "node:crypto";
 import { constants as constants2 } from "node:fs";
 import {
@@ -4606,675 +4614,16 @@ import {
   lstat as lstat4,
   mkdir as mkdir2,
   open as open2,
+  opendir as opendir2,
   readFile as readFile4,
-  readdir,
   realpath as realpath4,
+  rmdir,
   unlink as unlink2
 } from "node:fs/promises";
-import path5 from "node:path";
+import path6 from "node:path";
 import { TextDecoder as TextDecoder5 } from "node:util";
 import {
   withFileMutationQueue as withFileMutationQueue2
-} from "@earendil-works/pi-coding-agent";
-var ARTIFACT_MAX_BYTES = 262144;
-var PREVIEW_MAX_BYTES = 524288;
-var PATH_MAX_BYTES3 = 4096;
-var CONFIRM_TIMEOUT_MS = 10 * 60 * 1e3;
-var UUID3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var VARIANT_HANDLE = /^variant:[a-f0-9-]{8,64}$/;
-var SHA2564 = /^[a-f0-9]{64}$/;
-var CHANGE_ID = /^change-[0-9]{4}$/;
-var DEFAULT_FS = {
-  chmod,
-  link: link2,
-  lstat: lstat4,
-  mkdir: mkdir2,
-  open: open2,
-  readFile: readFile4,
-  readdir,
-  realpath: realpath4,
-  unlink: unlink2
-};
-function isNodeError(error, code) {
-  return error !== null && typeof error === "object" && error.code === code;
-}
-function hash(value) {
-  return createHash4("sha256").update(value).digest("hex");
-}
-function hasUnpairedSurrogate(value) {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 55296 && code <= 56319) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 56320 && next <= 57343)) return true;
-      index += 1;
-    } else if (code >= 56320 && code <= 57343) {
-      return true;
-    }
-  }
-  return false;
-}
-function sameCandidate(left, right) {
-  return left.handle === right.handle && left.assistedText === right.assistedText && left.selectedChangeIds.join("\0") === right.selectedChangeIds.join("\0") && left.source.resumeId === right.source.resumeId && left.source.rootId === right.source.rootId && left.source.format === right.source.format && left.source.textSha256 === right.source.textSha256;
-}
-function validCandidateIdentity(candidate) {
-  return VARIANT_HANDLE.test(candidate.handle) && SHA2564.test(candidate.source.resumeId) && SHA2564.test(candidate.source.rootId) && SHA2564.test(candidate.source.textSha256) && (candidate.source.format === "markdown" || candidate.source.format === "text");
-}
-function validSelectedChanges(selectedChangeIds) {
-  return selectedChangeIds.length > 0 && new Set(selectedChangeIds).size === selectedChangeIds.length && selectedChangeIds.every((id) => CHANGE_ID.test(id));
-}
-function validateCandidate(candidate) {
-  if (!validCandidateIdentity(candidate) || !validSelectedChanges(candidate.selectedChangeIds) || candidate.assistedText.length === 0 || candidate.assistedText.includes("\r") || hasUnpairedSurrogate(candidate.assistedText)) {
-    throw careerRunError("variant_save_unavailable");
-  }
-  const bytes = Buffer.from(candidate.assistedText, "utf8");
-  if (bytes.length === 0 || bytes.length > ARTIFACT_MAX_BYTES) {
-    throw careerRunError("variant_save_unavailable");
-  }
-  return bytes;
-}
-function effectiveUserId2() {
-  return process.geteuid?.() ?? process.getuid?.();
-}
-function privateMetadata(metadata, mode) {
-  const userId = effectiveUserId2();
-  return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === mode;
-}
-function directManagedRoot(config, root) {
-  const configured = config.generated_variants_root === null ? void 0 : path5.resolve(config.generated_variants_root);
-  return configured !== void 0 && path5.dirname(configured) === root.path ? configured : path5.join(root.path, "variants");
-}
-function validBoundedPath(value) {
-  return path5.isAbsolute(value) && path5.normalize(value) === value && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES3 && !/[\u0000-\u001f\u007f]/.test(value);
-}
-function validDestination(config, root, directoryPath) {
-  return validBoundedPath(root.path) && validBoundedPath(directoryPath) && path5.dirname(directoryPath) === root.path && directoryPath !== root.path && !config.library_roots.some((configuredRoot) => configuredRoot.path === directoryPath);
-}
-function basicTimestamp(createdAt) {
-  return createdAt.replace(/[-:.]/g, "");
-}
-function canonicalJson(value) {
-  return `${JSON.stringify(value, null, 2)}
-`;
-}
-function fileNameFor(candidate, createdAt, saveId) {
-  const extension = candidate.source.format === "markdown" ? "md" : "txt";
-  const suffix = saveId.replaceAll("-", "").slice(0, 8);
-  return `resume-assisted-${basicTimestamp(createdAt)}-${suffix}.${extension}`;
-}
-var VariantSaveWorkflow = class {
-  constructor(options) {
-    this.options = options;
-    this.fs = options.fs ?? DEFAULT_FS;
-  }
-  options;
-  fs;
-  receipts = /* @__PURE__ */ new Map();
-  rootLocks = /* @__PURE__ */ new Map();
-  clearReceipts() {
-    this.receipts.clear();
-  }
-  async run(handle, ctx, resolveCandidate) {
-    if (!ctx.isIdle()) throw careerRunError("variant_save_unavailable");
-    const candidate = resolveCandidate();
-    const existing = this.receipts.get(handle);
-    if (existing !== void 0) {
-      if (!sameCandidate(existing.plan.candidate, candidate) || existing.plan.sessionId !== ctx.sessionManager.getSessionId()) {
-        throw careerRunError("variant_save_unavailable");
-      }
-      if (!await this.verifyPublishedPair(existing.plan)) {
-        throw careerRunError("variant_save_verification_failed");
-      }
-      await this.verifyRescan(existing.plan);
-      return {
-        status: "existing",
-        artifactPath: existing.plan.artifactPath,
-        sidecarPath: existing.plan.sidecarPath
-      };
-    }
-    const plan = await this.preparePlan(candidate, ctx.sessionManager.getSessionId());
-    const reviewed = await ctx.ui.editor("Review exact assisted-variant save plan", plan.previewText);
-    if (reviewed === void 0) return { status: "cancelled" };
-    if (reviewed !== plan.previewText) throw careerRunError("variant_save_preview_changed");
-    const confirmed = await ctx.ui.confirm(
-      "Save assisted resume variant?",
-      [
-        `Save ID: ${plan.saveId}`,
-        `Directory: ${plan.directoryPath}`,
-        `Artifact: ${path5.basename(plan.artifactPath)} (${plan.artifactBytes.length} bytes, ${hash(plan.artifactBytes)})`,
-        `Sidecar: ${path5.basename(plan.sidecarPath)} (${plan.sidecarBytes.length} bytes, ${hash(plan.sidecarBytes)})`,
-        ...plan.markerBytes === void 0 ? [] : [
-          `Create managed marker: ${MANAGED_VARIANTS_MARKER_NAME} (${plan.markerBytes.length} bytes, ${hash(plan.markerBytes)})`
-        ],
-        "This is assisted/non-authoritative. Existing files will never be replaced."
-      ].join("\n"),
-      { timeout: CONFIRM_TIMEOUT_MS }
-    );
-    if (!confirmed || ctx.signal?.aborted) return { status: "cancelled" };
-    const current = resolveCandidate();
-    if (!sameCandidate(plan.candidate, current) || plan.sessionId !== ctx.sessionManager.getSessionId()) {
-      throw careerRunError("variant_save_unavailable");
-    }
-    const paths = [plan.artifactPath, plan.sidecarPath, ...plan.markerBytes === void 0 ? [] : [plan.markerPath]].sort();
-    await this.withRootLock(plan.directoryPath, () => this.withMutationQueues(paths, async () => {
-      const lockedCandidate = resolveCandidate();
-      if (!sameCandidate(plan.candidate, lockedCandidate) || plan.sessionId !== ctx.sessionManager.getSessionId() || !ctx.isIdle() || ctx.signal?.aborted) {
-        throw careerRunError("variant_save_unavailable");
-      }
-      await this.revalidatePlan(plan);
-      await this.publishPlan(plan);
-    }));
-    this.receipts.set(handle, { plan });
-    await this.verifyRescan(plan);
-    return { status: "saved", artifactPath: plan.artifactPath, sidecarPath: plan.sidecarPath };
-  }
-  async currentOriginal(candidate) {
-    const config = await loadConfig(this.options.agentDir);
-    const scan = await scanLibrary(config);
-    const root = config.library_roots.find((value) => value.id === candidate.source.rootId);
-    const rootSummary = scan.roots.find((value) => value.root_id === candidate.source.rootId);
-    const matches = eligibleOriginals(scan).filter((record) => record.id === candidate.source.resumeId && record.root_id === candidate.source.rootId && record.format === candidate.source.format && record.text_sha256 === candidate.source.textSha256);
-    if (root === void 0 || rootSummary === void 0 || rootSummary.stale || rootSummary.capped || scan.total_capped || matches.length !== 1) throw careerRunError("variant_save_unavailable");
-    const directoryPath = directManagedRoot(config, root);
-    if (!validDestination(config, root, directoryPath)) {
-      throw careerRunError("variant_save_destination_invalid");
-    }
-    const destination = await this.inspectDestination(directoryPath, root);
-    return { config, root, record: matches[0], destination };
-  }
-  async inspectDestination(directoryPath, root) {
-    const markerPath = path5.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
-    let metadata;
-    try {
-      metadata = await this.fs.lstat(directoryPath);
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) return { kind: "absent", directoryPath, markerPath };
-      throw careerRunError("variant_save_destination_invalid");
-    }
-    const canonical = await this.fs.realpath(directoryPath).catch(() => void 0);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== directoryPath || !privateMetadata(metadata, 448)) throw careerRunError("variant_save_destination_invalid");
-    const entries = await this.fs.readdir(directoryPath).catch(() => void 0);
-    if (entries === void 0) throw careerRunError("variant_save_destination_invalid");
-    const markerState = await this.inspectMarker(markerPath, root.id);
-    if (markerState === "valid") return { kind: "managed", directoryPath, markerPath };
-    if (markerState === "invalid" || entries.length !== 0) {
-      throw careerRunError("variant_save_destination_invalid");
-    }
-    return { kind: "empty", directoryPath, markerPath };
-  }
-  async inspectMarker(markerPath, expectedRootId) {
-    try {
-      const marker = await this.fs.lstat(markerPath);
-      if (!marker.isFile() || marker.isSymbolicLink() || !privateMetadata(marker, 384) || marker.size <= 0 || marker.size > ASSISTED_SIDECAR_MAX_BYTES) return "invalid";
-      const bytes = await this.fs.readFile(markerPath);
-      if (bytes.length !== marker.size) return "invalid";
-      const text = new TextDecoder5("utf-8", { fatal: true }).decode(bytes);
-      return parseManagedVariantsMarker(text, expectedRootId) === void 0 ? "invalid" : "valid";
-    } catch (error) {
-      return isNodeError(error, "ENOENT") ? "absent" : "invalid";
-    }
-  }
-  async preparePlan(candidate, sessionId) {
-    const artifactBytes = validateCandidate(candidate);
-    const prepared = await this.currentOriginal(candidate);
-    const saveId = this.options.uuid().toLowerCase();
-    const createdAt = this.options.now().toISOString();
-    if (!UUID3.test(saveId)) throw careerRunError("variant_save_unavailable");
-    const fileName = fileNameFor(candidate, createdAt, saveId);
-    const artifactPath = path5.join(prepared.destination.directoryPath, fileName);
-    const sidecarPath2 = path5.join(
-      prepared.destination.directoryPath,
-      `${fileName.slice(0, -path5.extname(fileName).length)}.pi-career.json`
-    );
-    if (![prepared.destination.markerPath, artifactPath, sidecarPath2].every(validBoundedPath)) {
-      throw careerRunError("variant_save_destination_invalid");
-    }
-    await this.requireAbsent(artifactPath);
-    await this.requireAbsent(sidecarPath2);
-    const sidecarBytes = encodeAssistedVariantMetadataV2({
-      base_document_id: candidate.source.resumeId,
-      base_text_sha256: candidate.source.textSha256,
-      artifact_sha256: sha256Bytes(artifactBytes),
-      created_at: createdAt
-    });
-    const markerBytes = prepared.destination.kind === "managed" ? void 0 : encodeManagedVariantsMarker(prepared.root.id, createdAt);
-    if (sidecarBytes.length > ASSISTED_SIDECAR_MAX_BYTES || markerBytes !== void 0 && markerBytes.length > ASSISTED_SIDECAR_MAX_BYTES) {
-      throw careerRunError("variant_save_unavailable");
-    }
-    const preview = {
-      schema_version: "pi.career.variant_save_preview.v1",
-      save_id: saveId,
-      initialize_directory: markerBytes !== void 0,
-      directory_path: prepared.destination.directoryPath,
-      marker: markerBytes === void 0 ? null : {
-        path: prepared.destination.markerPath,
-        utf8_bytes: markerBytes.length,
-        sha256: hash(markerBytes),
-        text: markerBytes.toString("utf8")
-      },
-      artifact: {
-        path: artifactPath,
-        format: candidate.source.format,
-        utf8_bytes: artifactBytes.length,
-        sha256: hash(artifactBytes),
-        text: candidate.assistedText
-      },
-      sidecar: {
-        path: sidecarPath2,
-        utf8_bytes: sidecarBytes.length,
-        sha256: hash(sidecarBytes),
-        text: sidecarBytes.toString("utf8")
-      }
-    };
-    const previewText = canonicalJson(preview);
-    if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES) {
-      throw careerRunError("variant_save_unavailable");
-    }
-    return {
-      saveId,
-      sessionId,
-      candidate,
-      createdAt,
-      directoryPath: prepared.destination.directoryPath,
-      markerPath: prepared.destination.markerPath,
-      artifactPath,
-      sidecarPath: sidecarPath2,
-      artifactBytes,
-      sidecarBytes,
-      ...markerBytes === void 0 ? {} : { markerBytes },
-      initialDestinationKind: prepared.destination.kind,
-      previewText
-    };
-  }
-  async revalidatePlan(plan) {
-    validateCandidate(plan.candidate);
-    const prepared = await this.currentOriginal(plan.candidate);
-    if (prepared.destination.directoryPath !== plan.directoryPath || prepared.destination.markerPath !== plan.markerPath || prepared.destination.kind !== plan.initialDestinationKind) throw careerRunError("variant_save_destination_invalid");
-    await this.requireAbsent(plan.artifactPath);
-    await this.requireAbsent(plan.sidecarPath);
-  }
-  async requireAbsent(file) {
-    try {
-      await this.fs.lstat(file);
-      throw careerRunError("variant_save_collision");
-    } catch (error) {
-      if (error instanceof CareerRunError) throw error;
-      if (!isNodeError(error, "ENOENT")) throw careerRunError("variant_save_destination_invalid");
-    }
-  }
-  async publishPlan(plan) {
-    if (plan.markerBytes !== void 0) await this.initializeDirectory(plan);
-    let sidecarTemp;
-    let artifactTemp;
-    let sidecarLinked = false;
-    let artifactLinked = false;
-    try {
-      sidecarTemp = await this.writeTemp(plan, "sidecar", plan.sidecarBytes);
-      artifactTemp = await this.writeTemp(plan, "artifact", plan.artifactBytes);
-      await this.publishTemp(sidecarTemp, plan.sidecarPath);
-      sidecarLinked = true;
-      await this.publishTemp(artifactTemp, plan.artifactPath);
-      artifactLinked = true;
-      await this.safeUnlink(sidecarTemp.path);
-      await this.safeUnlink(artifactTemp.path);
-      await this.syncDirectory(plan.directoryPath);
-      if (!await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) {
-        throw careerRunError("variant_save_status_unknown");
-      }
-    } catch (error) {
-      if (sidecarTemp !== void 0) await this.safeUnlink(sidecarTemp.path);
-      if (artifactTemp !== void 0) await this.safeUnlink(artifactTemp.path);
-      if (sidecarTemp !== void 0 && artifactTemp !== void 0 && await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) return;
-      if (!artifactLinked && sidecarTemp !== void 0) {
-        await this.unlinkIfIdentity(plan.sidecarPath, sidecarTemp.metadata);
-      }
-      this.throwPublicationFailure(error, sidecarLinked, artifactLinked);
-    }
-  }
-  throwPublicationFailure(error, sidecarLinked, artifactLinked) {
-    if (error instanceof CareerRunError) throw error;
-    if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
-    throw careerRunError(sidecarLinked || artifactLinked ? "variant_save_status_unknown" : "variant_save_destination_invalid");
-  }
-  async initializeDirectory(plan) {
-    if (plan.markerBytes === void 0) return;
-    if (plan.initialDestinationKind === "absent") {
-      try {
-        await this.fs.mkdir(plan.directoryPath, { mode: 448, recursive: false });
-      } catch (error) {
-        if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
-        throw careerRunError("variant_save_destination_invalid");
-      }
-      await this.fs.chmod(plan.directoryPath, 448).catch(() => {
-        throw careerRunError("variant_save_destination_invalid");
-      });
-    }
-    const directory = await this.fs.lstat(plan.directoryPath).catch(() => {
-      throw careerRunError("variant_save_destination_invalid");
-    });
-    const canonical = await this.fs.realpath(plan.directoryPath).catch(() => {
-      throw careerRunError("variant_save_destination_invalid");
-    });
-    if (!directory.isDirectory() || directory.isSymbolicLink() || canonical !== plan.directoryPath || !privateMetadata(directory, 448)) throw careerRunError("variant_save_destination_invalid");
-    await this.requireAbsent(plan.markerPath);
-    const markerTemp = await this.writeTemp(plan, "marker", plan.markerBytes);
-    try {
-      await this.publishTemp(markerTemp, plan.markerPath);
-      await this.safeUnlink(markerTemp.path);
-      await this.syncDirectory(plan.directoryPath);
-      if (!await this.verifyExactFile(plan.markerPath, plan.markerBytes, markerTemp.metadata)) {
-        throw careerRunError("variant_save_status_unknown");
-      }
-    } catch (error) {
-      await this.safeUnlink(markerTemp.path);
-      if (error instanceof CareerRunError) throw error;
-      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
-      throw careerRunError("variant_save_destination_invalid");
-    }
-  }
-  async writeTemp(plan, role, bytes) {
-    const temporary = path5.join(plan.directoryPath, `.pi-career-${plan.saveId}-${role}.tmp`);
-    let handle;
-    try {
-      handle = await this.fs.open(
-        temporary,
-        constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW,
-        384
-      );
-      await handle.writeFile(bytes);
-      await handle.sync();
-      await handle.chmod(384);
-      const metadata = await handle.stat();
-      await handle.close();
-      handle = void 0;
-      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== bytes.length) {
-        throw careerRunError("variant_save_destination_invalid");
-      }
-      const checked = await this.fs.readFile(temporary);
-      if (!checked.equals(bytes)) throw careerRunError("variant_save_destination_invalid");
-      return { path: temporary, metadata };
-    } catch (error) {
-      if (handle !== void 0) await handle.close().catch(() => void 0);
-      await this.safeUnlink(temporary);
-      if (error instanceof CareerRunError) throw error;
-      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
-      throw careerRunError("variant_save_destination_invalid");
-    }
-  }
-  async publishTemp(temporary, finalPath) {
-    await this.fs.link(temporary.path, finalPath);
-  }
-  async verifyExactFile(file, expected, identity2) {
-    try {
-      const metadata = await this.fs.lstat(file);
-      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata(metadata, 384) || metadata.size !== expected.length || identity2 !== void 0 && (metadata.dev !== identity2.dev || metadata.ino !== identity2.ino)) return false;
-      const bytes = await this.fs.readFile(file);
-      return bytes.equals(expected);
-    } catch {
-      return false;
-    }
-  }
-  async verifyPublishedPair(plan, sidecarIdentity, artifactIdentity) {
-    if (!await this.verifyExactFile(plan.sidecarPath, plan.sidecarBytes, sidecarIdentity) || !await this.verifyExactFile(plan.artifactPath, plan.artifactBytes, artifactIdentity)) return false;
-    try {
-      const text = new TextDecoder5("utf-8", { fatal: true }).decode(await this.fs.readFile(plan.sidecarPath));
-      const parsed = parseAssistedVariantMetadata(text, plan.artifactBytes);
-      return parsed?.baseDocumentId === plan.candidate.source.resumeId;
-    } catch {
-      return false;
-    }
-  }
-  async verifyRescan(plan) {
-    const config = await loadConfig(this.options.agentDir);
-    const scan = await scanLibrary(config);
-    const root = scan.roots.find((value) => value.root_id === plan.candidate.source.rootId);
-    const configuredRoot = config.library_roots.find((value) => value.id === plan.candidate.source.rootId);
-    const relativePath = configuredRoot === void 0 ? void 0 : path5.relative(configuredRoot.path, plan.artifactPath).split(path5.sep).join("/");
-    const records = scan.records.filter((record) => record.path === plan.artifactPath);
-    const eligible = eligibleOriginals(scan).some((record) => record.path === plan.artifactPath);
-    if (root === void 0 || configuredRoot === void 0 || relativePath === void 0 || root.stale || root.capped || scan.total_capped || records.length !== 1 || records[0].format !== plan.candidate.source.format || records[0].text !== plan.candidate.assistedText || records[0].kind !== "assisted_variant" || records[0].variant_group_id !== plan.candidate.source.resumeId || eligible || scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar" && warning.root_id === plan.candidate.source.rootId && warning.relative_path === relativePath)) throw careerRunError("variant_save_verification_failed");
-  }
-  async unlinkIfIdentity(file, identity2) {
-    try {
-      const metadata = await this.fs.lstat(file);
-      if (metadata.dev === identity2.dev && metadata.ino === identity2.ino) await this.fs.unlink(file);
-    } catch {
-    }
-  }
-  async safeUnlink(file) {
-    await this.fs.unlink(file).catch(() => void 0);
-  }
-  async syncDirectory(directory) {
-    let handle;
-    try {
-      handle = await this.fs.open(directory, constants2.O_RDONLY);
-      await handle.sync();
-      await handle.close();
-    } catch {
-      if (handle !== void 0) await handle.close().catch(() => void 0);
-      throw careerRunError("variant_save_status_unknown");
-    }
-  }
-  async withMutationQueues(paths, operation) {
-    const run = (index) => index >= paths.length ? operation() : withFileMutationQueue2(paths[index], () => run(index + 1));
-    return run(0);
-  }
-  async withRootLock(root, operation) {
-    const previous = this.rootLocks.get(root) ?? Promise.resolve();
-    let release = () => void 0;
-    const gate = new Promise((resolve) => {
-      release = resolve;
-    });
-    const current = previous.then(() => gate);
-    this.rootLocks.set(root, current);
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-      if (this.rootLocks.get(root) === current) this.rootLocks.delete(root);
-    }
-  }
-};
-
-// src/managed/tool.ts
-var REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
-var VARIANT_HANDLE_PATTERN = /^variant:[a-f0-9-]{8,64}$/;
-function managedToolActive(pi, includeRaw) {
-  const current = pi.getActiveTools();
-  const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name));
-  const next = includeRaw ? [...retained, ...RAW_TOOL_NAMES] : retained;
-  if (!next.includes(MANAGED_TOOL_NAME)) next.push(MANAGED_TOOL_NAME);
-  pi.setActiveTools([...new Set(next)]);
-}
-function registerCareerRun(pi, options = {}) {
-  const agentDir = options.agentDir ?? getAgentDir();
-  const now = options.now ?? (() => /* @__PURE__ */ new Date());
-  const uuid = options.uuid ?? randomUUID2;
-  const engine = new CareerRunEngine({
-    pi,
-    agentDir,
-    invoke: options.invoke ?? invokeCareerCli,
-    now,
-    uuid
-  });
-  const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
-  pi.registerTool({
-    name: MANAGED_TOOL_NAME,
-    label: "Career",
-    description: "Run managed local Career Core workflows with ephemeral handles and native payload objects instead of nested JSON strings.",
-    promptGuidelines: [
-      "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
-      "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically.",
-      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only.",
-      "After materialization, never initiate persistence. The user alone may run /career-save with the returned variant handle for exact local preview and confirmation."
-    ],
-    parameters: careerRunParameters,
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      onUpdate?.({
-        content: [{ type: "text", text: `Running career ${params.command}…` }],
-        details: { schema_version: "pi.career.run_details.v1", command: params.command }
-      });
-      const result = await engine.run(params, signal, ctx);
-      if (params.command === "consent" && params.payload === "decline") {
-        variantSave.clearReceipts();
-      }
-      return params.command === "variant-review" ? { ...result, terminate: true } : result;
-    },
-    renderCall(args, theme) {
-      return new Text2(
-        theme.fg("toolTitle", theme.bold("career ")) + theme.fg("accent", args.command ?? "run"),
-        0,
-        0
-      );
-    },
-    renderResult(result, { expanded, isPartial }, theme) {
-      if (isPartial) return new Text2(theme.fg("warning", "Running Career Core…"), 0, 0);
-      const details = result.details;
-      if (details === void 0) return new Text2(theme.fg("dim", "Career result unavailable"), 0, 0);
-      const lines = [
-        theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
-        ...details.action === "review_select" && details.handle !== void 0 ? [theme.fg("accent", `Run /career-review ${details.handle}`)] : [],
-        ...details.action === "save_available" && details.handle !== void 0 ? [theme.fg("accent", `User may run /career-save ${details.handle}`)] : [],
-        ...expanded && details.handle !== void 0 && details.action !== "review_select" && details.action !== "save_available" ? [theme.fg("dim", details.handle)] : []
-      ];
-      return new Text2(lines.join("\n"), 0, 0);
-    }
-  });
-  pi.registerCommand("career-review", {
-    description: "Review and explicitly select retained variant changes in TUI",
-    handler: async (args, ctx) => {
-      if (ctx.mode !== "tui") {
-        ctx.ui.notify("/career-review requires TUI mode.", "error");
-        return;
-      }
-      const handle = args.trim();
-      if (!REVIEW_HANDLE_PATTERN.test(handle)) {
-        ctx.ui.notify("Usage: /career-review review:<ephemeral-handle>", "warning");
-        return;
-      }
-      try {
-        await ctx.waitForIdle();
-        const review = engine.variantSelectionReview(handle, ctx);
-        if (review.changes.length === 0) {
-          ctx.ui.notify("This review has no retained changes to select.", "warning");
-          return;
-        }
-        const selected = await selectVariantChanges(ctx, review);
-        if (selected === void 0) return;
-        ctx.ui.setEditorText(materializeEditorText(review.handle, selected));
-        ctx.ui.notify(
-          `${selected.length} reviewed change ID${selected.length === 1 ? "" : "s"} prepared in the editor. Review and submit manually; nothing was materialized, sent, saved, or written.`,
-          "info"
-        );
-      } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
-        }
-        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
-      }
-    }
-  });
-  pi.registerCommand("career-save", {
-    description: "Preview and explicitly save one current assisted Markdown/text materialization",
-    handler: async (args, ctx) => {
-      if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
-        ctx.ui.notify("/career-save requires TUI or RPC mode.", "error");
-        return;
-      }
-      if (!ctx.isIdle()) {
-        ctx.ui.notify("Wait for the current agent run to settle before saving.", "warning");
-        return;
-      }
-      const handle = args.trim();
-      if (!VARIANT_HANDLE_PATTERN.test(handle)) {
-        ctx.ui.notify("Usage: /career-save variant:<ephemeral-handle>", "warning");
-        return;
-      }
-      try {
-        const outcome = await variantSave.run(
-          handle,
-          ctx,
-          () => engine.materializedVariantForSave(handle, ctx)
-        );
-        if (outcome.status === "cancelled") {
-          ctx.ui.notify("Assisted-variant save cancelled; no file was written.", "info");
-          return;
-        }
-        ctx.ui.notify(
-          `${outcome.status === "existing" ? "Verified existing" : "Saved"} assisted variant: ${outcome.artifactPath}
-Sidecar: ${outcome.sidecarPath}`,
-          "info"
-        );
-      } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
-        }
-        ctx.ui.notify("The assisted variant could not be saved or verified.", "error");
-      }
-    }
-  });
-  pi.registerCommand("career-tools", {
-    description: "Choose managed or advanced raw Career Core tools",
-    getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
-    handler: async (args, ctx) => {
-      const mode = args.trim();
-      if (mode === "managed") managedToolActive(pi, false);
-      else if (mode === "raw") managedToolActive(pi, true);
-      else if (mode !== "status" && mode !== "") {
-        ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
-        return;
-      }
-      const activeRaw = RAW_TOOL_NAMES.filter((name) => pi.getActiveTools().includes(name));
-      ctx.ui.notify(
-        `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`,
-        "info"
-      );
-    }
-  });
-  pi.on("session_start", (_event, ctx) => {
-    variantSave.clearReceipts();
-    engine.enterSession(ctx.sessionManager.getSessionId());
-    managedToolActive(pi, false);
-  });
-  pi.on("session_tree", (_event, ctx) => {
-    variantSave.clearReceipts();
-    engine.resetSession(ctx.sessionManager.getSessionId());
-  });
-  pi.on("session_shutdown", () => {
-    variantSave.clearReceipts();
-    engine.shutdown();
-  });
-}
-
-// src/workflow/commands.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
-import {
-  BorderedLoader,
-  getAgentDir as getAgentDir2
-} from "@earendil-works/pi-coding-agent";
-
-// src/workflow/application-workspace.ts
-import { createHash as createHash5 } from "node:crypto";
-import { constants as constants3 } from "node:fs";
-import {
-  chmod as chmod2,
-  link as link3,
-  lstat as lstat5,
-  mkdir as mkdir3,
-  open as open3,
-  opendir as opendir2,
-  readFile as readFile5,
-  realpath as realpath5,
-  rmdir,
-  unlink as unlink3
-} from "node:fs/promises";
-import path6 from "node:path";
-import { TextDecoder as TextDecoder6 } from "node:util";
-import {
-  withFileMutationQueue as withFileMutationQueue3
 } from "@earendil-works/pi-coding-agent";
 var ROOT_MARKER_NAME = ".pi-career-applications.json";
 var MANIFEST_NAME = "application.json";
@@ -5287,18 +4636,18 @@ var STATE_SCHEMA_V2 = "pi.career.application_state.v2";
 var PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1";
 var METADATA_MAX_BYTES = 16384;
 var CONFIG_MAX_BYTES2 = 65536;
-var PREVIEW_MAX_BYTES2 = 5242880;
+var PREVIEW_MAX_BYTES = 5242880;
 var VACANCY_MAX_BYTES = 262144;
 var ROOT_MAX_ENTRIES = 1024;
 var APPLICATION_MAX_ENTRIES = 160;
 var APPLICATION_MAX_MANAGED_BYTES = 2097152;
 var STATE_MAX_REVISIONS = 64;
-var PATH_MAX_BYTES4 = 4096;
+var PATH_MAX_BYTES3 = 4096;
 var BASENAME_MAX_BYTES = 180;
-var CONFIRM_TIMEOUT_MS2 = 10 * 60 * 1e3;
-var UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var CONFIRM_TIMEOUT_MS = 10 * 60 * 1e3;
+var UUID3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-var SHA2565 = /^[a-f0-9]{64}$/;
+var SHA2564 = /^[a-f0-9]{64}$/;
 var ISO_UTC3 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 var STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/;
 var VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/;
@@ -5306,7 +4655,7 @@ var COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/;
 var APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 var APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
 function hashBytes2(bytes) {
-  return createHash5("sha256").update(bytes).digest("hex");
+  return createHash4("sha256").update(bytes).digest("hex");
 }
 function isRecord8(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -5323,29 +4672,29 @@ function validTimestamp(value) {
   }
 }
 function validUuid(value) {
-  return typeof value === "string" && UUID4.test(value);
+  return typeof value === "string" && UUID3.test(value);
 }
 function validSessionUuid(value) {
   return typeof value === "string" && SESSION_UUID.test(value);
 }
 function validHash(value) {
-  return typeof value === "string" && SHA2565.test(value);
+  return typeof value === "string" && SHA2564.test(value);
 }
 function validRelativeBasename(value) {
   return typeof value === "string" && value.length > 0 && value !== "." && value !== ".." && path6.basename(value) === value && !path6.isAbsolute(value) && Buffer.byteLength(value, "utf8") <= BASENAME_MAX_BYTES && !/[\u0000-\u001f\u007f]/.test(value);
 }
-function canonicalJson2(value) {
+function canonicalJson(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}
 `, "utf8");
 }
-function effectiveUserId3() {
+function effectiveUserId2() {
   const value = process.geteuid?.() ?? process.getuid?.();
   if (value === void 0) throw workflowError("workspace_verification_failed");
   return value;
 }
-function privateMetadata2(metadata, mode, kind) {
+function privateMetadata(metadata, mode, kind) {
   const correctType = kind === "file" ? metadata.isFile() : metadata.isDirectory();
-  return correctType && !metadata.isSymbolicLink() && metadata.uid === effectiveUserId3() && (metadata.mode & 4095) === mode && (kind === "directory" || metadata.nlink === 1);
+  return correctType && !metadata.isSymbolicLink() && metadata.uid === effectiveUserId2() && (metadata.mode & 4095) === mode && (kind === "directory" || metadata.nlink === 1);
 }
 function sameInode(left, right) {
   return left.dev === right.dev && left.ino === right.ino;
@@ -5431,7 +4780,7 @@ async function readApplicationIdentityFile(directory, manifest) {
   let handle;
   try {
     try {
-      handle = await open3(path6.join(directory, IDENTITY_NAME), constants3.O_RDONLY | constants3.O_NOFOLLOW | constants3.O_NONBLOCK);
+      handle = await open2(path6.join(directory, IDENTITY_NAME), constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
     } catch (error) {
       if (error.code === "ENOENT") {
         await checkDirectory();
@@ -5440,7 +4789,7 @@ async function readApplicationIdentityFile(directory, manifest) {
       throw error;
     }
     const metadata = await handle.stat();
-    if (!privateMetadata2(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
+    if (!privateMetadata(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
       throw workflowError("workspace_drift");
     }
     const bytes = Buffer.alloc(METADATA_MAX_BYTES + 1);
@@ -5451,8 +4800,8 @@ async function readApplicationIdentityFile(directory, manifest) {
       length += bytesRead;
     }
     const current = await handle.stat();
-    const named = await lstat5(path6.join(directory, IDENTITY_NAME));
-    if (length !== metadata.size || !privateMetadata2(current, 384, "file") || !privateMetadata2(named, 384, "file") || !sameInode(current, named) || current.size !== metadata.size || current.mtimeMs !== metadata.mtimeMs || current.ctimeMs !== metadata.ctimeMs) {
+    const named = await lstat4(path6.join(directory, IDENTITY_NAME));
+    if (length !== metadata.size || !privateMetadata(current, 384, "file") || !privateMetadata(named, 384, "file") || !sameInode(current, named) || current.size !== metadata.size || current.mtimeMs !== metadata.mtimeMs || current.ctimeMs !== metadata.ctimeMs) {
       throw workflowError("workspace_drift");
     }
     await checkDirectory();
@@ -5585,22 +4934,22 @@ function decodeCanonical(bytes, parser) {
   let text;
   let value;
   try {
-    text = new TextDecoder6("utf-8", { fatal: true }).decode(bytes);
+    text = new TextDecoder5("utf-8", { fatal: true }).decode(bytes);
     value = parseStrictJson(text);
   } catch {
     throw workflowError("workspace_drift");
   }
   const parsed = parser(value);
-  if (parsed === void 0 || !canonicalJson2(parsed).equals(bytes)) throw workflowError("workspace_drift");
+  if (parsed === void 0 || !canonicalJson(parsed).equals(bytes)) throw workflowError("workspace_drift");
   return parsed;
 }
 async function readExactFile(file, parser) {
   try {
-    const metadata = await lstat5(file);
-    if (!privateMetadata2(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
+    const metadata = await lstat4(file);
+    if (!privateMetadata(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) {
       throw workflowError("workspace_drift");
     }
-    const bytes = await readFile5(file);
+    const bytes = await readFile4(file);
     if (bytes.length !== metadata.size) throw workflowError("workspace_drift");
     return {
       file: { path: file, bytes, metadata, sha256: hashBytes2(bytes) },
@@ -5631,11 +4980,11 @@ async function boundedEntries(directory, maximum) {
 }
 async function readContentFile(file, expectedSize, expectedHash) {
   try {
-    const metadata = await lstat5(file);
-    if (!privateMetadata2(metadata, 384, "file") || metadata.size !== expectedSize || metadata.size > VACANCY_MAX_BYTES) {
+    const metadata = await lstat4(file);
+    if (!privateMetadata(metadata, 384, "file") || metadata.size !== expectedSize || metadata.size > VACANCY_MAX_BYTES) {
       throw workflowError("workspace_drift");
     }
-    const bytes = await readFile5(file);
+    const bytes = await readFile4(file);
     if (bytes.length !== metadata.size || hashBytes2(bytes) !== expectedHash) throw workflowError("workspace_drift");
     return { path: file, bytes, metadata, sha256: expectedHash };
   } catch (error) {
@@ -5645,9 +4994,9 @@ async function readContentFile(file, expectedSize, expectedHash) {
 }
 async function inspectPrivateApplicationDirectory(directoryPath, expectedBasename) {
   try {
-    const metadata = await lstat5(directoryPath);
-    const canonical = await realpath5(directoryPath);
-    if (!privateMetadata2(metadata, 448, "directory") || canonical !== directoryPath || expectedBasename !== void 0 && path6.basename(directoryPath) !== expectedBasename) {
+    const metadata = await lstat4(directoryPath);
+    const canonical = await realpath4(directoryPath);
+    if (!privateMetadata(metadata, 448, "directory") || canonical !== directoryPath || expectedBasename !== void 0 && path6.basename(directoryPath) !== expectedBasename) {
       throw workflowError("workspace_drift");
     }
     return metadata;
@@ -5706,7 +5055,7 @@ async function inspectVacancyReference(directoryPath, state, previous, reference
 }
 async function inspectArtifactFile(directoryPath, relativePath, expectedHash, maximumBytes) {
   const file = path6.join(directoryPath, relativePath);
-  const metadata = await lstat5(file).catch(() => void 0);
+  const metadata = await lstat4(file).catch(() => void 0);
   if (metadata === void 0 || metadata.size <= 0) throw workflowError("workspace_drift");
   if (metadata.size > maximumBytes) throw workflowError("workspace_limit_reached");
   return readContentFile(file, metadata.size, expectedHash);
@@ -5714,7 +5063,7 @@ async function inspectArtifactFile(directoryPath, relativePath, expectedHash, ma
 function assertCanonicalArtifactText(file) {
   let text;
   try {
-    text = new TextDecoder6("utf-8", { fatal: true }).decode(file.bytes);
+    text = new TextDecoder5("utf-8", { fatal: true }).decode(file.bytes);
   } catch {
     throw workflowError("workspace_drift");
   }
@@ -5881,7 +5230,7 @@ async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasen
     ...revisions.map((revision) => revision.file),
     ...referencedFiles.values()
   ];
-  const managedBytes = managedFiles.reduce((total, file) => total + file.bytes.length, 0) + (identity2 !== void 0 && identityFile === void 0 ? canonicalJson2(identity2).length : 0);
+  const managedBytes = managedFiles.reduce((total, file) => total + file.bytes.length, 0) + (identity2 !== void 0 && identityFile === void 0 ? canonicalJson(identity2).length : 0);
   if (managedBytes > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
   const head = revisions.at(-1);
   return {
@@ -5966,6 +5315,256 @@ async function inspectRoot(rootPath, options = {}) {
     ...currentApplication === void 0 ? {} : { currentApplication }
   };
 }
+var CATALOG_SCHEMA = "pi.career.application_catalog.v1";
+var APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|transition|state)\.tmp$/;
+function emptyCatalogProjection() {
+  return {
+    schema_version: CATALOG_SCHEMA,
+    applications: [],
+    reconciliation: { interrupted: 0, drifted: 0, duplicate_id: 0, unsupported: 0, over_limit: 0 }
+  };
+}
+async function hasUnsupportedSchema(file, kind, schemaPrefix, supportedSchema, applicationId, binding = {}) {
+  try {
+    const metadata = await lstat4(file);
+    if (!privateMetadata(metadata, 384, "file") || metadata.size <= 0 || metadata.size > METADATA_MAX_BYTES) return false;
+    const bytes = await readFile4(file);
+    if (bytes.length !== metadata.size) return false;
+    const value = parseStrictJson(new TextDecoder5("utf-8", { fatal: true }).decode(bytes));
+    const supportedSchemas = typeof supportedSchema === "string" ? [supportedSchema] : supportedSchema;
+    return isRecord8(value) && value.kind === kind && typeof value.schema_version === "string" && value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) && value.application_id === applicationId && (binding.createdAt === void 0 || value.created_at === binding.createdAt) && (binding.sequence === void 0 || value.sequence === binding.sequence) && canonicalJson(value).equals(bytes);
+  } catch {
+    return false;
+  }
+}
+function recognizableInterruptedEntries(entries, hasManifest) {
+  return entries.every((entry) => APPLICATION_TEMP.test(entry) || hasManifest && (entry === MANIFEST_NAME || entry === IDENTITY_NAME || VACANCY_BASENAME.test(entry)));
+}
+function reconciliationForError(error) {
+  return error instanceof CareerWorkflowError && error.code === "workspace_limit_reached" ? "over_limit" : "drifted";
+}
+async function collectCatalogCandidate(rootPath, expectedRootId, name) {
+  const directoryPath = path6.join(rootPath, name);
+  const candidate = { name, directoryPath };
+  if (!APPLICATION_BASENAME.test(name)) return { ...candidate, classification: "drifted" };
+  try {
+    candidate.metadata = await inspectPrivateApplicationDirectory(directoryPath, name);
+  } catch {
+    return { ...candidate, classification: "drifted" };
+  }
+  try {
+    candidate.application = await inspectApplicationManifest(directoryPath, expectedRootId, name);
+  } catch {
+    try {
+      candidate.entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
+      candidate.classification = recognizableInterruptedEntries(candidate.entries, false) ? "interrupted" : "drifted";
+    } catch (error) {
+      candidate.classification = reconciliationForError(error);
+    }
+  }
+  return candidate;
+}
+function markDuplicateClaims(candidates) {
+  const claimsById = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    if (candidate.application === void 0) continue;
+    const claims = claimsById.get(candidate.application.manifest.application_id) ?? [];
+    claims.push(candidate);
+    claimsById.set(candidate.application.manifest.application_id, claims);
+  }
+  for (const claims of claimsById.values()) {
+    if (claims.length > 1) for (const candidate of claims) candidate.classification = "duplicate_id";
+  }
+}
+async function candidateHasOversizedState(candidate, stateNames) {
+  for (const stateNameValue of stateNames) {
+    try {
+      const metadata = await lstat4(path6.join(candidate.directoryPath, stateNameValue));
+      if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.size > METADATA_MAX_BYTES) return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+async function candidateHasUnsupportedSchema(candidate, entries, stateNames) {
+  const manifest = candidate.application.manifest;
+  if (entries.includes(IDENTITY_NAME) && await hasUnsupportedSchema(
+    path6.join(candidate.directoryPath, IDENTITY_NAME),
+    "application_identity",
+    "pi.career.application_identity.v",
+    IDENTITY_SCHEMA,
+    manifest.application_id,
+    { createdAt: manifest.application_created_at }
+  )) return true;
+  for (const stateNameValue of stateNames) {
+    if (await hasUnsupportedSchema(
+      path6.join(candidate.directoryPath, stateNameValue),
+      "application_state_revision",
+      "pi.career.application_state.v",
+      [STATE_SCHEMA_V1, STATE_SCHEMA_V2],
+      manifest.application_id,
+      { sequence: Number(stateNameValue.match(STATE_BASENAME)[1]) }
+    )) return true;
+  }
+  return false;
+}
+async function classifyIncompleteCandidate(candidate, entries) {
+  try {
+    if (entries.includes(IDENTITY_NAME)) {
+      await readApplicationIdentityFile(candidate.directoryPath, candidate.application.manifest);
+    }
+    return recognizableInterruptedEntries(entries, true) ? "interrupted" : "drifted";
+  } catch {
+    return "drifted";
+  }
+}
+async function classifyCatalogCandidate(candidate, expectedRootId) {
+  if (candidate.classification !== void 0) return { classification: candidate.classification };
+  let entries;
+  try {
+    entries = await boundedEntries(candidate.directoryPath, APPLICATION_MAX_ENTRIES);
+  } catch (error) {
+    return { classification: reconciliationForError(error) };
+  }
+  const stateNames = entries.filter((entry) => STATE_BASENAME.test(entry));
+  if (stateNames.length > STATE_MAX_REVISIONS || await candidateHasOversizedState(candidate, stateNames)) {
+    return { classification: "over_limit" };
+  }
+  if (await candidateHasUnsupportedSchema(candidate, entries, stateNames)) return { classification: "unsupported" };
+  if (!entries.includes(stateName(1))) {
+    return { classification: await classifyIncompleteCandidate(candidate, entries) };
+  }
+  try {
+    const identityRead = await readApplicationIdentityFile(candidate.directoryPath, candidate.application.manifest);
+    const inspected = await inspectApplicationDirectory(
+      candidate.directoryPath,
+      expectedRootId,
+      candidate.name,
+      identityRead?.identity,
+      identityRead?.file
+    );
+    const basename = candidate.name.match(APPLICATION_BASENAME);
+    if (basename === null) return { classification: "drifted" };
+    return {
+      record: {
+        application_id: inspected.manifest.application_id,
+        classification: identityRead === void 0 ? "legacy" : "valid",
+        ...identityRead === void 0 ? {
+          legacy_identity: {
+            company_slug: basename[1],
+            role_slug: basename[2],
+            authority: "directory_slug_non_authoritative"
+          }
+        } : { identity: identityRead.identity },
+        status: inspected.head.status,
+        updated_at: inspected.head.updated_at
+      },
+      inspected
+    };
+  } catch (error) {
+    return { classification: reconciliationForError(error) };
+  }
+}
+async function deriveApplicationCatalog(rootPath, expectedRootId) {
+  const root = await inspectRootEnvelope(rootPath, { expectedRootId });
+  const candidates = [];
+  for (const name of root.entries) {
+    if (name !== ROOT_MARKER_NAME) candidates.push(await collectCatalogCandidate(rootPath, expectedRootId, name));
+  }
+  markDuplicateClaims(candidates);
+  const projection = emptyCatalogProjection();
+  const files = [];
+  const directories = [];
+  const validatedApplications = [];
+  for (const candidate of candidates) {
+    const result = await classifyCatalogCandidate(candidate, expectedRootId);
+    if ("classification" in result) projection.reconciliation[result.classification] += 1;
+    else {
+      projection.applications.push(result.record);
+      validatedApplications.push(result);
+      directories.push(result.inspected.metadata);
+      files.push(...result.inspected.managedFiles);
+    }
+  }
+  projection.applications.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.application_id.localeCompare(right.application_id));
+  return {
+    root: {
+      metadata: root.metadata,
+      markerFile: root.markerFile,
+      marker: root.marker,
+      entries: root.entries,
+      applications: []
+    },
+    files,
+    directories,
+    projection,
+    applicationClaims: candidates.flatMap((candidate) => candidate.application === void 0 ? [] : [candidate.application.manifest.application_id]),
+    validatedApplications
+  };
+}
+function statsFingerprint(metadata) {
+  return [metadata.dev, metadata.ino, metadata.mode, metadata.size, metadata.mtimeMs, metadata.ctimeMs].join(":");
+}
+function sameCatalogEvidence(left, right) {
+  if (!sameInode(left.root.metadata, right.root.metadata) || !sameInode(left.root.markerFile.metadata, right.root.markerFile.metadata) || left.root.markerFile.sha256 !== right.root.markerFile.sha256 || JSON.stringify(left.root.entries) !== JSON.stringify(right.root.entries) || JSON.stringify(left.projection) !== JSON.stringify(right.projection)) return false;
+  const directoryFingerprints = (evidence) => evidence.directories.map(statsFingerprint).sort();
+  const fileFingerprints = (evidence) => evidence.files.map((file) => `${file.path}:${file.sha256}:${statsFingerprint(file.metadata)}`).sort();
+  return JSON.stringify(directoryFingerprints(left)) === JSON.stringify(directoryFingerprints(right)) && JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
+}
+function attachmentValidationError(error) {
+  if (error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict") throw error;
+  throw workflowError("attachment_unavailable");
+}
+function expectedIdentityBasename(identity2) {
+  return `${slug(identity2.company_label, "company")}--${slug(identity2.role_label, "role")}--${identity2.application_id}`;
+}
+function exactValidatedMatch(evidence, attachment) {
+  const claims = evidence.applicationClaims.filter((id) => id === attachment.application_id);
+  if (claims.length > 1) throw workflowError("workspace_identity_conflict");
+  if (claims.length === 0) throw workflowError("attachment_unavailable");
+  const matches = evidence.validatedApplications.filter(
+    ({ record }) => record.application_id === attachment.application_id
+  );
+  const match = matches.length === 1 ? matches[0] : void 0;
+  const identity2 = match?.record.identity;
+  if (match === void 0 || match.record.classification !== "valid" || identity2 === void 0) {
+    throw workflowError("attachment_unavailable");
+  }
+  return { ...match, identity: identity2 };
+}
+function assertExactAttachmentBinding(evidence, attachment, match) {
+  const { inspected, identity: identity2 } = match;
+  if (evidence.root.marker.created_at !== attachment.root_created_at || inspected.manifest.root_id !== attachment.root_id || inspected.manifest.application_created_at !== attachment.application_created_at || inspected.manifest.workspace_created_at !== attachment.workspace_created_at || identity2.created_at !== attachment.application_created_at || path6.basename(inspected.directoryPath) !== expectedIdentityBasename(identity2)) {
+    throw workflowError("workspace_identity_conflict");
+  }
+}
+async function validateApplicationAttachment(agentDir, attachment) {
+  try {
+    const snapshot = await loadConfigSnapshot(agentDir);
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("attachment_unavailable");
+    if (configured.root_id !== attachment.root_id) throw workflowError("workspace_identity_conflict");
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    if (!sameCatalogEvidence(initial, current)) throw workflowError("attachment_unavailable");
+    await assertConfigSnapshotCurrent(snapshot);
+    const match = exactValidatedMatch(initial, attachment);
+    assertExactAttachmentBinding(initial, attachment, match);
+    return {
+      attachment_id: attachment.attachment_id,
+      application_id: attachment.application_id,
+      root_id: attachment.root_id,
+      company_label: match.identity.company_label,
+      role_label: match.identity.role_label,
+      status: match.record.status,
+      updated_at: match.record.updated_at
+    };
+  } catch (error) {
+    return attachmentValidationError(error);
+  }
+}
 function slug(value, fallback) {
   const normalized = value.normalize("NFKD").replace(new RegExp("\\p{M}", "gu"), "").replace(/[A-Z]/g, (letter) => letter.toLowerCase()).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32).replace(/-+$/g, "");
   return normalized || fallback;
@@ -5979,7 +5578,7 @@ function sessionIdentity(ctx) {
 function expectedApplicationPath(rootPath, identity2) {
   const basename = applicationDirectoryBasename(identity2);
   const result = path6.join(rootPath, basename);
-  if (Buffer.byteLength(basename, "utf8") > BASENAME_MAX_BYTES || Buffer.byteLength(result, "utf8") > PATH_MAX_BYTES4) throw workflowError("workspace_root_invalid");
+  if (Buffer.byteLength(basename, "utf8") > BASENAME_MAX_BYTES || Buffer.byteLength(result, "utf8") > PATH_MAX_BYTES3) throw workflowError("workspace_root_invalid");
   return result;
 }
 function currentApplicationTarget(rootPath, identity2) {
@@ -6021,7 +5620,7 @@ async function attachmentFor(agentDir, identity2) {
   };
 }
 function applicationIdentityBytes(identity2, manifest) {
-  const decoded = decodeApplicationIdentity(canonicalJson2({
+  const decoded = decodeApplicationIdentity(canonicalJson({
     schema_version: IDENTITY_SCHEMA,
     kind: "application_identity",
     application_id: identity2.identity.application_id,
@@ -6030,18 +5629,18 @@ function applicationIdentityBytes(identity2, manifest) {
     created_at: identity2.identity.created_at
   }), manifest);
   if (decoded === void 0) throw workflowError("workspace_identity_conflict");
-  return canonicalJson2(decoded);
+  return canonicalJson(decoded);
 }
 function vacancyBytes(vacancy, applicationId) {
   if (vacancy === void 0) return void 0;
-  if (vacancy.application_id !== applicationId || vacancy.vacancy_text.length === 0 || vacancy.vacancy_text.includes("\r") || hasUnpairedSurrogate2(vacancy.vacancy_text) || !isWithinCoreCharacterLimit(vacancy.vacancy_text)) throw workflowError("workspace_identity_conflict");
+  if (vacancy.application_id !== applicationId || vacancy.vacancy_text.length === 0 || vacancy.vacancy_text.includes("\r") || hasUnpairedSurrogate(vacancy.vacancy_text) || !isWithinCoreCharacterLimit(vacancy.vacancy_text)) throw workflowError("workspace_identity_conflict");
   const bytes = Buffer.from(vacancy.vacancy_text, "utf8");
   if (bytes.length === 0 || bytes.length > VACANCY_MAX_BYTES || hashBytes2(bytes) !== vacancy.vacancy_text_sha256) {
     throw workflowError("workspace_drift");
   }
   return bytes;
 }
-function hasUnpairedSurrogate2(value) {
+function hasUnpairedSurrogate(value) {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     if (code >= 55296 && code <= 56319) {
@@ -6099,8 +5698,8 @@ function buildPlan(options, ctx, operation, applicationId, identity2, expectedCo
     temporary_paths: temporaryPaths,
     warnings: warnings2
   };
-  const previewText = canonicalJson2(envelope).toString("utf8");
-  if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES2) throw workflowError("workspace_limit_reached");
+  const previewText = canonicalJson(envelope).toString("utf8");
+  if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES) throw workflowError("workspace_limit_reached");
   return {
     envelope,
     previewText,
@@ -6151,14 +5750,14 @@ async function approve(plan, ctx) {
       "Workspace-file authorization applies only to this exact mutation and is separate from session, provider, artifact-file, and deletion consent.",
       "The approved exact files persist until you remove them. Existing workspace files are never overwritten."
     ].join("\n"),
-    { timeout: CONFIRM_TIMEOUT_MS2 }
+    { timeout: CONFIRM_TIMEOUT_MS }
   );
   return confirmed === true && ctx.signal?.aborted !== true;
 }
 async function syncDirectory2(directory) {
   let handle;
   try {
-    handle = await open3(directory, constants3.O_RDONLY);
+    handle = await open2(directory, constants2.O_RDONLY);
     await handle.sync();
     await handle.close();
   } catch {
@@ -6168,7 +5767,7 @@ async function syncDirectory2(directory) {
 }
 async function requireAbsent(target) {
   try {
-    await lstat5(target);
+    await lstat4(target);
     throw workflowError("workspace_collision");
   } catch (error) {
     if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
@@ -6180,46 +5779,46 @@ async function publishFile(finalPath, temporaryPath, bytes) {
   let tempMetadata;
   let linkedFinal = false;
   try {
-    handle = await open3(temporaryPath, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, 384);
+    handle = await open2(temporaryPath, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, 384);
     await handle.writeFile(bytes);
     await handle.sync();
     await handle.chmod(384);
     tempMetadata = await handle.stat();
     await handle.close();
     handle = void 0;
-    if (!privateMetadata2(tempMetadata, 384, "file") || tempMetadata.size !== bytes.length || !(await readFile5(temporaryPath)).equals(bytes)) throw workflowError("workspace_verification_failed");
-    await link3(temporaryPath, finalPath);
+    if (!privateMetadata(tempMetadata, 384, "file") || tempMetadata.size !== bytes.length || !(await readFile4(temporaryPath)).equals(bytes)) throw workflowError("workspace_verification_failed");
+    await link2(temporaryPath, finalPath);
     linkedFinal = true;
-    const linked = await lstat5(finalPath);
+    const linked = await lstat4(finalPath);
     if (linked.dev !== tempMetadata.dev || linked.ino !== tempMetadata.ino) throw workflowError("workspace_status_unknown");
-    await unlink3(temporaryPath);
+    await unlink2(temporaryPath);
     await syncDirectory2(path6.dirname(finalPath));
-    const finalMetadata = await lstat5(finalPath);
-    if (!privateMetadata2(finalMetadata, 384, "file") || finalMetadata.dev !== tempMetadata.dev || finalMetadata.ino !== tempMetadata.ino || finalMetadata.size !== bytes.length || !(await readFile5(finalPath)).equals(bytes)) throw workflowError("workspace_status_unknown");
+    const finalMetadata = await lstat4(finalPath);
+    if (!privateMetadata(finalMetadata, 384, "file") || finalMetadata.dev !== tempMetadata.dev || finalMetadata.ino !== tempMetadata.ino || finalMetadata.size !== bytes.length || !(await readFile4(finalPath)).equals(bytes)) throw workflowError("workspace_status_unknown");
     return { finalPath, metadata: finalMetadata, bytes };
   } catch (error) {
     if (handle !== void 0) await handle.close().catch(() => void 0);
     if (linkedFinal && tempMetadata !== void 0) {
       try {
-        const temporary = await lstat5(temporaryPath).catch(() => void 0);
-        if (temporary !== void 0 && sameInode(temporary, tempMetadata)) await unlink3(temporaryPath);
+        const temporary = await lstat4(temporaryPath).catch(() => void 0);
+        if (temporary !== void 0 && sameInode(temporary, tempMetadata)) await unlink2(temporaryPath);
         await syncDirectory2(path6.dirname(finalPath));
-        const finalMetadata = await lstat5(finalPath);
-        if (privateMetadata2(finalMetadata, 384, "file") && sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile5(finalPath)).equals(bytes)) {
+        const finalMetadata = await lstat4(finalPath);
+        if (privateMetadata(finalMetadata, 384, "file") && sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile4(finalPath)).equals(bytes)) {
           return { finalPath, metadata: finalMetadata, bytes };
         }
       } catch {
       }
       try {
-        const finalMetadata = await lstat5(finalPath);
-        if (sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile5(finalPath)).equals(bytes)) await unlink3(finalPath);
+        const finalMetadata = await lstat4(finalPath);
+        if (sameInode(finalMetadata, tempMetadata) && finalMetadata.size === bytes.length && (await readFile4(finalPath)).equals(bytes)) await unlink2(finalPath);
       } catch {
       }
     }
     if (tempMetadata !== void 0) {
       try {
-        const current = await lstat5(temporaryPath);
-        if (sameInode(current, tempMetadata)) await unlink3(temporaryPath);
+        const current = await lstat4(temporaryPath);
+        if (sameInode(current, tempMetadata)) await unlink2(temporaryPath);
       } catch {
       }
       await syncDirectory2(path6.dirname(finalPath)).catch(() => void 0);
@@ -6231,14 +5830,14 @@ async function publishFile(finalPath, temporaryPath, bytes) {
 }
 async function unlinkOwned(published) {
   try {
-    const metadata = await lstat5(published.finalPath);
-    if (metadata.dev === published.metadata.dev && metadata.ino === published.metadata.ino) await unlink3(published.finalPath);
+    const metadata = await lstat4(published.finalPath);
+    if (metadata.dev === published.metadata.dev && metadata.ino === published.metadata.ino) await unlink2(published.finalPath);
   } catch {
   }
 }
 async function withQueues2(paths, operation) {
   const sorted = [...new Set(paths)].sort();
-  const run = (index) => index >= sorted.length ? operation() : withFileMutationQueue3(sorted[index], () => run(index + 1));
+  const run = (index) => index >= sorted.length ? operation() : withFileMutationQueue2(sorted[index], () => run(index + 1));
   return run(0);
 }
 function sameSessionVacancy(state, vacancy) {
@@ -6258,7 +5857,7 @@ async function reconciliationClassification(rootPath) {
     for (const entry of entries) {
       if (entry === ROOT_MARKER_NAME) continue;
       const applicationPath = path6.join(rootPath, entry);
-      const metadata = await lstat5(applicationPath).catch(() => void 0);
+      const metadata = await lstat4(applicationPath).catch(() => void 0);
       if (metadata === void 0) {
         return "Application directory became unavailable during bounded reconciliation; no path was repaired or followed.";
       }
@@ -6313,7 +5912,7 @@ async function validateSelectedBinding(config, binding) {
   }
 }
 function stateBytes(state) {
-  const bytes = canonicalJson2(state);
+  const bytes = canonicalJson(state);
   if (bytes.length > METADATA_MAX_BYTES) throw workflowError("workspace_limit_reached");
   return bytes;
 }
@@ -6471,7 +6070,7 @@ var ApplicationWorkspaceWorkflow = class {
       throw workflowError("workspace_config_invalid");
     }
     try {
-      await lstat5(configLockPath(this.options.agentDir));
+      await lstat4(configLockPath(this.options.agentDir));
       ctx.ui.notify("Crash-left config lock detected. Workspace mutations are blocked; reconciliation made no change.", "warning");
       return;
     } catch (error) {
@@ -6556,7 +6155,7 @@ var ApplicationWorkspaceWorkflow = class {
       if (configuredRoot !== null) throw workflowError("workspace_drift");
       marker = { schema_version: ROOT_MARKER_SCHEMA, kind: "application_workspace_root", root_id: this.options.uuid().toLowerCase(), created_at: createdAt };
       if (!validUuid(marker.root_id)) throw workflowError("workspace_verification_failed");
-      markerBytes = canonicalJson2(marker);
+      markerBytes = canonicalJson(marker);
     } else {
       const target = currentApplicationTarget(rootPath, session);
       initialAudit = await inspectRoot(rootPath, {
@@ -6616,7 +6215,7 @@ var ApplicationWorkspaceWorkflow = class {
           });
           if (initialAudit === void 0) throw workflowError("workspace_drift");
           assertRootPlanCurrent(initialAudit, audit);
-          if (audit.markerFile.sha256 !== hashBytes2(canonicalJson2(marker))) throw workflowError("workspace_drift");
+          if (audit.markerFile.sha256 !== hashBytes2(canonicalJson(marker))) throw workflowError("workspace_drift");
         } else {
           const lockedEntries = await boundedEntries(rootPath, 1);
           if (lockedEntries.length !== 0 || markerBytes === void 0) throw workflowError("workspace_drift");
@@ -6782,7 +6381,7 @@ var ApplicationWorkspaceWorkflow = class {
       let published;
       const migrationIsComplete = async () => {
         const stored = await readApplicationIdentity(application.directoryPath, application.manifest);
-        if (stored === void 0 || !canonicalJson2(stored).equals(bytes)) return false;
+        if (stored === void 0 || !canonicalJson(stored).equals(bytes)) return false;
         const inspected = await inspectApplicationDirectory(
           application.directoryPath,
           configured.root_id,
@@ -6856,7 +6455,7 @@ var ApplicationWorkspaceWorkflow = class {
       application_created_at: identity2.identity.created_at,
       workspace_created_at: createdAt
     };
-    const manifestBytes = canonicalJson2(manifest);
+    const manifestBytes = canonicalJson(manifest);
     const identityBytes = applicationIdentityBytes(identity2, manifest);
     const currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id);
     const vacancyName = "vacancy.md";
@@ -6937,11 +6536,11 @@ var ApplicationWorkspaceWorkflow = class {
         await requireAbsent(directoryPath);
         vacancyBytes(currentIdentity.vacancy, currentIdentity.identity.application_id);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
-        await mkdir3(directoryPath, { recursive: false, mode: 448 });
-        createdDirectory = await lstat5(directoryPath);
-        await chmod2(directoryPath, 448);
-        createdDirectory = await lstat5(directoryPath);
-        if (!privateMetadata2(createdDirectory, 448, "directory") || await realpath5(directoryPath) !== directoryPath) {
+        await mkdir2(directoryPath, { recursive: false, mode: 448 });
+        createdDirectory = await lstat4(directoryPath);
+        await chmod(directoryPath, 448);
+        createdDirectory = await lstat4(directoryPath);
+        if (!privateMetadata(createdDirectory, 448, "directory") || await realpath4(directoryPath) !== directoryPath) {
           throw workflowError("workspace_verification_failed");
         }
         await syncDirectory2(configured.root_path);
@@ -6949,7 +6548,7 @@ var ApplicationWorkspaceWorkflow = class {
         await syncDirectory2(directoryPath);
         await syncDirectory2(configured.root_path);
         const storedIdentity = await readApplicationIdentity(directoryPath, manifest);
-        if (storedIdentity === void 0 || !canonicalJson2(storedIdentity).equals(identityBytes)) {
+        if (storedIdentity === void 0 || !canonicalJson(storedIdentity).equals(identityBytes)) {
           throw workflowError("workspace_status_unknown");
         }
         const verified = await inspectApplicationDirectory(
@@ -6960,12 +6559,12 @@ var ApplicationWorkspaceWorkflow = class {
         );
         if (verified.headFile.sha256 !== hashBytes2(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {
-        const committed = await readApplicationIdentity(directoryPath, manifest).then((storedIdentity) => storedIdentity === void 0 || !canonicalJson2(storedIdentity).equals(identityBytes) ? false : inspectApplicationDirectory(directoryPath, configured.root_id, path6.basename(directoryPath), storedIdentity).then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false), () => false);
+        const committed = await readApplicationIdentity(directoryPath, manifest).then((storedIdentity) => storedIdentity === void 0 || !canonicalJson(storedIdentity).equals(identityBytes) ? false : inspectApplicationDirectory(directoryPath, configured.root_id, path6.basename(directoryPath), storedIdentity).then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => false), () => false);
         if (committed) return;
         for (const item of [...published].reverse()) await unlinkOwned(item);
         if (createdDirectory !== void 0) {
           try {
-            const current = await lstat5(directoryPath);
+            const current = await lstat4(directoryPath);
             if (current.dev === createdDirectory.dev && current.ino === createdDirectory.ino && (await boundedEntries(directoryPath, 0)).length === 0) await rmdir(directoryPath);
           } catch {
           }
@@ -7196,6 +6795,900 @@ var ApplicationWorkspaceWorkflow = class {
     });
   }
 };
+
+// src/workflow/session-attachment.ts
+var APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
+var APPLICATION_ASSISTANCE_CUSTOM_TYPE = "career.application_assistance";
+var APPLICATION_ATTACHMENT_SCHEMA = "pi.career.application_attachment.v1";
+var APPLICATION_ASSISTANCE_SCHEMA = "pi.career.application_assistance.v1";
+var LOWERCASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var CANONICAL_TIMESTAMP2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+function isRecord9(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function hasOrderedKeys(value, expected) {
+  const actual = Object.keys(value);
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+function isUuid2(value) {
+  return typeof value === "string" && LOWERCASE_UUID.test(value);
+}
+function isTimestamp(value) {
+  if (typeof value !== "string" || !CANONICAL_TIMESTAMP2.test(value)) return false;
+  try {
+    return new Date(value).toISOString() === value;
+  } catch {
+    return false;
+  }
+}
+function parseAttachment(value) {
+  if (!hasOrderedKeys(value, [
+    "schema_version",
+    "kind",
+    "attachment_id",
+    "application_id",
+    "root_id",
+    "root_created_at",
+    "application_created_at",
+    "workspace_created_at"
+  ])) return void 0;
+  const validIds = [value.attachment_id, value.application_id, value.root_id].every(isUuid2);
+  const validTimes = [value.root_created_at, value.application_created_at, value.workspace_created_at].every(isTimestamp);
+  return validIds && validTimes ? value : void 0;
+}
+function parseDetachment(value) {
+  const validKeys = hasOrderedKeys(
+    value,
+    ["schema_version", "kind", "detachment_id", "attachment_id"]
+  );
+  return validKeys && [value.detachment_id, value.attachment_id].every(isUuid2) ? value : void 0;
+}
+function parseApplicationAttachmentEntryData(value) {
+  if (!isRecord9(value) || value.schema_version !== APPLICATION_ATTACHMENT_SCHEMA) return void 0;
+  if (value.kind === "application_attachment") return parseAttachment(value);
+  if (value.kind === "application_detachment") return parseDetachment(value);
+  return void 0;
+}
+function parseApplicationAssistanceEntryData(value) {
+  if (!isRecord9(value) || !hasOrderedKeys(value, [
+    "schema_version",
+    "kind",
+    "activation_id",
+    "attachment_id",
+    "application_id"
+  ])) return void 0;
+  const validConstants = value.schema_version === APPLICATION_ASSISTANCE_SCHEMA && value.kind === "application_assistance_activation";
+  return validConstants && [value.activation_id, value.attachment_id, value.application_id].every(isUuid2) ? value : void 0;
+}
+function invalidRecords() {
+  return { integrity: "invalid" };
+}
+function relevantRecordId(data) {
+  if (data.kind === "application_attachment") return data.attachment_id;
+  if (data.kind === "application_detachment") return data.detachment_id;
+  return data.activation_id;
+}
+function attachmentClaim(value) {
+  const data = parseApplicationAttachmentEntryData(value);
+  if (data === void 0) return { kind: "invalid" };
+  return {
+    kind: "record",
+    recordId: relevantRecordId(data),
+    ...data.kind === "application_attachment" ? { applicationId: data.application_id } : {}
+  };
+}
+function assistanceClaim(value) {
+  const data = parseApplicationAssistanceEntryData(value);
+  return data === void 0 ? { kind: "invalid" } : { kind: "record", recordId: data.activation_id, applicationId: data.application_id };
+}
+function workflowClaim(value) {
+  if (!isRecord9(value) || value.kind !== "application") return { kind: "ignore" };
+  const workflow = parseWorkflowEntryData(value);
+  return workflow?.kind === "application" ? { kind: "record", applicationId: workflow.application_id } : { kind: "invalid" };
+}
+function claimFromEntry(entry) {
+  if (entry.type !== "custom") return { kind: "ignore" };
+  switch (entry.customType) {
+    case APPLICATION_ATTACHMENT_CUSTOM_TYPE:
+      return attachmentClaim(entry.data);
+    case APPLICATION_ASSISTANCE_CUSTOM_TYPE:
+      return assistanceClaim(entry.data);
+    case WORKFLOW_CUSTOM_TYPE:
+      return workflowClaim(entry.data);
+    default:
+      return { kind: "ignore" };
+  }
+}
+function scanSessionClaims(entries) {
+  const recordIds = /* @__PURE__ */ new Set();
+  const applicationIds = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    const claim = claimFromEntry(entry);
+    if (claim.kind === "invalid") return void 0;
+    if (claim.kind === "ignore") continue;
+    if (claim.recordId !== void 0) {
+      if (recordIds.has(claim.recordId)) return void 0;
+      recordIds.add(claim.recordId);
+    }
+    if (claim.applicationId !== void 0) applicationIds.add(claim.applicationId);
+  }
+  if (applicationIds.size > 1) return void 0;
+  const usedApplicationId = applicationIds.values().next().value;
+  return usedApplicationId === void 0 ? {} : { usedApplicationId };
+}
+function applyAttachmentRecord(current, data, usedApplicationId) {
+  if (data.kind === "application_attachment") {
+    if (current.attachment !== void 0 || data.application_id !== usedApplicationId) return void 0;
+    return { attachment: data };
+  }
+  if (current.attachment === void 0 || data.attachment_id !== current.attachment.attachment_id) {
+    return void 0;
+  }
+  return {};
+}
+function applyAssistanceRecord(current, data) {
+  if (current.attachment === void 0 || current.activation !== void 0 || data.attachment_id !== current.attachment.attachment_id || data.application_id !== current.attachment.application_id) return void 0;
+  return { attachment: current.attachment, activation: data };
+}
+function replayActiveBranch(entries, usedApplicationId) {
+  let current = {};
+  for (const entry of entries) {
+    if (entry.type !== "custom") continue;
+    if (entry.customType === APPLICATION_ATTACHMENT_CUSTOM_TYPE) {
+      const data = parseApplicationAttachmentEntryData(entry.data);
+      if (data === void 0) return void 0;
+      const next = applyAttachmentRecord(current, data, usedApplicationId);
+      if (next === void 0) return void 0;
+      current = next;
+    } else if (entry.customType === APPLICATION_ASSISTANCE_CUSTOM_TYPE) {
+      const data = parseApplicationAssistanceEntryData(entry.data);
+      if (data === void 0) return void 0;
+      const next = applyAssistanceRecord(current, data);
+      if (next === void 0) return void 0;
+      current = next;
+    }
+  }
+  return current;
+}
+function replayApplicationSessionRecords(branchEntries, allEntries = branchEntries) {
+  const claims = scanSessionClaims(allEntries);
+  if (claims === void 0) return invalidRecords();
+  const active = replayActiveBranch(branchEntries, claims.usedApplicationId);
+  if (active === void 0) return invalidRecords();
+  return {
+    integrity: "valid",
+    ...claims.usedApplicationId === void 0 ? {} : { used_application_id: claims.usedApplicationId },
+    ...active.attachment === void 0 ? {} : { attachment: active.attachment },
+    ...active.activation === void 0 ? {} : { activation: active.activation }
+  };
+}
+
+// src/workflow/session-model-surface.ts
+var CAREER_MODEL_TOOL_NAMES = [MANAGED_TOOL_NAME, ...RAW_TOOL_NAMES];
+var INACTIVE_CAREER_MODEL_SURFACE = {
+  careerRunActive: false,
+  skillDiscoverable: false
+};
+var ACTIVE_MANAGED_CAREER_MODEL_SURFACE = {
+  careerRunActive: true,
+  skillDiscoverable: true
+};
+async function resolveCareerModelSurface(branchEntries, allEntries = branchEntries, validateAttachment) {
+  const records = replayApplicationSessionRecords(branchEntries, allEntries);
+  if (records.integrity !== "valid" || records.attachment === void 0 || records.activation === void 0) {
+    return INACTIVE_CAREER_MODEL_SURFACE;
+  }
+  if (validateAttachment === void 0) return INACTIVE_CAREER_MODEL_SURFACE;
+  try {
+    await validateAttachment(records.attachment);
+  } catch {
+    return INACTIVE_CAREER_MODEL_SURFACE;
+  }
+  return ACTIVE_MANAGED_CAREER_MODEL_SURFACE;
+}
+function applyCareerToolSurface(getActiveTools, setActiveTools, surface, includeRaw = false) {
+  const retained = getActiveTools().filter(
+    (name) => !CAREER_MODEL_TOOL_NAMES.includes(name)
+  );
+  const next = [...retained];
+  if (surface.careerRunActive) next.push(MANAGED_TOOL_NAME);
+  if (surface.careerRunActive && includeRaw) next.push(...RAW_TOOL_NAMES);
+  setActiveTools([...new Set(next)]);
+}
+
+// src/workflow/variant-save.ts
+import { createHash as createHash5 } from "node:crypto";
+import { constants as constants3 } from "node:fs";
+import {
+  chmod as chmod2,
+  link as link3,
+  lstat as lstat5,
+  mkdir as mkdir3,
+  open as open3,
+  readFile as readFile5,
+  readdir,
+  realpath as realpath5,
+  unlink as unlink3
+} from "node:fs/promises";
+import path7 from "node:path";
+import { TextDecoder as TextDecoder6 } from "node:util";
+import {
+  withFileMutationQueue as withFileMutationQueue3
+} from "@earendil-works/pi-coding-agent";
+var ARTIFACT_MAX_BYTES = 262144;
+var PREVIEW_MAX_BYTES2 = 524288;
+var PATH_MAX_BYTES4 = 4096;
+var CONFIRM_TIMEOUT_MS2 = 10 * 60 * 1e3;
+var UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var VARIANT_HANDLE = /^variant:[a-f0-9-]{8,64}$/;
+var SHA2565 = /^[a-f0-9]{64}$/;
+var CHANGE_ID = /^change-[0-9]{4}$/;
+var DEFAULT_FS = {
+  chmod: chmod2,
+  link: link3,
+  lstat: lstat5,
+  mkdir: mkdir3,
+  open: open3,
+  readFile: readFile5,
+  readdir,
+  realpath: realpath5,
+  unlink: unlink3
+};
+function isNodeError(error, code) {
+  return error !== null && typeof error === "object" && error.code === code;
+}
+function hash(value) {
+  return createHash5("sha256").update(value).digest("hex");
+}
+function hasUnpairedSurrogate2(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 55296 && code <= 56319) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 56320 && next <= 57343)) return true;
+      index += 1;
+    } else if (code >= 56320 && code <= 57343) {
+      return true;
+    }
+  }
+  return false;
+}
+function sameCandidate(left, right) {
+  return left.handle === right.handle && left.assistedText === right.assistedText && left.selectedChangeIds.join("\0") === right.selectedChangeIds.join("\0") && left.source.resumeId === right.source.resumeId && left.source.rootId === right.source.rootId && left.source.format === right.source.format && left.source.textSha256 === right.source.textSha256;
+}
+function validCandidateIdentity(candidate) {
+  return VARIANT_HANDLE.test(candidate.handle) && SHA2565.test(candidate.source.resumeId) && SHA2565.test(candidate.source.rootId) && SHA2565.test(candidate.source.textSha256) && (candidate.source.format === "markdown" || candidate.source.format === "text");
+}
+function validSelectedChanges(selectedChangeIds) {
+  return selectedChangeIds.length > 0 && new Set(selectedChangeIds).size === selectedChangeIds.length && selectedChangeIds.every((id) => CHANGE_ID.test(id));
+}
+function validateCandidate(candidate) {
+  if (!validCandidateIdentity(candidate) || !validSelectedChanges(candidate.selectedChangeIds) || candidate.assistedText.length === 0 || candidate.assistedText.includes("\r") || hasUnpairedSurrogate2(candidate.assistedText)) {
+    throw careerRunError("variant_save_unavailable");
+  }
+  const bytes = Buffer.from(candidate.assistedText, "utf8");
+  if (bytes.length === 0 || bytes.length > ARTIFACT_MAX_BYTES) {
+    throw careerRunError("variant_save_unavailable");
+  }
+  return bytes;
+}
+function effectiveUserId3() {
+  return process.geteuid?.() ?? process.getuid?.();
+}
+function privateMetadata2(metadata, mode) {
+  const userId = effectiveUserId3();
+  return userId !== void 0 && metadata.uid === userId && (metadata.mode & 511) === mode;
+}
+function directManagedRoot(config, root) {
+  const configured = config.generated_variants_root === null ? void 0 : path7.resolve(config.generated_variants_root);
+  return configured !== void 0 && path7.dirname(configured) === root.path ? configured : path7.join(root.path, "variants");
+}
+function validBoundedPath(value) {
+  return path7.isAbsolute(value) && path7.normalize(value) === value && Buffer.byteLength(value, "utf8") <= PATH_MAX_BYTES4 && !/[\u0000-\u001f\u007f]/.test(value);
+}
+function validDestination(config, root, directoryPath) {
+  return validBoundedPath(root.path) && validBoundedPath(directoryPath) && path7.dirname(directoryPath) === root.path && directoryPath !== root.path && !config.library_roots.some((configuredRoot) => configuredRoot.path === directoryPath);
+}
+function basicTimestamp(createdAt) {
+  return createdAt.replace(/[-:.]/g, "");
+}
+function canonicalJson2(value) {
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
+function fileNameFor(candidate, createdAt, saveId) {
+  const extension = candidate.source.format === "markdown" ? "md" : "txt";
+  const suffix = saveId.replaceAll("-", "").slice(0, 8);
+  return `resume-assisted-${basicTimestamp(createdAt)}-${suffix}.${extension}`;
+}
+var VariantSaveWorkflow = class {
+  constructor(options) {
+    this.options = options;
+    this.fs = options.fs ?? DEFAULT_FS;
+  }
+  options;
+  fs;
+  receipts = /* @__PURE__ */ new Map();
+  rootLocks = /* @__PURE__ */ new Map();
+  clearReceipts() {
+    this.receipts.clear();
+  }
+  async run(handle, ctx, resolveCandidate) {
+    if (!ctx.isIdle()) throw careerRunError("variant_save_unavailable");
+    const candidate = resolveCandidate();
+    const existing = this.receipts.get(handle);
+    if (existing !== void 0) {
+      if (!sameCandidate(existing.plan.candidate, candidate) || existing.plan.sessionId !== ctx.sessionManager.getSessionId()) {
+        throw careerRunError("variant_save_unavailable");
+      }
+      if (!await this.verifyPublishedPair(existing.plan)) {
+        throw careerRunError("variant_save_verification_failed");
+      }
+      await this.verifyRescan(existing.plan);
+      return {
+        status: "existing",
+        artifactPath: existing.plan.artifactPath,
+        sidecarPath: existing.plan.sidecarPath
+      };
+    }
+    const plan = await this.preparePlan(candidate, ctx.sessionManager.getSessionId());
+    const reviewed = await ctx.ui.editor("Review exact assisted-variant save plan", plan.previewText);
+    if (reviewed === void 0) return { status: "cancelled" };
+    if (reviewed !== plan.previewText) throw careerRunError("variant_save_preview_changed");
+    const confirmed = await ctx.ui.confirm(
+      "Save assisted resume variant?",
+      [
+        `Save ID: ${plan.saveId}`,
+        `Directory: ${plan.directoryPath}`,
+        `Artifact: ${path7.basename(plan.artifactPath)} (${plan.artifactBytes.length} bytes, ${hash(plan.artifactBytes)})`,
+        `Sidecar: ${path7.basename(plan.sidecarPath)} (${plan.sidecarBytes.length} bytes, ${hash(plan.sidecarBytes)})`,
+        ...plan.markerBytes === void 0 ? [] : [
+          `Create managed marker: ${MANAGED_VARIANTS_MARKER_NAME} (${plan.markerBytes.length} bytes, ${hash(plan.markerBytes)})`
+        ],
+        "This is assisted/non-authoritative. Existing files will never be replaced."
+      ].join("\n"),
+      { timeout: CONFIRM_TIMEOUT_MS2 }
+    );
+    if (!confirmed || ctx.signal?.aborted) return { status: "cancelled" };
+    const current = resolveCandidate();
+    if (!sameCandidate(plan.candidate, current) || plan.sessionId !== ctx.sessionManager.getSessionId()) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    const paths = [plan.artifactPath, plan.sidecarPath, ...plan.markerBytes === void 0 ? [] : [plan.markerPath]].sort();
+    await this.withRootLock(plan.directoryPath, () => this.withMutationQueues(paths, async () => {
+      const lockedCandidate = resolveCandidate();
+      if (!sameCandidate(plan.candidate, lockedCandidate) || plan.sessionId !== ctx.sessionManager.getSessionId() || !ctx.isIdle() || ctx.signal?.aborted) {
+        throw careerRunError("variant_save_unavailable");
+      }
+      await this.revalidatePlan(plan);
+      await this.publishPlan(plan);
+    }));
+    this.receipts.set(handle, { plan });
+    await this.verifyRescan(plan);
+    return { status: "saved", artifactPath: plan.artifactPath, sidecarPath: plan.sidecarPath };
+  }
+  async currentOriginal(candidate) {
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const root = config.library_roots.find((value) => value.id === candidate.source.rootId);
+    const rootSummary = scan.roots.find((value) => value.root_id === candidate.source.rootId);
+    const matches = eligibleOriginals(scan).filter((record) => record.id === candidate.source.resumeId && record.root_id === candidate.source.rootId && record.format === candidate.source.format && record.text_sha256 === candidate.source.textSha256);
+    if (root === void 0 || rootSummary === void 0 || rootSummary.stale || rootSummary.capped || scan.total_capped || matches.length !== 1) throw careerRunError("variant_save_unavailable");
+    const directoryPath = directManagedRoot(config, root);
+    if (!validDestination(config, root, directoryPath)) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    const destination = await this.inspectDestination(directoryPath, root);
+    return { config, root, record: matches[0], destination };
+  }
+  async inspectDestination(directoryPath, root) {
+    const markerPath = path7.join(directoryPath, MANAGED_VARIANTS_MARKER_NAME);
+    let metadata;
+    try {
+      metadata = await this.fs.lstat(directoryPath);
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return { kind: "absent", directoryPath, markerPath };
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    const canonical = await this.fs.realpath(directoryPath).catch(() => void 0);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== directoryPath || !privateMetadata2(metadata, 448)) throw careerRunError("variant_save_destination_invalid");
+    const entries = await this.fs.readdir(directoryPath).catch(() => void 0);
+    if (entries === void 0) throw careerRunError("variant_save_destination_invalid");
+    const markerState = await this.inspectMarker(markerPath, root.id);
+    if (markerState === "valid") return { kind: "managed", directoryPath, markerPath };
+    if (markerState === "invalid" || entries.length !== 0) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    return { kind: "empty", directoryPath, markerPath };
+  }
+  async inspectMarker(markerPath, expectedRootId) {
+    try {
+      const marker = await this.fs.lstat(markerPath);
+      if (!marker.isFile() || marker.isSymbolicLink() || !privateMetadata2(marker, 384) || marker.size <= 0 || marker.size > ASSISTED_SIDECAR_MAX_BYTES) return "invalid";
+      const bytes = await this.fs.readFile(markerPath);
+      if (bytes.length !== marker.size) return "invalid";
+      const text = new TextDecoder6("utf-8", { fatal: true }).decode(bytes);
+      return parseManagedVariantsMarker(text, expectedRootId) === void 0 ? "invalid" : "valid";
+    } catch (error) {
+      return isNodeError(error, "ENOENT") ? "absent" : "invalid";
+    }
+  }
+  async preparePlan(candidate, sessionId) {
+    const artifactBytes = validateCandidate(candidate);
+    const prepared = await this.currentOriginal(candidate);
+    const saveId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    if (!UUID4.test(saveId)) throw careerRunError("variant_save_unavailable");
+    const fileName = fileNameFor(candidate, createdAt, saveId);
+    const artifactPath = path7.join(prepared.destination.directoryPath, fileName);
+    const sidecarPath2 = path7.join(
+      prepared.destination.directoryPath,
+      `${fileName.slice(0, -path7.extname(fileName).length)}.pi-career.json`
+    );
+    if (![prepared.destination.markerPath, artifactPath, sidecarPath2].every(validBoundedPath)) {
+      throw careerRunError("variant_save_destination_invalid");
+    }
+    await this.requireAbsent(artifactPath);
+    await this.requireAbsent(sidecarPath2);
+    const sidecarBytes = encodeAssistedVariantMetadataV2({
+      base_document_id: candidate.source.resumeId,
+      base_text_sha256: candidate.source.textSha256,
+      artifact_sha256: sha256Bytes(artifactBytes),
+      created_at: createdAt
+    });
+    const markerBytes = prepared.destination.kind === "managed" ? void 0 : encodeManagedVariantsMarker(prepared.root.id, createdAt);
+    if (sidecarBytes.length > ASSISTED_SIDECAR_MAX_BYTES || markerBytes !== void 0 && markerBytes.length > ASSISTED_SIDECAR_MAX_BYTES) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    const preview = {
+      schema_version: "pi.career.variant_save_preview.v1",
+      save_id: saveId,
+      initialize_directory: markerBytes !== void 0,
+      directory_path: prepared.destination.directoryPath,
+      marker: markerBytes === void 0 ? null : {
+        path: prepared.destination.markerPath,
+        utf8_bytes: markerBytes.length,
+        sha256: hash(markerBytes),
+        text: markerBytes.toString("utf8")
+      },
+      artifact: {
+        path: artifactPath,
+        format: candidate.source.format,
+        utf8_bytes: artifactBytes.length,
+        sha256: hash(artifactBytes),
+        text: candidate.assistedText
+      },
+      sidecar: {
+        path: sidecarPath2,
+        utf8_bytes: sidecarBytes.length,
+        sha256: hash(sidecarBytes),
+        text: sidecarBytes.toString("utf8")
+      }
+    };
+    const previewText = canonicalJson2(preview);
+    if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES2) {
+      throw careerRunError("variant_save_unavailable");
+    }
+    return {
+      saveId,
+      sessionId,
+      candidate,
+      createdAt,
+      directoryPath: prepared.destination.directoryPath,
+      markerPath: prepared.destination.markerPath,
+      artifactPath,
+      sidecarPath: sidecarPath2,
+      artifactBytes,
+      sidecarBytes,
+      ...markerBytes === void 0 ? {} : { markerBytes },
+      initialDestinationKind: prepared.destination.kind,
+      previewText
+    };
+  }
+  async revalidatePlan(plan) {
+    validateCandidate(plan.candidate);
+    const prepared = await this.currentOriginal(plan.candidate);
+    if (prepared.destination.directoryPath !== plan.directoryPath || prepared.destination.markerPath !== plan.markerPath || prepared.destination.kind !== plan.initialDestinationKind) throw careerRunError("variant_save_destination_invalid");
+    await this.requireAbsent(plan.artifactPath);
+    await this.requireAbsent(plan.sidecarPath);
+  }
+  async requireAbsent(file) {
+    try {
+      await this.fs.lstat(file);
+      throw careerRunError("variant_save_collision");
+    } catch (error) {
+      if (error instanceof CareerRunError) throw error;
+      if (!isNodeError(error, "ENOENT")) throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async publishPlan(plan) {
+    if (plan.markerBytes !== void 0) await this.initializeDirectory(plan);
+    let sidecarTemp;
+    let artifactTemp;
+    let sidecarLinked = false;
+    let artifactLinked = false;
+    try {
+      sidecarTemp = await this.writeTemp(plan, "sidecar", plan.sidecarBytes);
+      artifactTemp = await this.writeTemp(plan, "artifact", plan.artifactBytes);
+      await this.publishTemp(sidecarTemp, plan.sidecarPath);
+      sidecarLinked = true;
+      await this.publishTemp(artifactTemp, plan.artifactPath);
+      artifactLinked = true;
+      await this.safeUnlink(sidecarTemp.path);
+      await this.safeUnlink(artifactTemp.path);
+      await this.syncDirectory(plan.directoryPath);
+      if (!await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) {
+        throw careerRunError("variant_save_status_unknown");
+      }
+    } catch (error) {
+      if (sidecarTemp !== void 0) await this.safeUnlink(sidecarTemp.path);
+      if (artifactTemp !== void 0) await this.safeUnlink(artifactTemp.path);
+      if (sidecarTemp !== void 0 && artifactTemp !== void 0 && await this.verifyPublishedPair(plan, sidecarTemp.metadata, artifactTemp.metadata)) return;
+      if (!artifactLinked && sidecarTemp !== void 0) {
+        await this.unlinkIfIdentity(plan.sidecarPath, sidecarTemp.metadata);
+      }
+      this.throwPublicationFailure(error, sidecarLinked, artifactLinked);
+    }
+  }
+  throwPublicationFailure(error, sidecarLinked, artifactLinked) {
+    if (error instanceof CareerRunError) throw error;
+    if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+    throw careerRunError(sidecarLinked || artifactLinked ? "variant_save_status_unknown" : "variant_save_destination_invalid");
+  }
+  async initializeDirectory(plan) {
+    if (plan.markerBytes === void 0) return;
+    if (plan.initialDestinationKind === "absent") {
+      try {
+        await this.fs.mkdir(plan.directoryPath, { mode: 448, recursive: false });
+      } catch (error) {
+        if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+        throw careerRunError("variant_save_destination_invalid");
+      }
+      await this.fs.chmod(plan.directoryPath, 448).catch(() => {
+        throw careerRunError("variant_save_destination_invalid");
+      });
+    }
+    const directory = await this.fs.lstat(plan.directoryPath).catch(() => {
+      throw careerRunError("variant_save_destination_invalid");
+    });
+    const canonical = await this.fs.realpath(plan.directoryPath).catch(() => {
+      throw careerRunError("variant_save_destination_invalid");
+    });
+    if (!directory.isDirectory() || directory.isSymbolicLink() || canonical !== plan.directoryPath || !privateMetadata2(directory, 448)) throw careerRunError("variant_save_destination_invalid");
+    await this.requireAbsent(plan.markerPath);
+    const markerTemp = await this.writeTemp(plan, "marker", plan.markerBytes);
+    try {
+      await this.publishTemp(markerTemp, plan.markerPath);
+      await this.safeUnlink(markerTemp.path);
+      await this.syncDirectory(plan.directoryPath);
+      if (!await this.verifyExactFile(plan.markerPath, plan.markerBytes, markerTemp.metadata)) {
+        throw careerRunError("variant_save_status_unknown");
+      }
+    } catch (error) {
+      await this.safeUnlink(markerTemp.path);
+      if (error instanceof CareerRunError) throw error;
+      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+      throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async writeTemp(plan, role, bytes) {
+    const temporary = path7.join(plan.directoryPath, `.pi-career-${plan.saveId}-${role}.tmp`);
+    let handle;
+    try {
+      handle = await this.fs.open(
+        temporary,
+        constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW,
+        384
+      );
+      await handle.writeFile(bytes);
+      await handle.sync();
+      await handle.chmod(384);
+      const metadata = await handle.stat();
+      await handle.close();
+      handle = void 0;
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata2(metadata, 384) || metadata.size !== bytes.length) {
+        throw careerRunError("variant_save_destination_invalid");
+      }
+      const checked = await this.fs.readFile(temporary);
+      if (!checked.equals(bytes)) throw careerRunError("variant_save_destination_invalid");
+      return { path: temporary, metadata };
+    } catch (error) {
+      if (handle !== void 0) await handle.close().catch(() => void 0);
+      await this.safeUnlink(temporary);
+      if (error instanceof CareerRunError) throw error;
+      if (isNodeError(error, "EEXIST")) throw careerRunError("variant_save_collision");
+      throw careerRunError("variant_save_destination_invalid");
+    }
+  }
+  async publishTemp(temporary, finalPath) {
+    await this.fs.link(temporary.path, finalPath);
+  }
+  async verifyExactFile(file, expected, identity2) {
+    try {
+      const metadata = await this.fs.lstat(file);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !privateMetadata2(metadata, 384) || metadata.size !== expected.length || identity2 !== void 0 && (metadata.dev !== identity2.dev || metadata.ino !== identity2.ino)) return false;
+      const bytes = await this.fs.readFile(file);
+      return bytes.equals(expected);
+    } catch {
+      return false;
+    }
+  }
+  async verifyPublishedPair(plan, sidecarIdentity, artifactIdentity) {
+    if (!await this.verifyExactFile(plan.sidecarPath, plan.sidecarBytes, sidecarIdentity) || !await this.verifyExactFile(plan.artifactPath, plan.artifactBytes, artifactIdentity)) return false;
+    try {
+      const text = new TextDecoder6("utf-8", { fatal: true }).decode(await this.fs.readFile(plan.sidecarPath));
+      const parsed = parseAssistedVariantMetadata(text, plan.artifactBytes);
+      return parsed?.baseDocumentId === plan.candidate.source.resumeId;
+    } catch {
+      return false;
+    }
+  }
+  async verifyRescan(plan) {
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const root = scan.roots.find((value) => value.root_id === plan.candidate.source.rootId);
+    const configuredRoot = config.library_roots.find((value) => value.id === plan.candidate.source.rootId);
+    const relativePath = configuredRoot === void 0 ? void 0 : path7.relative(configuredRoot.path, plan.artifactPath).split(path7.sep).join("/");
+    const records = scan.records.filter((record) => record.path === plan.artifactPath);
+    const eligible = eligibleOriginals(scan).some((record) => record.path === plan.artifactPath);
+    if (root === void 0 || configuredRoot === void 0 || relativePath === void 0 || root.stale || root.capped || scan.total_capped || records.length !== 1 || records[0].format !== plan.candidate.source.format || records[0].text !== plan.candidate.assistedText || records[0].kind !== "assisted_variant" || records[0].variant_group_id !== plan.candidate.source.resumeId || eligible || scan.warnings.some((warning) => warning.code === "invalid_assisted_sidecar" && warning.root_id === plan.candidate.source.rootId && warning.relative_path === relativePath)) throw careerRunError("variant_save_verification_failed");
+  }
+  async unlinkIfIdentity(file, identity2) {
+    try {
+      const metadata = await this.fs.lstat(file);
+      if (metadata.dev === identity2.dev && metadata.ino === identity2.ino) await this.fs.unlink(file);
+    } catch {
+    }
+  }
+  async safeUnlink(file) {
+    await this.fs.unlink(file).catch(() => void 0);
+  }
+  async syncDirectory(directory) {
+    let handle;
+    try {
+      handle = await this.fs.open(directory, constants3.O_RDONLY);
+      await handle.sync();
+      await handle.close();
+    } catch {
+      if (handle !== void 0) await handle.close().catch(() => void 0);
+      throw careerRunError("variant_save_status_unknown");
+    }
+  }
+  async withMutationQueues(paths, operation) {
+    const run = (index) => index >= paths.length ? operation() : withFileMutationQueue3(paths[index], () => run(index + 1));
+    return run(0);
+  }
+  async withRootLock(root, operation) {
+    const previous = this.rootLocks.get(root) ?? Promise.resolve();
+    let release = () => void 0;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const current = previous.then(() => gate);
+    this.rootLocks.set(root, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.rootLocks.get(root) === current) this.rootLocks.delete(root);
+    }
+  }
+};
+
+// src/managed/tool.ts
+var REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
+var VARIANT_HANDLE_PATTERN = /^variant:[a-f0-9-]{8,64}$/;
+function setCareerToolSurface(pi, surface, includeRaw = false) {
+  applyCareerToolSurface(() => pi.getActiveTools(), (names) => pi.setActiveTools(names), surface, includeRaw);
+}
+function registerCareerRun(pi, options = {}) {
+  const agentDir = options.agentDir ?? getAgentDir();
+  const now = options.now ?? (() => /* @__PURE__ */ new Date());
+  const uuid = options.uuid ?? randomUUID2;
+  const engine = new CareerRunEngine({
+    pi,
+    agentDir,
+    invoke: options.invoke ?? invokeCareerCli,
+    now,
+    uuid
+  });
+  const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
+  let surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+  let rawRequested = false;
+  pi.registerTool({
+    name: MANAGED_TOOL_NAME,
+    label: "Career",
+    description: "Run managed local Career Core workflows with ephemeral handles and native payload objects instead of nested JSON strings.",
+    promptGuidelines: [
+      "Start with context. If consent is required, ask first; consent payload is `approve` or `decline`. Use returned handles; match/variant-review use the current vacancy implicitly.",
+      "Proposal payloads use Core fields. Materialize payload is {selected_change_ids:[...]}; detail payload is {section,item?}. Preserve warnings/uncertainty/authority, and never select changes automatically.",
+      "career_run variant-review must end its turn. For non-PDF originals in TUI, direct the user to /career-review with the returned review handle; only a later user-submitted turn may materialize explicitly selected IDs. PDF changes remain manual guidance only.",
+      "After materialization, never initiate persistence. The user alone may run /career-save with the returned variant handle for exact local preview and confirmation."
+    ],
+    parameters: careerRunParameters,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      onUpdate?.({
+        content: [{ type: "text", text: `Running career ${params.command}…` }],
+        details: { schema_version: "pi.career.run_details.v1", command: params.command }
+      });
+      const result = await engine.run(params, signal, ctx);
+      if (params.command === "consent" && params.payload === "decline") {
+        variantSave.clearReceipts();
+      }
+      return params.command === "variant-review" ? { ...result, terminate: true } : result;
+    },
+    renderCall(args, theme) {
+      return new Text2(
+        theme.fg("toolTitle", theme.bold("career ")) + theme.fg("accent", args.command ?? "run"),
+        0,
+        0
+      );
+    },
+    renderResult(result, { expanded, isPartial }, theme) {
+      if (isPartial) return new Text2(theme.fg("warning", "Running Career Core…"), 0, 0);
+      const details = result.details;
+      if (details === void 0) return new Text2(theme.fg("dim", "Career result unavailable"), 0, 0);
+      const lines = [
+        theme.fg(details.status === "consent_required" ? "warning" : "success", details.summary),
+        ...details.action === "review_select" && details.handle !== void 0 ? [theme.fg("accent", `Run /career-review ${details.handle}`)] : [],
+        ...details.action === "save_available" && details.handle !== void 0 ? [theme.fg("accent", `User may run /career-save ${details.handle}`)] : [],
+        ...expanded && details.handle !== void 0 && details.action !== "review_select" && details.action !== "save_available" ? [theme.fg("dim", details.handle)] : []
+      ];
+      return new Text2(lines.join("\n"), 0, 0);
+    }
+  });
+  pi.registerCommand("career-review", {
+    description: "Review and explicitly select retained variant changes in TUI",
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/career-review requires TUI mode.", "error");
+        return;
+      }
+      const handle = args.trim();
+      if (!REVIEW_HANDLE_PATTERN.test(handle)) {
+        ctx.ui.notify("Usage: /career-review review:<ephemeral-handle>", "warning");
+        return;
+      }
+      try {
+        await ctx.waitForIdle();
+        const review = engine.variantSelectionReview(handle, ctx);
+        if (review.changes.length === 0) {
+          ctx.ui.notify("This review has no retained changes to select.", "warning");
+          return;
+        }
+        const selected = await selectVariantChanges(ctx, review);
+        if (selected === void 0) return;
+        ctx.ui.setEditorText(materializeEditorText(review.handle, selected));
+        ctx.ui.notify(
+          `${selected.length} reviewed change ID${selected.length === 1 ? "" : "s"} prepared in the editor. Review and submit manually; nothing was materialized, sent, saved, or written.`,
+          "info"
+        );
+      } catch (error) {
+        if (error instanceof CareerRunError) {
+          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
+          return;
+        }
+        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
+      }
+    }
+  });
+  pi.registerCommand("career-save", {
+    description: "Preview and explicitly save one current assisted Markdown/text materialization",
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+        ctx.ui.notify("/career-save requires TUI or RPC mode.", "error");
+        return;
+      }
+      if (!ctx.isIdle()) {
+        ctx.ui.notify("Wait for the current agent run to settle before saving.", "warning");
+        return;
+      }
+      const handle = args.trim();
+      if (!VARIANT_HANDLE_PATTERN.test(handle)) {
+        ctx.ui.notify("Usage: /career-save variant:<ephemeral-handle>", "warning");
+        return;
+      }
+      try {
+        const outcome = await variantSave.run(
+          handle,
+          ctx,
+          () => engine.materializedVariantForSave(handle, ctx)
+        );
+        if (outcome.status === "cancelled") {
+          ctx.ui.notify("Assisted-variant save cancelled; no file was written.", "info");
+          return;
+        }
+        ctx.ui.notify(
+          `${outcome.status === "existing" ? "Verified existing" : "Saved"} assisted variant: ${outcome.artifactPath}
+Sidecar: ${outcome.sidecarPath}`,
+          "info"
+        );
+      } catch (error) {
+        if (error instanceof CareerRunError) {
+          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
+          return;
+        }
+        ctx.ui.notify("The assisted variant could not be saved or verified.", "error");
+      }
+    }
+  });
+  pi.registerCommand("career-tools", {
+    description: "Choose managed or advanced raw Career Core tools",
+    getArgumentCompletions: (prefix) => ["managed", "raw", "status"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
+    handler: async (args, ctx) => {
+      const mode = args.trim();
+      if (mode === "raw" && !surfaceState.careerRunActive) {
+        ctx.ui.notify(careerRunErrorMessage("assistance_required"), "warning");
+        return;
+      }
+      if (mode === "managed") {
+        rawRequested = false;
+        setCareerToolSurface(pi, surfaceState, false);
+      } else if (mode === "raw") {
+        rawRequested = true;
+        setCareerToolSurface(pi, surfaceState, true);
+      } else if (mode !== "status" && mode !== "") {
+        ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
+        return;
+      }
+      const active = pi.getActiveTools();
+      const activeRaw = RAW_TOOL_NAMES.filter((name) => active.includes(name));
+      ctx.ui.notify(
+        surfaceState.careerRunActive ? `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.` : "Career tools inactive.",
+        "info"
+      );
+    }
+  });
+  const refreshSurface = async (ctx) => {
+    surfaceState = await resolveCareerModelSurface(
+      ctx.sessionManager.getBranch(),
+      ctx.sessionManager.getEntries(),
+      (attachment) => validateApplicationAttachment(agentDir, attachment)
+    );
+    if (!surfaceState.careerRunActive) rawRequested = false;
+    setCareerToolSurface(pi, surfaceState, rawRequested);
+    return surfaceState;
+  };
+  pi.on("session_start", async (_event, ctx) => {
+    variantSave.clearReceipts();
+    engine.enterSession(ctx.sessionManager.getSessionId());
+    rawRequested = false;
+    await refreshSurface(ctx);
+  });
+  pi.on("session_tree", async (_event, ctx) => {
+    variantSave.clearReceipts();
+    engine.resetSession(ctx.sessionManager.getSessionId());
+    rawRequested = false;
+    await refreshSurface(ctx);
+  });
+  pi.on("resources_discover", () => surfaceState.skillDiscoverable ? { skillPaths: [careerSkillsDirectory()] } : {});
+  pi.on("input", async (event, ctx) => {
+    const skillCommand = event.text.startsWith("/skill:career-core");
+    if (!surfaceState.skillDiscoverable && !skillCommand) return { action: "continue" };
+    const previous = surfaceState.skillDiscoverable;
+    await refreshSurface(ctx);
+    if (surfaceState.skillDiscoverable) return { action: "continue" };
+    if (skillCommand || previous) {
+      ctx.ui.notify(careerRunErrorMessage("assistance_required"), "warning");
+      return { action: "handled" };
+    }
+    return { action: "continue" };
+  });
+  pi.on("session_shutdown", () => {
+    variantSave.clearReceipts();
+    engine.shutdown();
+    rawRequested = false;
+    surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+  });
+}
+
+// src/workflow/commands.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import {
+  BorderedLoader,
+  getAgentDir as getAgentDir2
+} from "@earendil-works/pi-coding-agent";
 
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;

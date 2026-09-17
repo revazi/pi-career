@@ -15,8 +15,8 @@ assert.ok(path.isAbsolute(root), "PI_CAREER_PACKAGE_ROOT must be absolute when s
 const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 assert.deepEqual(manifest.pi, {
   extensions: ["./dist/index.js"],
-  skills: ["./skills/career-core"],
 });
+assert.equal(manifest.pi.skills, undefined);
 assert.deepEqual(manifest.os, ["darwin", "linux"]);
 assert.equal(manifest.dependencies, undefined);
 assert.equal(manifest.files.includes("runtime"), false);
@@ -31,7 +31,6 @@ assert.deepEqual(Object.keys(manifest.peerDependencies).sort(), [
 ]);
 
 const extensionPaths = manifest.pi.extensions.map((entry) => path.resolve(root, entry));
-const skillPaths = manifest.pi.skills.map((entry) => path.resolve(root, entry));
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "pi-career-load-"));
 const agentDir = path.join(temporaryRoot, "agent");
 const cwd = path.join(temporaryRoot, "cwd");
@@ -114,13 +113,11 @@ try {
 
   const { skills, diagnostics } = loader.getSkills();
   assert.deepEqual(diagnostics, []);
-  const careerSkills = skills.filter((skill) => skill.name === "career-core");
-  assert.equal(careerSkills.length, 1);
-  assert.equal(path.resolve(careerSkills[0].filePath), path.join(skillPaths[0], "SKILL.md"));
+  assert.equal(skills.filter((skill) => skill.name === "career-core").length, 0);
 
   assert.equal(networkAttempted, false);
   await assert.rejects(access(path.join(agentDir, "auth.json")));
-  process.stdout.write(`Loaded built tools: ${names.join(", ")}\nLoaded bundled skill: career-core\n`);
+  process.stdout.write(`Loaded built tools: ${names.join(", ")}\nLoaded bundled skill: none\n`);
 } finally {
   globalThis.fetch = originalFetch;
   await rm(temporaryRoot, { recursive: true, force: true });

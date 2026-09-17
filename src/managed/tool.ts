@@ -2,14 +2,22 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
+import { careerSkillsDirectory } from "../career-paths.ts";
 import { invokeCareerCli } from "../process.ts";
 import type { ManagedInvoke } from "./catalog.ts";
 import { CareerRunEngine } from "./engine.ts";
 import { CareerRunError, careerRunErrorMessage } from "./errors.ts";
 import { materializeEditorText, selectVariantChanges } from "./review-selector.ts";
+import { validateApplicationAttachment } from "../workflow/application-workspace.ts";
+import {
+  applyCareerToolSurface,
+  INACTIVE_CAREER_MODEL_SURFACE,
+  resolveCareerModelSurface,
+  type CareerModelSurface,
+} from "../workflow/session-model-surface.ts";
 import { VariantSaveWorkflow } from "../workflow/variant-save.ts";
 import {
   careerRunParameters,
@@ -29,12 +37,8 @@ interface ManagedToolOptions {
 const REVIEW_HANDLE_PATTERN = /^review:[a-f0-9-]{8,64}$/;
 const VARIANT_HANDLE_PATTERN = /^variant:[a-f0-9-]{8,64}$/;
 
-function managedToolActive(pi: ExtensionAPI, includeRaw: boolean): void {
-  const current = pi.getActiveTools();
-  const retained = current.filter((name) => !RAW_TOOL_NAMES.includes(name as typeof RAW_TOOL_NAMES[number]));
-  const next = includeRaw ? [...retained, ...RAW_TOOL_NAMES] : retained;
-  if (!next.includes(MANAGED_TOOL_NAME)) next.push(MANAGED_TOOL_NAME);
-  pi.setActiveTools([...new Set(next)]);
+function setCareerToolSurface(pi: ExtensionAPI, surface: CareerModelSurface, includeRaw = false): void {
+  applyCareerToolSurface(() => pi.getActiveTools(), (names) => pi.setActiveTools(names), surface, includeRaw);
 }
 
 export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions = {}): void {
@@ -49,6 +53,8 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
     uuid,
   });
   const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
+  let surfaceState: CareerModelSurface = INACTIVE_CAREER_MODEL_SURFACE;
+  let rawRequested = false;
 
   pi.registerTool({
     name: MANAGED_TOOL_NAME,
@@ -183,31 +189,73 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
       .map((value) => ({ value, label: value })),
     handler: async (args, ctx) => {
       const mode = args.trim();
-      if (mode === "managed") managedToolActive(pi, false);
-      else if (mode === "raw") managedToolActive(pi, true);
-      else if (mode !== "status" && mode !== "") {
+      if (mode === "raw" && !surfaceState.careerRunActive) {
+        ctx.ui.notify(careerRunErrorMessage("assistance_required"), "warning");
+        return;
+      }
+      if (mode === "managed") {
+        rawRequested = false;
+        setCareerToolSurface(pi, surfaceState, false);
+      } else if (mode === "raw") {
+        rawRequested = true;
+        setCareerToolSurface(pi, surfaceState, true);
+      } else if (mode !== "status" && mode !== "") {
         ctx.ui.notify("Usage: /career-tools managed|raw|status", "warning");
         return;
       }
-      const activeRaw = RAW_TOOL_NAMES.filter((name) => pi.getActiveTools().includes(name));
+      const active = pi.getActiveTools();
+      const activeRaw = RAW_TOOL_NAMES.filter((name) => active.includes(name));
       ctx.ui.notify(
-        `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`,
+        surfaceState.careerRunActive
+          ? `Career tools: career_run active; raw Career Core tools ${activeRaw.length === 0 ? "inactive" : "active"}.`
+          : "Career tools inactive.",
         "info",
       );
     },
   });
 
-  pi.on("session_start", (_event, ctx) => {
+  const refreshSurface = async (ctx: ExtensionContext) => {
+    surfaceState = await resolveCareerModelSurface(
+      ctx.sessionManager.getBranch(),
+      ctx.sessionManager.getEntries(),
+      (attachment) => validateApplicationAttachment(agentDir, attachment),
+    );
+    if (!surfaceState.careerRunActive) rawRequested = false;
+    setCareerToolSurface(pi, surfaceState, rawRequested);
+    return surfaceState;
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
     variantSave.clearReceipts();
     engine.enterSession(ctx.sessionManager.getSessionId());
-    managedToolActive(pi, false);
+    rawRequested = false;
+    await refreshSurface(ctx);
   });
-  pi.on("session_tree", (_event, ctx) => {
+  pi.on("session_tree", async (_event, ctx) => {
     variantSave.clearReceipts();
     engine.resetSession(ctx.sessionManager.getSessionId());
+    rawRequested = false;
+    await refreshSurface(ctx);
+  });
+  pi.on("resources_discover", () => surfaceState.skillDiscoverable
+    ? { skillPaths: [careerSkillsDirectory()] }
+    : {});
+  pi.on("input", async (event, ctx) => {
+    const skillCommand = event.text.startsWith("/skill:career-core");
+    if (!surfaceState.skillDiscoverable && !skillCommand) return { action: "continue" as const };
+    const previous = surfaceState.skillDiscoverable;
+    await refreshSurface(ctx);
+    if (surfaceState.skillDiscoverable) return { action: "continue" as const };
+    if (skillCommand || previous) {
+      ctx.ui.notify(careerRunErrorMessage("assistance_required"), "warning");
+      return { action: "handled" as const };
+    }
+    return { action: "continue" as const };
   });
   pi.on("session_shutdown", () => {
     variantSave.clearReceipts();
     engine.shutdown();
+    rawRequested = false;
+    surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
   });
 }

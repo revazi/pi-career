@@ -766,7 +766,7 @@ test("career-tools keeps raw tools available but inactive by default", async () 
   registerCareerRun(fake.api, { invoke: managedInvoke([]), uuid: uuidSequence(), now });
   const rpc = makeContext(fake, { persisted: false });
   for (const handler of fake.events.get("session_start") ?? []) await handler({}, rpc.ctx);
-  assert.deepEqual(fake.activeTools, ["career_run"]);
+  assert.deepEqual(fake.activeTools, []);
   assert.ok(fake.commands.has("career-review"));
   assert.ok(fake.commands.has("career-save"));
   await fake.commands.get("career-review").handler("review:00000000", rpc.ctx);
@@ -778,11 +778,10 @@ test("career-tools keeps raw tools available but inactive by default", async () 
   assert.ok(print.notifications.some(({ message }) => message.includes("requires TUI or RPC")));
 
   await fake.commands.get("career-tools").handler("raw", rpc.ctx);
-  assert.deepEqual(new Set(fake.activeTools), new Set([
-    "career_run", "career_core_discover", "career_core_resume", "career_core_job",
-  ]));
+  assert.deepEqual(fake.activeTools, []);
+  assert.ok(rpc.notifications.some(({ message }) => message.includes("inactive")));
   await fake.commands.get("career-tools").handler("managed", rpc.ctx);
-  assert.deepEqual(fake.activeTools, ["career_run"]);
+  assert.deepEqual(fake.activeTools, []);
 });
 
 test("career_run rejects malformed proposals and fails oversized hydration without partial output", async () => {

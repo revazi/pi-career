@@ -16,6 +16,7 @@ export type CareerRunErrorCode =
   | "managed_result_capacity"
   | "detail_too_large"
   | "session_changed"
+  | "assistance_required"
   | "variant_save_unavailable"
   | "variant_save_destination_invalid"
   | "variant_save_preview_changed"
@@ -39,6 +40,7 @@ const MESSAGES: Readonly<Record<CareerRunErrorCode, string>> = {
   managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
   detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
   session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
+  assistance_required: "Career assistance is inactive in this session.",
   variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
   variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
   variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
