@@ -16,6 +16,7 @@
 - TUI `/career` and the existing `/career-setup`, `/career-library`, `/career-application`, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `/career-workspace` commands open one Career overlay at different views, with ↑↓/Enter list-detail navigation across applications and resumes; `a` attaches a selected catalog application after confirmation without activating assistance. Overlay navigation does not call Core or a provider.
 - One Career view model now owns views, items, selection, detail, and attach. TUI overlay and RPC hierarchical select/confirm dialogs are only renderers of that model; those slash commands only choose the starting view, leftover command-specific menus are gone, and opening/browsing never attaches or calls Core.
 - Setup and library views can add a resume root after confirmation (`n` in TUI, Add root in RPC). The action writes config only, reloads the shared model, and does not attach, call Core, or create files.
+- TUI Career overlay uses a clearer visual hierarchy, view marks, selected/attachable symbols, wrapping, and width-bounded rules without changing actions or adding private content.
 
 ## 0.3.0 - 2026-08-14
 
