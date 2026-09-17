@@ -89,7 +89,7 @@ test("catalog reads an empty marked root without creating an index", async (t) =
   assert.deepEqual(await snapshot(root), before);
 });
 
-test("catalog sorts valid and legacy applications and does not derive labels from slugs", async (t) => {
+test("catalog sorts valid and legacy applications and marks slug presentation non-authoritative", async (t) => {
   const root = await fixture(t);
   await application(root, 3);
   const latest = "2026-08-12T00:00:01.000Z";
@@ -104,10 +104,18 @@ test("catalog sorts valid and legacy applications and does not derive labels fro
     status: "preparing", updated_at: latest,
   });
   assert.deepEqual(catalog.applications[1], {
-    application_id: uuid(2), classification: "legacy", status: "preparing", updated_at: latest,
+    application_id: uuid(2),
+    classification: "legacy",
+    legacy_identity: {
+      company_slug: "untrusted",
+      role_slug: "role",
+      authority: "directory_slug_non_authoritative",
+    },
+    status: "preparing",
+    updated_at: latest,
   });
   assert.deepEqual(catalog.reconciliation, emptyReconciliation());
-  assert.doesNotMatch(JSON.stringify(catalog), /untrusted|user-owned|unrelated|pi-career-catalog-|parent_sha256/);
+  assert.doesNotMatch(JSON.stringify(catalog), /user-owned|unrelated|pi-career-catalog-|parent_sha256/);
   assert.deepEqual(await readApplicationCatalog(root, rootId), catalog);
   assert.deepEqual(await snapshot(root), before);
 });
@@ -136,7 +144,7 @@ test("catalog classifies a mixed root exactly once per child without exposing in
   assert.deepEqual(catalog.reconciliation, {
     interrupted: 1, drifted: 1, duplicate_id: 2, unsupported: 1, over_limit: 1,
   });
-  assert.doesNotMatch(JSON.stringify(catalog), /malformed|sentinel|private-|duplicate-|untrusted|pi-career-catalog-/);
+  assert.doesNotMatch(JSON.stringify(catalog), /malformed|sentinel|private-|duplicate-|pi-career-catalog-/);
   assert.deepEqual(await readApplicationCatalog(root, rootId), catalog);
   assert.deepEqual(await snapshot(root), before);
 });

@@ -250,11 +250,15 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const state2Bytes = await readFile(path.join(applicationDirectory, ".pi-career-state-000002.json"));
-    const state2 = JSON.parse(state2Bytes);
-    assert.equal(state2.selected_original.library_root_id, rootId(value.library));
-    assert.equal(state2.selected_original.format, "markdown");
-    assert.equal(state2.vacancy.relative_path, "vacancy.md");
+    const transition = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000002.json")));
+    assert.equal(transition.schema_version, "pi.career.application_state.v2");
+    assert.equal(transition.selected_original, null);
+    assert.equal(transition.cover_letter_artifact, null);
+    const selectedState = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000003.json")));
+    assert.equal(selectedState.schema_version, "pi.career.application_state.v2");
+    assert.equal(selectedState.selected_original.library_root_id, rootId(value.library));
+    assert.equal(selectedState.selected_original.format, "markdown");
+    assert.equal(selectedState.vacancy.relative_path, "vacancy.md");
 
     const updatedApplication = createApplicationEntry(
       value.identity.company_label,
@@ -273,11 +277,11 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Record current status and vacancy"],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const state3 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000003.json"), "utf8"));
-    assert.equal(state3.status, "applied");
-    assert.equal(state3.vacancy.relative_path, "vacancy-000003.md");
-    assert.equal(state3.selected_original.document_id, state2.selected_original.document_id);
-    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000003.md"), "utf8"), "Replacement synthetic vacancy");
+    const state4 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000004.json"), "utf8"));
+    assert.equal(state4.status, "applied");
+    assert.equal(state4.vacancy.relative_path, "vacancy-000004.md");
+    assert.equal(state4.selected_original.document_id, selectedState.selected_original.document_id);
+    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000004.md"), "utf8"), "Replacement synthetic vacancy");
     assert.equal(await readFile(path.join(applicationDirectory, "vacancy.md"), "utf8"), "Synthetic vacancy bytes");
 
     value.fake.entries.push(sessionEntry(createVacancyClearEntry(updatedVacancy, {
@@ -288,9 +292,9 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Record current status and vacancy"],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const state4 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000004.json"), "utf8"));
-    assert.equal(state4.vacancy, null);
-    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000003.md"), "utf8"), "Replacement synthetic vacancy");
+    const state5 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000005.json"), "utf8"));
+    assert.equal(state5.vacancy, null);
+    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000004.md"), "utf8"), "Replacement synthetic vacancy");
 
     const beforeStatus = (await readdir(applicationDirectory)).sort();
     const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
@@ -369,6 +373,158 @@ test("identity published without state 1 remains a read-only interrupted initial
     assert.deepEqual(await Promise.all(names.map((name) => readFile(path.join(directory, name)))), before);
     assert.equal(value.fake.entries.length, 1);
     assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#63 explicitly migrates only an exactly matched legacy identity after preview and confirmation", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const configured = await loadConfig(value.agentDir);
+    const directory = path.join(
+      value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`,
+    );
+    const identityFile = path.join(directory, ".pi-career-identity.json");
+    await rm(identityFile);
+    const existingNames = (await readdir(directory)).sort();
+    const existingBytes = await Promise.all(existingNames.map((name) => readFile(path.join(directory, name))));
+    const headBytes = await readFile(path.join(directory, ".pi-career-state-000001.json"));
+    const entriesBefore = structuredClone(value.fake.entries);
+
+    const legacyCatalog = await readApplicationCatalog(value.root, configured.application_workspace.root_id);
+    assert.deepEqual(legacyCatalog.applications[0].legacy_identity, {
+      company_slug: "synthetic-company",
+      role_slug: "platform-engineer",
+      authority: "directory_slug_non_authoritative",
+    });
+    const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
+    assert.ok(status.notifications.some(({ message }) => message.includes("Legacy identity")));
+    assert.deepEqual((await readdir(directory)).sort(), existingNames);
+
+    const blocked = makeContext(value.fake, { mode: "rpc", persisted: false });
+    let offeredActions;
+    blocked.ctx.ui.select = async (_title, options) => { offeredActions = options; return undefined; };
+    await value.fake.commands.get("career-workspace").handler("", blocked.ctx);
+    assert.ok(offeredActions.includes("Finish application migration"));
+    assert.ok(!offeredActions.includes("Record current status and vacancy"));
+    assert.ok(!offeredActions.includes("Select original resume"));
+
+    let cancelledPreview;
+    await runWorkspace(value.fake, {
+      selects: ["Finish application migration"],
+      editors: [(_title, preview) => { cancelledPreview = JSON.parse(preview); return preview; }],
+      confirms: [false],
+    });
+    assert.equal(cancelledPreview.operation, "finish_application_migration");
+    assert.deepEqual(cancelledPreview.creates.map(({ path: file }) => path.basename(file)), [".pi-career-identity.json"]);
+    assert.deepEqual(cancelledPreview.replaces, []);
+    assert.deepEqual(cancelledPreview.deletes, []);
+    await assert.rejects(lstat(identityFile), (error) => error?.code === "ENOENT");
+
+    let approvedPreview;
+    await runWorkspace(value.fake, {
+      selects: ["Finish application migration"],
+      editors: [(_title, preview) => { approvedPreview = JSON.parse(preview); return preview; }],
+      confirms: [true],
+    });
+    assert.equal(approvedPreview.expected_state_sha256, sha256Bytes(headBytes));
+    assert.deepEqual(JSON.parse(await readFile(identityFile, "utf8")), {
+      schema_version: "pi.career.application_identity.v1",
+      kind: "application_identity",
+      application_id: value.identity.application_id,
+      company_label: value.identity.company_label,
+      role_label: value.identity.role_label,
+      created_at: value.identity.created_at,
+    });
+    assert.deepEqual(await Promise.all(existingNames.map((name) => readFile(path.join(directory, name)))), existingBytes);
+    assert.deepEqual(value.fake.entries, entriesBefore);
+    assert.equal(value.invocations, 0);
+    const migratedCatalog = await readApplicationCatalog(value.root, configured.application_workspace.root_id);
+    assert.equal(migratedCatalog.applications[0].classification, "valid");
+    assert.equal(migratedCatalog.applications[0].legacy_identity, undefined);
+
+    const identityBytes = await readFile(identityFile);
+    const updated = createApplicationEntry(
+      value.identity.company_label,
+      value.identity.role_label,
+      "applied",
+      { uuid: value.ids, now: () => new Date("2026-08-12T00:02:00.000Z") },
+      value.identity.application_id,
+    );
+    value.fake.entries.push(sessionEntry(updated, 2));
+    await runWorkspace(value.fake, {
+      selects: ["Record current status and vacancy"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const transition = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000002.json"), "utf8"));
+    const changed = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000003.json"), "utf8"));
+    assert.equal(transition.schema_version, "pi.career.application_state.v2");
+    assert.equal(transition.status, "preparing");
+    assert.equal(transition.cover_letter_artifact, null);
+    assert.equal(changed.schema_version, "pi.career.application_state.v2");
+    assert.equal(changed.status, "applied");
+    assert.deepEqual(await readFile(identityFile), identityBytes);
+    assert.deepEqual(await Promise.all(existingNames.map((name) => readFile(path.join(directory, name)))), existingBytes);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#63 legacy migration rejects post-preview state races and branch identity drift", async () => {
+  const value = await workspaceFixture({ vacancy: false });
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const directory = path.join(
+      value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`,
+    );
+    const identityFile = path.join(directory, ".pi-career-identity.json");
+    const stateFile = path.join(directory, ".pi-career-state-000001.json");
+    await rm(identityFile);
+    const stateBytes = await readFile(stateFile);
+    const workflow = new ApplicationWorkspaceWorkflow({ agentDir: value.agentDir, now, uuid: value.ids });
+    const raced = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Finish application migration"],
+      editors: [(_title, preview) => preview],
+      confirms: [async () => {
+        const replacement = `${stateFile}.replacement`;
+        await writeFile(replacement, stateBytes, { mode: 0o600 });
+        await chmod(replacement, 0o600);
+        await rename(replacement, stateFile);
+        return true;
+      }],
+    });
+    await assert.rejects(workflow.run("", raced.ctx), /workspace_drift/);
+    await assert.rejects(lstat(identityFile), (error) => error?.code === "ENOENT");
+    assert.deepEqual(await readFile(stateFile), stateBytes);
+
+    const conflicting = createApplicationEntry(
+      "Changed Synthetic Company",
+      value.identity.role_label,
+      "applied",
+      { uuid: value.ids, now: () => new Date("2026-08-12T00:05:00.000Z") },
+      value.identity.application_id,
+    );
+    value.fake.entries.push(sessionEntry(conflicting, 2));
+    const mismatch = makeContext(value.fake, { mode: "rpc", persisted: false });
+    await assert.rejects(workflow.run("", mismatch.ctx), /workspace_identity_conflict/);
+    await assert.rejects(lstat(identityFile), (error) => error?.code === "ENOENT");
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
@@ -1070,8 +1226,11 @@ test("unrelated application state drift does not deny current status, mutation, 
       value.root,
       `synthetic-company--platform-engineer--${value.identity.application_id}`,
     );
-    const state2 = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000002.json"), "utf8"));
-    assert.equal(state2.status, "applied");
+    const transition = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000002.json"), "utf8"));
+    assert.equal(transition.status, "preparing");
+    assert.equal(transition.schema_version, "pi.career.application_state.v2");
+    const state3 = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000003.json"), "utf8"));
+    assert.equal(state3.status, "applied");
     assert.deepEqual(await readFile(driftedState), driftedBytes);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
