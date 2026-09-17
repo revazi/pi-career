@@ -703,6 +703,54 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         throw workflowError("invalid_command_arguments");
       }
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== undefined) {
+        const summary = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+        if (argument === "status") {
+          ctx.ui.notify(summary, "info");
+          return;
+        }
+        if (argument === "clear") {
+          const outcome = await applicationWorkspace.detachAttachedApplication(ctx);
+          owner.assert(run, ctx);
+          if (outcome === "cancelled") {
+            ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          }
+          return;
+        }
+        const action = await ctx.ui.select(summary, ["View", "Update status", "Detach", "Close"]);
+        owner.assert(run, ctx);
+        if (action === "View") {
+          ctx.ui.notify(summary, "info");
+          return;
+        }
+        if (action === "Detach") {
+          const outcome = await applicationWorkspace.detachAttachedApplication(ctx);
+          owner.assert(run, ctx);
+          if (outcome === "cancelled") {
+            ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          }
+          return;
+        }
+        if (action !== "Update status") return;
+        const statuses = new Map<string, ApplicationStatus>([
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"],
+        ]);
+        const selected = await ctx.ui.select("Application status", [...statuses.keys()]);
+        const status = selected === undefined ? undefined : statuses.get(selected);
+        if (status === undefined) return;
+        owner.assert(run, ctx);
+        const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
+        owner.assert(run, ctx);
+        if (outcome === "cancelled") {
+          ctx.ui.notify("Status change cancelled; workspace and session were not changed.", "info");
+        }
+        return;
+      }
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
       const application = state.application;
       if (argument === "status") {
