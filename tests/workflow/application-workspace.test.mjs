@@ -119,12 +119,23 @@ async function workspaceFixture({ legacy = false, vacancy = true } = {}) {
       throw new Error("workspace actions must not invoke Career Core");
     },
   });
-  return { temp, library, root, agentDir, configFile, fake, ids, identity, vacancyEntry, get invocations() { return invocations; } };
+  const workspace = new ApplicationWorkspaceWorkflow({
+    agentDir,
+    now: workspaceNow,
+    uuid: ids,
+    appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
+  });
+  workspaces.set(fake, workspace);
+  return { temp, library, root, agentDir, configFile, fake, ids, identity, vacancyEntry, workspace, get invocations() { return invocations; } };
 }
+
+const workspaces = new WeakMap();
 
 async function runWorkspace(fake, options) {
   const context = makeContext(fake, { mode: "rpc", persisted: false, ...options });
-  await fake.commands.get("career-workspace").handler(options?.args ?? "", context.ctx);
+  const workspace = workspaces.get(fake);
+  assert.ok(workspace, "workspace workflow must be bound for Gate 1 tests");
+  await workspace.run(options?.args ?? "", context.ctx);
   return context;
 }
 
@@ -413,7 +424,7 @@ test("#63 explicitly migrates only an exactly matched legacy identity after prev
     const blocked = makeContext(value.fake, { mode: "rpc", persisted: false });
     let offeredActions;
     blocked.ctx.ui.select = async (_title, options) => { offeredActions = options; return undefined; };
-    await value.fake.commands.get("career-workspace").handler("", blocked.ctx);
+    await value.workspace.run("", blocked.ctx);
     assert.ok(offeredActions.includes("Finish application migration"));
     assert.ok(!offeredActions.includes("Record current status and vacancy"));
     assert.ok(!offeredActions.includes("Select original resume"));
@@ -1181,11 +1192,18 @@ test("unrelated application state drift does not deny current status, mutation, 
     });
     const otherFake = makeFakePi();
     otherFake.entries.push(sessionEntry(otherIdentity, 1));
+    const otherNow = () => new Date("2026-08-12T00:11:00.000Z");
     registerCareerCommands(otherFake.api, {
       agentDir: value.agentDir,
       uuid: value.ids,
-      now: () => new Date("2026-08-12T00:11:00.000Z"),
+      now: otherNow,
     });
+    workspaces.set(otherFake, new ApplicationWorkspaceWorkflow({
+      agentDir: value.agentDir,
+      uuid: value.ids,
+      now: otherNow,
+      appendEntry: (customType, data) => otherFake.api.appendEntry(customType, data),
+    }));
     await runWorkspace(otherFake, {
       selects: ["Initialize current application"],
       editors: [(_title, preview) => preview], confirms: [true],

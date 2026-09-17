@@ -1430,6 +1430,40 @@ function sameCatalogEvidence(left: CatalogEvidence, right: CatalogEvidence): boo
     JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
 }
 
+export async function listCatalogApplications(agentDir: string): Promise<Array<{ option: string; pointer: ApplicationAttachmentPointer }>> {
+  try {
+    const snapshot = await loadConfigSnapshot(agentDir);
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) return [];
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    if (!sameCatalogEvidence(initial, current)) return [];
+    const items: Array<{ option: string; pointer: ApplicationAttachmentPointer }> = [];
+    for (const { record, inspected } of initial.validatedApplications) {
+      if (record.classification !== "valid" || record.identity === undefined) continue;
+      items.push({
+        option: `${record.identity.company_label} — ${record.identity.role_label} — ${record.status}`,
+        pointer: {
+          applicationId: inspected.manifest.application_id,
+          rootId: inspected.manifest.root_id,
+          rootCreatedAt: initial.root.marker.created_at,
+          applicationCreatedAt: inspected.manifest.application_created_at,
+          workspaceCreatedAt: inspected.manifest.workspace_created_at,
+        },
+      });
+    }
+    const counts = new Map<string, number>();
+    for (const item of items) counts.set(item.option, (counts.get(item.option) ?? 0) + 1);
+    return items.map((item) => counts.get(item.option) === 1 ? item : {
+      ...item,
+      option: `${item.option} — ${item.pointer.applicationId}`,
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function readApplicationCatalog(rootPath: string, expectedRootId: string): Promise<ApplicationCatalogProjection> {
   const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
   let current: CatalogEvidence;
@@ -2584,37 +2618,19 @@ export class ApplicationWorkspaceWorkflow {
   }
 
   private async listAttachable(): Promise<Array<{ option: string; pointer: ApplicationAttachmentPointer }>> {
-    try {
-      const snapshot = await loadConfigSnapshot(this.options.agentDir);
-      const configured = snapshot.config.application_workspace;
-      if (configured === null) return [];
-      await assertApplicationWorkspaceDisjoint(snapshot.config);
-      const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
-      const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
-      if (!sameCatalogEvidence(initial, current)) return [];
-      const items: Array<{ option: string; pointer: ApplicationAttachmentPointer }> = [];
-      for (const { record, inspected } of initial.validatedApplications) {
-        if (record.classification !== "valid" || record.identity === undefined) continue;
-        items.push({
-          option: `${record.identity.company_label} — ${record.identity.role_label} — ${record.status}`,
-          pointer: {
-            applicationId: inspected.manifest.application_id,
-            rootId: inspected.manifest.root_id,
-            rootCreatedAt: initial.root.marker.created_at,
-            applicationCreatedAt: inspected.manifest.application_created_at,
-            workspaceCreatedAt: inspected.manifest.workspace_created_at,
-          },
-        });
-      }
-      const counts = new Map<string, number>();
-      for (const item of items) counts.set(item.option, (counts.get(item.option) ?? 0) + 1);
-      return items.map((item) => counts.get(item.option) === 1 ? item : {
-        ...item,
-        option: `${item.option} — ${item.pointer.applicationId}`,
-      });
-    } catch {
-      return [];
-    }
+    return listCatalogApplications(this.options.agentDir);
+  }
+
+  async attachCatalogPointer(
+    ctx: ExtensionCommandContext,
+    pointer: ApplicationAttachmentPointer,
+  ): Promise<boolean> {
+    return this.commitAttachment(
+      ctx,
+      pointer,
+      "Attach application",
+      "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive.",
+    );
   }
 
   private async selectAttachable(

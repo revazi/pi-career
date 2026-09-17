@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
 import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_ASSISTANCE_HANDOFF } from "../../src/workflow/session-attachment.ts";
@@ -51,27 +52,32 @@ async function fixture() {
   const fake = makeFakePi();
   fake.entries.push(sessionEntry(identity, 1), sessionEntry(vacancy, 2));
   let tick = 10;
+  const workspaceNow = () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`);
   registerCareerCommands(fake.api, {
     agentDir,
-    now: () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`),
+    now: workspaceNow,
     uuid: ids,
     invoke: async () => { throw new Error("attachment commands must not invoke Career Core"); },
   });
-  return { temp, root, agentDir, fake, identity };
+  const workspace = new ApplicationWorkspaceWorkflow({
+    agentDir, now: workspaceNow, uuid: ids,
+    appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
+  });
+  return { temp, root, agentDir, fake, identity, workspace };
 }
 
-async function runWorkspace(fake, options = {}) {
-  const context = makeContext(fake, { mode: "rpc", persisted: false, ...options });
-  await fake.commands.get("career-workspace").handler("", context.ctx);
+async function runWorkspace(value, options = {}) {
+  const context = makeContext(value.fake, { mode: "rpc", persisted: false, ...options });
+  await value.workspace.run("", context.ctx);
   return context;
 }
 
-async function initialize(fake, root) {
-  await runWorkspace(fake, {
-    selects: ["Configure application root"], inputs: [root],
+async function initialize(value) {
+  await runWorkspace(value, {
+    selects: ["Configure application root"], inputs: [value.root],
     editors: [(_title, preview) => preview], confirms: [true],
   });
-  await runWorkspace(fake, {
+  await runWorkspace(value, {
     selects: ["Initialize current application"],
     editors: [(_title, preview) => preview], confirms: [true],
   });
@@ -80,17 +86,17 @@ async function initialize(fake, root) {
 test("P3-27/P3-28 attach appends only the identity pointer after confirmation", async () => {
   const value = await fixture();
   try {
-    await initialize(value.fake, value.root);
+    await initialize(value);
     const beforeEntries = value.fake.entries.length;
     const beforeRoot = await snapshot(value.root);
-    const cancelled = await runWorkspace(value.fake, {
+    const cancelled = await runWorkspace(value, {
       selects: ["Attach current application"], confirms: [false],
     });
     assert.equal(value.fake.entries.length, beforeEntries);
     assert.ok(cancelled.notifications.every(({ message }) => !message.includes("attached")));
     const editorText = [];
     let reloads = 0;
-    const attached = await runWorkspace(value.fake, {
+    const attached = await runWorkspace(value, {
       selects: ["Attach current application"], confirms: [true],
       editorText, reload: async () => { reloads += 1; },
     });
@@ -113,11 +119,11 @@ test("P3-27/P3-28 attach appends only the identity pointer after confirmation", 
 test("P3-30/P3-53 detach clears activation with reload and leaves workspace bytes", async () => {
   const value = await fixture();
   try {
-    await initialize(value.fake, value.root);
-    await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
+    await initialize(value);
+    await runWorkspace(value, { selects: ["Attach current application"], confirms: [true] });
     const editorText = [];
     let reloads = 0;
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Activate Career assistance"], confirms: [true],
       editorText, reload: async () => { reloads += 1; },
     });
@@ -126,7 +132,7 @@ test("P3-30/P3-53 detach clears activation with reload and leaves workspace byte
     assert.ok(value.fake.entries.some((entry) => entry.customType === "career.application_assistance"));
     const beforeRoot = await snapshot(value.root);
     reloads = 0;
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Detach current application from session"], confirms: [true],
       reload: async () => { reloads += 1; },
     });
@@ -143,16 +149,16 @@ test("P3-30/P3-53 detach clears activation with reload and leaves workspace byte
 test("P3-51 activation prepares a document-free handoff and does not submit", async () => {
   const value = await fixture();
   try {
-    await initialize(value.fake, value.root);
-    await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
-    const cancelled = await runWorkspace(value.fake, {
+    await initialize(value);
+    await runWorkspace(value, { selects: ["Attach current application"], confirms: [true] });
+    const cancelled = await runWorkspace(value, {
       selects: ["Activate Career assistance"], confirms: [false],
     });
     assert.equal(value.fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
     assert.ok(cancelled.notifications.every(({ message }) => !message.includes("prepared")));
     const editorText = [];
     let reloads = 0;
-    await runWorkspace(value.fake, {
+    await runWorkspace(value, {
       selects: ["Activate Career assistance"], confirms: [true],
       editorText, reload: async () => { reloads += 1; },
     });

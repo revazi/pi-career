@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { createApplicationAttachmentEntry } from "../../src/workflow/session-attachment.ts";
 import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
@@ -99,13 +100,17 @@ async function fixture() {
     id: "attach-1", parentId: null, timestamp: WORKSPACE_CREATED_AT,
   });
   let tick = 10;
+  const now = () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`);
+  const ids = uuidSequence();
   registerCareerCommands(fake.api, {
-    agentDir,
-    now: () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`),
-    uuid: uuidSequence(),
+    agentDir, now, uuid: ids,
     invoke: async () => { throw new Error("application status must not invoke Career Core"); },
   });
-  return { temp, root, directory, fake };
+  const workspace = new ApplicationWorkspaceWorkflow({
+    agentDir, now, uuid: ids,
+    appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
+  });
+  return { temp, root, directory, fake, workspace };
 }
 
 test("P3-45 attached application status is workspace-only and cancelled updates change neither authority", async () => {
@@ -120,32 +125,27 @@ test("P3-45 attached application status is workspace-only and cancelled updates 
     assert.deepEqual(value.fake.entries, beforeEntries);
 
     const cancelledPreview = makeContext(value.fake, {
-      mode: "rpc", persisted: false,
-      selects: ["Update status", "Applied"],
-      editors: [undefined],
+      mode: "rpc", persisted: false, editors: [undefined],
     });
-    await value.fake.commands.get("career-application").handler("", cancelledPreview.ctx);
+    assert.equal(await value.workspace.writeAttachedStatus(cancelledPreview.ctx, "applied"), "cancelled");
     assert.deepEqual(value.fake.entries, beforeEntries);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
 
     const cancelledConfirm = makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Update status", "Applied"],
       editors: [(_title, preview) => preview],
       confirms: [false],
     });
-    await value.fake.commands.get("career-application").handler("", cancelledConfirm.ctx);
+    assert.equal(await value.workspace.writeAttachedStatus(cancelledConfirm.ctx, "applied"), "cancelled");
     assert.deepEqual(value.fake.entries, beforeEntries);
     assert.deepEqual(await snapshot(value.root), beforeRoot);
-    assert.ok(cancelledConfirm.notifications.some(({ message }) => message.includes("cancelled")));
 
     const saved = makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Update status", "Applied"],
       editors: [(_title, preview) => preview],
       confirms: [true],
     });
-    await value.fake.commands.get("career-application").handler("", saved.ctx);
+    assert.equal(await value.workspace.writeAttachedStatus(saved.ctx, "applied"), "written");
     assert.equal(value.fake.entries.some((entry) => entry.data?.kind === "application"), false);
     assert.deepEqual(
       value.fake.entries.map((entry) => entry.customType),
