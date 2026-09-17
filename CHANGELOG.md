@@ -12,6 +12,7 @@
 - Preserved first-run and v1 compatibility: ordinary setup may safely bootstrap only private `career/`, absent/v1 ordinary mutations continue writing canonical v1, only confirmed workspace-root configuration migrates to v2, and every later writer preserves v2 plus its optional application-root binding while freshly rejecting root overlap.
 - Documented that Gate 1 performs no Core/runtime/provider/model/network/child/session-append action and does not implement assisted workspace artifacts, deletion, broader application files, repair, adoption, archive, or sync. The separate `/career-save` workflow is unchanged.
 - When a persistent application is attached, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `career_run context` use workspace files as the only current vacancy/Resume authority: cancelled vacancy saves change neither workspace nor session, match uses the effective Resume, analyze uses only the selected original, and workbench/assistance never auto-submit.
+- Attached `/career-application` shows and updates workspace lifecycle only through a previewed file mutation, and `/career-application clear` detaches without a competing session-only status or vacancy.
 
 ## 0.3.0 - 2026-08-14
 

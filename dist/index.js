@@ -5205,10 +5205,13 @@ var ApplicationWorkspaceWorkflow = class {
     if (action === "Attach current application") return this.attachCurrent(ctx);
     if (action === "Attach application") return this.attachFromCatalog(ctx);
     if (action === "Open application in new Pi session") return this.openInNewSession(ctx);
-    if (action === "Detach current application from session") return this.detachCurrent(ctx);
+    if (action === "Detach current application from session") {
+      await this.detachAttachedApplication(ctx);
+      return;
+    }
     if (action === "Activate Career assistance") return this.activateAssistance(ctx);
   }
-  async writeAttachedVacancy(ctx, text) {
+  async attachedMutation(ctx) {
     if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
     if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
     const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
@@ -5217,11 +5220,71 @@ var ApplicationWorkspaceWorkflow = class {
     }
     const loaded = await inspectAttachedApplication(this.options.agentDir, records.attachment);
     const application = loaded.inspected;
-    const configured = loaded.snapshot.config.application_workspace;
-    if (configured === null || application.identity === void 0) throw workflowError("attachment_unavailable");
+    if (loaded.snapshot.config.application_workspace === null || application.identity === void 0) {
+      throw workflowError("attachment_unavailable");
+    }
     await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
     const identity2 = sessionIdentity(ctx);
     if (identity2 !== void 0 && (identity2.identity.application_id !== application.manifest.application_id || identity2.identity.created_at !== application.manifest.application_created_at || identity2.identity.company_label !== application.identity.company_label || identity2.identity.role_label !== application.identity.role_label)) throw workflowError("workspace_identity_conflict");
+    return {
+      loaded,
+      application,
+      identity: identity2,
+      target: {
+        directoryPath: application.directoryPath,
+        applicationId: application.manifest.application_id,
+        applicationCreatedAt: application.manifest.application_created_at,
+        companyLabel: application.identity.company_label,
+        roleLabel: application.identity.role_label
+      }
+    };
+  }
+  async publishAttachedRevision(ctx, mutation, operation, mutationId, createdAt, files, stateBuffer, revisionAdditions, successMessage) {
+    const configured = mutation.loaded.snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("attachment_unavailable");
+    for (const file of files) await requireAbsent(file.final);
+    assertApplicationCapacity(mutation.application, files, revisionAdditions);
+    if (ctx.sessionManager.getSessionFile() === void 0) {
+      ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
+    }
+    const root = await inspectRoot(configured.root_path, {
+      expectedRootId: configured.root_id,
+      currentApplication: mutation.target
+    });
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      operation,
+      mutation.application.manifest.application_id,
+      mutation.identity,
+      mutation.loaded.snapshot.sha256,
+      mutation.application.headFile.sha256,
+      files.map((file) => createPreview(file.final, file.bytes)),
+      [],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      ctx.sessionManager.getSessionFile() === void 0 ? ["Transient session: the revision outlives this process."] : [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return "cancelled";
+    await this.commitRevision(
+      plan,
+      ctx,
+      { snapshot: mutation.loaded.snapshot, root, application: mutation.application },
+      mutation.identity,
+      files,
+      stateBuffer,
+      async () => {
+        await validateSelectedBinding(mutation.loaded.snapshot.config, mutation.application.head.selected_original);
+      },
+      mutation.target
+    );
+    ctx.ui.notify(successMessage, "info");
+    return "written";
+  }
+  async writeAttachedVacancy(ctx, text) {
+    const mutation = await this.attachedMutation(ctx);
+    const { application } = mutation;
     const nextBytes = text === null ? void 0 : Buffer.from(text, "utf8");
     if (text !== null && (nextBytes === void 0 || nextBytes.length === 0 || nextBytes.length > VACANCY_MAX_BYTES || text.includes("\r") || hasUnpairedSurrogate(text) || !isWithinCoreCharacterLimit(text) || sha256(text) !== hashBytes2(nextBytes))) {
       throw workflowError("invalid_command_arguments");
@@ -5237,9 +5300,7 @@ var ApplicationWorkspaceWorkflow = class {
     const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
-    const vacancyFile = path6.join(application.directoryPath, vacancyName);
-    const sourceStateId = this.options.uuid().toLowerCase();
-    const nextVacancy = text === null || nextBytes === void 0 ? null : vacancyBindingFromBytes(vacancyName, nextBytes, sourceStateId);
+    const nextVacancy = text === null || nextBytes === void 0 ? null : vacancyBindingFromBytes(vacancyName, nextBytes, this.options.uuid().toLowerCase());
     const state = {
       schema_version: STATE_SCHEMA_V2,
       kind: "application_state_revision",
@@ -5254,64 +5315,96 @@ var ApplicationWorkspaceWorkflow = class {
       updated_at: createdAt
     };
     const stateBuffer = stateBytes(state);
-    const files = [
-      ...prepared.transitionFiles,
-      ...nextBytes === void 0 ? [] : [{
-        final: vacancyFile,
-        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
-        bytes: nextBytes
-      }],
-      {
-        final: path6.join(application.directoryPath, stateName(sequence)),
-        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
-        bytes: stateBuffer
-      }
-    ];
-    for (const file of files) await requireAbsent(file.final);
-    assertApplicationCapacity(application, files, prepared.revisionAdditions);
-    if (ctx.sessionManager.getSessionFile() === void 0) {
-      ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
-    }
-    const target = {
-      directoryPath: application.directoryPath,
-      applicationId: application.manifest.application_id,
-      applicationCreatedAt: application.manifest.application_created_at,
-      companyLabel: application.identity.company_label,
-      roleLabel: application.identity.role_label
-    };
-    const root = await inspectRoot(configured.root_path, {
-      expectedRootId: configured.root_id,
-      currentApplication: target
-    });
-    const attachment = {
-      snapshot: loaded.snapshot,
-      root,
-      application
-    };
-    const plan = buildPlan(
-      this.options,
+    return this.publishAttachedRevision(
       ctx,
+      mutation,
       "update_vacancy",
-      application.manifest.application_id,
-      identity2,
-      loaded.snapshot.sha256,
-      application.headFile.sha256,
-      files.map((file) => createPreview(file.final, file.bytes)),
-      [],
-      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
-      ctx.sessionManager.getSessionFile() === void 0 ? ["Transient session: the revision outlives this process."] : [],
       mutationId,
-      createdAt
+      createdAt,
+      [
+        ...prepared.transitionFiles,
+        ...nextBytes === void 0 ? [] : [{
+          final: path6.join(application.directoryPath, vacancyName),
+          temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
+          bytes: nextBytes
+        }],
+        {
+          final: path6.join(application.directoryPath, stateName(sequence)),
+          temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+          bytes: stateBuffer
+        }
+      ],
+      stateBuffer,
+      prepared.revisionAdditions,
+      `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`
     );
-    if (!await approve(plan, ctx)) return "cancelled";
-    await this.commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, async () => {
-      await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
-    }, target);
-    ctx.ui.notify(
-      `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`,
-      "info"
+  }
+  async writeAttachedStatus(ctx, status) {
+    if (!APPLICATION_STATUSES2.has(status)) throw workflowError("invalid_command_arguments");
+    const mutation = await this.attachedMutation(ctx);
+    const { application } = mutation;
+    if (application.head.status === status) {
+      ctx.ui.notify("Workspace status already matches this input; no revision was added.", "info");
+      return "unchanged";
+    }
+    const mutationId = this.options.uuid().toLowerCase();
+    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const { createdAt, sequence } = prepared;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const state = {
+      schema_version: STATE_SCHEMA_V2,
+      kind: "application_state_revision",
+      application_id: application.manifest.application_id,
+      sequence,
+      parent_sha256: prepared.parentSha256,
+      status,
+      vacancy: application.head.vacancy,
+      selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact,
+      cover_letter_artifact: prepared.coverLetterArtifact,
+      updated_at: createdAt
+    };
+    const stateBuffer = stateBytes(state);
+    return this.publishAttachedRevision(
+      ctx,
+      mutation,
+      "record_state",
+      mutationId,
+      createdAt,
+      [
+        ...prepared.transitionFiles,
+        {
+          final: path6.join(application.directoryPath, stateName(sequence)),
+          temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+          bytes: stateBuffer
+        }
+      ],
+      stateBuffer,
+      prepared.revisionAdditions,
+      `Recorded immutable workspace status revision ${sequence}. Workspace files besides the new state were not changed.`
     );
-    return "written";
+  }
+  async detachAttachedApplication(ctx) {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === void 0) throw workflowError("attachment_unavailable");
+    const confirmed = await ctx.ui.confirm(
+      "Detach current application",
+      "Detach this application from the Pi session? Workspace files are not changed."
+    );
+    if (confirmed !== true) return "cancelled";
+    const latest = this.sessionRecords(ctx);
+    if (latest.attachment === void 0 || latest.attachment.attachment_id !== records.attachment.attachment_id) {
+      throw workflowError("workspace_unavailable");
+    }
+    this.requireAppender()(
+      APPLICATION_ATTACHMENT_CUSTOM_TYPE,
+      createApplicationDetachmentEntry(latest.attachment, this.options)
+    );
+    ctx.ui.notify("Application detached from the session. Workspace files were not changed.", "info");
+    if (latest.activation !== void 0) {
+      await ctx.reload();
+    }
+    return "detached";
   }
   async prepareAssistanceHandoff(ctx) {
     const records = this.sessionRecords(ctx);
@@ -5502,27 +5595,6 @@ var ApplicationWorkspaceWorkflow = class {
       "Attach current application",
       "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
     );
-  }
-  async detachCurrent(ctx) {
-    const records = this.sessionRecords(ctx);
-    if (records.attachment === void 0) throw workflowError("attachment_unavailable");
-    const confirmed = await ctx.ui.confirm(
-      "Detach current application",
-      "Detach this application from the Pi session? Workspace files are not changed."
-    );
-    if (confirmed !== true) return;
-    const latest = this.sessionRecords(ctx);
-    if (latest.attachment === void 0 || latest.attachment.attachment_id !== records.attachment.attachment_id) {
-      throw workflowError("workspace_unavailable");
-    }
-    this.requireAppender()(
-      APPLICATION_ATTACHMENT_CUSTOM_TYPE,
-      createApplicationDetachmentEntry(latest.attachment, this.options)
-    );
-    ctx.ui.notify("Application detached from the session. Workspace files were not changed.", "info");
-    if (latest.activation !== void 0) {
-      await ctx.reload();
-    }
   }
   async activateAssistance(ctx) {
     const records = this.sessionRecords(ctx);
@@ -8939,6 +9011,54 @@ function registerCareerCommands(pi, options = {}) {
         throw workflowError("invalid_command_arguments");
       }
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== void 0) {
+        const summary = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+        if (argument === "status") {
+          ctx.ui.notify(summary, "info");
+          return;
+        }
+        if (argument === "clear") {
+          const outcome2 = await applicationWorkspace.detachAttachedApplication(ctx);
+          owner.assert(run, ctx);
+          if (outcome2 === "cancelled") {
+            ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          }
+          return;
+        }
+        const action2 = await ctx.ui.select(summary, ["View", "Update status", "Detach", "Close"]);
+        owner.assert(run, ctx);
+        if (action2 === "View") {
+          ctx.ui.notify(summary, "info");
+          return;
+        }
+        if (action2 === "Detach") {
+          const outcome2 = await applicationWorkspace.detachAttachedApplication(ctx);
+          owner.assert(run, ctx);
+          if (outcome2 === "cancelled") {
+            ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          }
+          return;
+        }
+        if (action2 !== "Update status") return;
+        const statuses = /* @__PURE__ */ new Map([
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"]
+        ]);
+        const selected = await ctx.ui.select("Application status", [...statuses.keys()]);
+        const status = selected === void 0 ? void 0 : statuses.get(selected);
+        if (status === void 0) return;
+        owner.assert(run, ctx);
+        const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
+        owner.assert(run, ctx);
+        if (outcome === "cancelled") {
+          ctx.ui.notify("Status change cancelled; workspace and session were not changed.", "info");
+        }
+        return;
+      }
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
       const application = state.application;
       if (argument === "status") {
