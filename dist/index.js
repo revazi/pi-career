@@ -2692,6 +2692,39 @@ function rankMatches(values) {
   return ranked;
 }
 
+// src/workflow/application-workspace.ts
+import { createHash as createHash4 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import {
+  chmod,
+  link as link2,
+  lstat as lstat4,
+  mkdir as mkdir2,
+  open as open2,
+  opendir as opendir2,
+  readFile as readFile4,
+  realpath as realpath4,
+  rmdir,
+  unlink as unlink2
+} from "node:fs/promises";
+import path6 from "node:path";
+import { TextDecoder as TextDecoder5 } from "node:util";
+import {
+  withFileMutationQueue as withFileMutationQueue2
+} from "@earendil-works/pi-coding-agent";
+
+// src/workflow/renderers.ts
+import os from "node:os";
+import path5 from "node:path";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  wrapTextWithAnsi
+} from "@earendil-works/pi-tui";
+
 // src/workflow/session-state.ts
 var UUID2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var SHA2563 = /^[a-f0-9]{64}$/;
@@ -2979,12 +3012,16 @@ function createConsentEntry(granted, options) {
     granted
   };
 }
-function withCurrentStaleness(state, scan) {
-  const records = new Map(scan.records.map((record) => [record.id, record]));
+function withCurrentStaleness(state, scan, vacancyDigest, extraRecords = []) {
+  const records = new Map([
+    ...scan.records.map((record) => [record.id, record]),
+    ...extraRecords.map((record) => [record.id, record])
+  ]);
+  const authoritativeVacancy = vacancyDigest === void 0 ? state.vacancy?.vacancy_text_sha256 : vacancyDigest ?? void 0;
   const cards = state.result_cards.map((card) => {
     const current = records.get(card.resume_id);
     const resumeStale = current === void 0 || current.text_sha256 !== card.input_digests.resume_text_sha256;
-    const vacancyStale = card.workflow === "match" && state.vacancy?.vacancy_text_sha256 !== card.input_digests.vacancy_text_sha256;
+    const vacancyStale = card.workflow === "match" && authoritativeVacancy !== card.input_digests.vacancy_text_sha256;
     const stale = resumeStale || vacancyStale;
     return {
       ...card,
@@ -2997,1030 +3034,7 @@ function withCurrentStaleness(state, scan) {
   return { ...state, result_cards: cards };
 }
 
-// src/managed/errors.ts
-var MESSAGES = {
-  invalid_request: "The career_run request is invalid.",
-  consent_required: "Explicit Pi session-persistence consent is required before loading private career context.",
-  consent_declined: "Session persistence was declined. Start a new `pi --no-session` run for a transient workflow.",
-  context_required: "Run career_run context first to obtain current ephemeral handles.",
-  resume_not_found: "The requested original-resume handle is unavailable or stale.",
-  vacancy_not_found: "The requested current-vacancy handle is unavailable or stale.",
-  result_not_found: "The requested ephemeral result handle is unavailable or expired.",
-  review_not_found: "The requested ephemeral review handle is unavailable or expired.",
-  selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
-  pdf_materialization_unsupported: "PDF review changes are manual-application guidance and cannot be materialized from extracted text.",
-  managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
-  managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
-  managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
-  detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
-  session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
-  assistance_required: "Career assistance is inactive in this session.",
-  variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
-  variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
-  variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
-  variant_save_collision: "A save destination already exists; no existing file was replaced.",
-  variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
-  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying."
-};
-var CareerRunError = class extends Error {
-  code;
-  constructor(code) {
-    super(JSON.stringify({
-      schema_version: "pi.career.run_error.v1",
-      code,
-      message: MESSAGES[code]
-    }));
-    this.name = "CareerRunError";
-    this.code = code;
-  }
-};
-function careerRunErrorMessage(code) {
-  return MESSAGES[code];
-}
-function careerRunError(code) {
-  return new CareerRunError(code);
-}
-function managedFailure(error) {
-  if (error instanceof CareerRunError) return error;
-  if (error instanceof Error && error.message === "managed_contract_invalid") {
-    return careerRunError("managed_contract_invalid");
-  }
-  if (error instanceof Error && error.message === "managed_payload_invalid") {
-    return careerRunError("invalid_request");
-  }
-  return careerRunError("managed_result_invalid");
-}
-
-// src/managed/proposals.ts
-var SECTIONS = /* @__PURE__ */ new Set([
-  "contact",
-  "summary",
-  "experience",
-  "education",
-  "skills",
-  "projects",
-  "certifications",
-  "other"
-]);
-function isRecord6(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function hasExactKeys(value, keys) {
-  return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
-}
-function boundedString(value, minimum, maximum) {
-  if (typeof value !== "string") return false;
-  const length = [...value].length;
-  return length >= minimum && length <= maximum;
-}
-function boundedInteger(value, minimum, maximum) {
-  return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
-}
-function stringList(value, minimum, maximum, itemMaximum) {
-  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) return void 0;
-  if (!value.every((item) => boundedString(item, 1, itemMaximum))) return void 0;
-  const strings = value;
-  return new Set(strings).size === strings.length ? [...strings] : void 0;
-}
-function parseVariantChange(value) {
-  if (!isRecord6(value) || !hasExactKeys(value, [
-    "section",
-    "start_line",
-    "end_line",
-    "original_text",
-    "proposed_text",
-    "resume_evidence",
-    "vacancy_evidence"
-  ])) return void 0;
-  const resumeEvidence = stringList(value.resume_evidence, 1, 5, 300);
-  const vacancyEvidence = stringList(value.vacancy_evidence, 1, 5, 300);
-  if (typeof value.section !== "string" || !SECTIONS.has(value.section) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.original_text, 1, 1e4) || !boundedString(value.proposed_text, 0, 1e4) || resumeEvidence === void 0 || vacancyEvidence === void 0) return void 0;
-  return {
-    section: value.section,
-    start_line: value.start_line,
-    end_line: value.end_line,
-    original_text: value.original_text,
-    proposed_text: value.proposed_text,
-    resume_evidence: resumeEvidence,
-    vacancy_evidence: vacancyEvidence
-  };
-}
-function parseAnalysisSuggestion(value) {
-  if (!isRecord6(value) || !hasExactKeys(value, [
-    "basis_check_id",
-    "start_line",
-    "end_line",
-    "source_target",
-    "source_evidence",
-    "suggestion"
-  ])) return void 0;
-  const evidence = stringList(value.source_evidence, 1, 2, 240);
-  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.suggestion, 1, 600)) return void 0;
-  return {
-    basis_check_id: value.basis_check_id,
-    start_line: value.start_line,
-    end_line: value.end_line,
-    source_target: value.source_target,
-    source_evidence: evidence,
-    suggestion: value.suggestion
-  };
-}
-function parseAnalysisReplacement(value) {
-  if (!isRecord6(value) || !hasExactKeys(value, [
-    "basis_check_id",
-    "start_line",
-    "end_line",
-    "source_target",
-    "source_evidence",
-    "proposed_replacement"
-  ])) return void 0;
-  const evidence = stringList(value.source_evidence, 1, 2, 240);
-  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.proposed_replacement, 0, 600)) return void 0;
-  return {
-    basis_check_id: value.basis_check_id,
-    start_line: value.start_line,
-    end_line: value.end_line,
-    source_target: value.source_target,
-    source_evidence: evidence,
-    proposed_replacement: value.proposed_replacement
-  };
-}
-function parseVariantChanges(payload) {
-  if (!isRecord6(payload) || !hasExactKeys(payload, ["changes"]) || !Array.isArray(payload.changes) || payload.changes.length > 50) {
-    throw new Error("managed_payload_invalid");
-  }
-  const changes = payload.changes.map(parseVariantChange);
-  if (changes.some((change) => change === void 0)) throw new Error("managed_payload_invalid");
-  return changes;
-}
-function parseAnalysisSuggestions(payload) {
-  if (!isRecord6(payload) || !hasExactKeys(payload, ["suggestions"]) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 3) {
-    throw new Error("managed_payload_invalid");
-  }
-  const suggestions = payload.suggestions.map(parseAnalysisSuggestion);
-  if (suggestions.some((suggestion) => suggestion === void 0)) {
-    throw new Error("managed_payload_invalid");
-  }
-  return suggestions;
-}
-function parseAnalysisReplacements(payload) {
-  if (!isRecord6(payload) || !hasExactKeys(payload, ["replacements"]) || !Array.isArray(payload.replacements) || payload.replacements.length > 3) {
-    throw new Error("managed_payload_invalid");
-  }
-  const replacements = payload.replacements.map(parseAnalysisReplacement);
-  if (replacements.some((replacement) => replacement === void 0)) {
-    throw new Error("managed_payload_invalid");
-  }
-  return replacements;
-}
-function parseSelectedChangeIds(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 50 || !value.every((item) => typeof item === "string" && /^change-[0-9]{4}$/.test(item)) || new Set(value).size !== value.length) throw new Error("managed_payload_invalid");
-  return [...value];
-}
-
-// src/managed/registry.ts
-var MAX_ENTRY_COUNT = 16;
-var MAX_TOTAL_BYTES = 67108864;
-var HANDLE_SUFFIX_PATTERN = /^[a-f0-9-]{8,64}$/;
-function handlePrefix(kind) {
-  return kind === "review" ? "review" : kind === "variant" ? "variant" : "result";
-}
-function entryBytes(entry) {
-  return Buffer.byteLength(entry.json, "utf8") + (entry.reviewInput === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8")) + (entry.variantSource === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.variantSource), "utf8"));
-}
-var ManagedRegistry = class {
-  constructor(uuid, now) {
-    this.uuid = uuid;
-    this.now = now;
-  }
-  uuid;
-  now;
-  sessionId;
-  contextReady = false;
-  entries = /* @__PURE__ */ new Map();
-  totalBytes = 0;
-  enterSession(sessionId) {
-    if (this.sessionId === sessionId) return;
-    this.clear();
-    this.sessionId = sessionId;
-  }
-  resetSession(sessionId) {
-    this.clear();
-    this.sessionId = sessionId;
-  }
-  markContextReady(sessionId) {
-    this.enterSession(sessionId);
-    this.contextReady = true;
-  }
-  hasContext(sessionId) {
-    return this.sessionId === sessionId && this.contextReady;
-  }
-  store(entry) {
-    const bytes = entryBytes(entry);
-    if (bytes > MAX_TOTAL_BYTES) throw new Error("managed_result_capacity");
-    while (this.entries.size >= MAX_ENTRY_COUNT || this.totalBytes + bytes > MAX_TOTAL_BYTES) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest === void 0) break;
-      this.delete(oldest);
-    }
-    let handle;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const suffix = this.uuid().toLowerCase().replace(/[^a-f0-9-]/g, "").slice(0, 24);
-      if (!HANDLE_SUFFIX_PATTERN.test(suffix)) throw new Error("managed_result_capacity");
-      const candidate = `${handlePrefix(entry.kind)}:${suffix}`;
-      if (!this.entries.has(candidate)) {
-        handle = candidate;
-        break;
-      }
-    }
-    if (handle === void 0) throw new Error("managed_result_capacity");
-    const stored = {
-      ...entry,
-      handle,
-      createdAt: this.now().getTime(),
-      bytes
-    };
-    this.entries.set(handle, stored);
-    this.totalBytes += bytes;
-    return stored;
-  }
-  get(handle, kind) {
-    const entry = this.entries.get(handle);
-    if (entry === void 0 || kind !== void 0 && entry.kind !== kind) return void 0;
-    return entry;
-  }
-  clear() {
-    this.entries.clear();
-    this.totalBytes = 0;
-    this.contextReady = false;
-    this.sessionId = void 0;
-  }
-  delete(handle) {
-    const entry = this.entries.get(handle);
-    if (entry === void 0) return;
-    this.totalBytes -= entry.bytes;
-    this.entries.delete(handle);
-  }
-};
-
-// src/managed/schema.ts
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
-var RAW_TOOL_NAMES = [
-  "career_core_discover",
-  "career_core_resume",
-  "career_core_job"
-];
-var MANAGED_TOOL_NAME = "career_run";
-var CAREER_RUN_COMMANDS = [
-  "context",
-  "consent",
-  "analyze",
-  "match",
-  "suggestion-review",
-  "replacement-review",
-  "variant-review",
-  "materialize",
-  "detail"
-];
-var DETAIL_SECTIONS = [
-  "summary",
-  "warnings",
-  "checks",
-  "evidence",
-  "changes",
-  "document",
-  "raw"
-];
-var careerRunParameters = Type.Object({
-  command: StringEnum(CAREER_RUN_COMMANDS),
-  handle: Type.Optional(Type.String({
-    pattern: "^(resume|result|review|variant):[a-f0-9-]{8,64}$",
-    maxLength: 80
-  })),
-  payload: Type.Optional(Type.Unknown({
-    description: "Native command payload; never a JSON string or complete Core envelope."
-  }))
-}, { additionalProperties: false });
-
-// src/managed/engine.ts
-var MODEL_DETAIL_MAX_BYTES = 5e4;
-function isRecord7(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function stringArray(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-function validVariantSelectionChange(value, expectedId) {
-  if (!isRecord7(value)) return false;
-  return [
-    value.change_id === expectedId,
-    typeof value.section === "string",
-    Number.isSafeInteger(value.start_line),
-    Number.isSafeInteger(value.end_line),
-    typeof value.original_text === "string",
-    typeof value.proposed_text === "string",
-    stringArray(value.resume_evidence),
-    stringArray(value.vacancy_evidence)
-  ].every(Boolean);
-}
-function variantSelectionChange(value, expectedId) {
-  if (!validVariantSelectionChange(value, expectedId)) return void 0;
-  return {
-    change_id: expectedId,
-    section: value.section,
-    start_line: value.start_line,
-    end_line: value.end_line,
-    original_text: value.original_text,
-    proposed_text: value.proposed_text,
-    resume_evidence: [...value.resume_evidence],
-    vacancy_evidence: [...value.vacancy_evidence]
-  };
-}
-function arrayField2(value, field) {
-  const found = value[field];
-  if (!Array.isArray(found)) throw careerRunError("managed_result_invalid");
-  return found;
-}
-function warnings(value) {
-  return arrayField2(value, "warnings");
-}
-function exactDefinedKeys(params, allowed) {
-  const keys = Object.entries(params).filter(([, value]) => value !== void 0).map(([key]) => key);
-  if (keys.some((key) => !allowed.includes(key))) throw careerRunError("invalid_request");
-}
-function parseConsentDecision(payload) {
-  if (payload !== "approve" && payload !== "decline") throw careerRunError("invalid_request");
-  return payload;
-}
-function parseMaterializeRequest(payload) {
-  if (!isRecord7(payload) || Object.keys(payload).join("") !== "selected_change_ids") {
-    throw careerRunError("invalid_request");
-  }
-  return parseSelectedChangeIds(payload.selected_change_ids);
-}
-function parseDetailRequest(payload) {
-  if (!isRecord7(payload)) throw careerRunError("invalid_request");
-  const keys = Object.keys(payload).sort().join("\0");
-  if (keys !== "section" && keys !== "item\0section") throw careerRunError("invalid_request");
-  if (!DETAIL_SECTIONS.includes(payload.section)) {
-    throw careerRunError("invalid_request");
-  }
-  if (payload.item !== void 0 && (typeof payload.item !== "string" || !/^(change|suggestion|replacement)-[0-9]{4}$/.test(payload.item))) {
-    throw careerRunError("invalid_request");
-  }
-  return {
-    section: payload.section,
-    ...payload.item === void 0 ? {} : { item: payload.item }
-  };
-}
-function resultEnvelope(command, body, details) {
-  const text = JSON.stringify({ schema_version: "pi.career.run_result.v1", command, ...body });
-  if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
-    throw careerRunError("detail_too_large");
-  }
-  return {
-    content: [{ type: "text", text }],
-    details: { schema_version: "pi.career.run_details.v1", command, ...details }
-  };
-}
-function resumeHandles(records) {
-  const shortCounts = /* @__PURE__ */ new Map();
-  for (const record of records) {
-    const short = record.id.slice(0, 16);
-    shortCounts.set(short, (shortCounts.get(short) ?? 0) + 1);
-  }
-  return new Map(records.map((record) => {
-    const short = record.id.slice(0, 16);
-    const suffix = shortCounts.get(short) === 1 ? short : record.id.slice(0, 24);
-    return [`resume:${suffix}`, record];
-  }));
-}
-function persisted(ctx) {
-  return ctx.sessionManager.getSessionFile() !== void 0;
-}
-function persistenceConsent(ctx) {
-  if (!persisted(ctx)) return "not_required";
-  const consent = reconstructWorkflowState(ctx.sessionManager.getBranch()).consent;
-  if (consent?.granted === true) return "approved";
-  if (consent?.granted === false) return "declined";
-  return "required";
-}
-function requireConsent(ctx) {
-  const consent = persistenceConsent(ctx);
-  if (consent === "required") throw careerRunError("consent_required");
-  if (consent === "declined") throw careerRunError("consent_declined");
-}
-async function currentResumes(agentDir) {
-  const config = await loadConfig(agentDir);
-  const scan = await scanLibrary(config);
-  return resumeHandles(eligibleOriginals(scan));
-}
-async function resolveResume(agentDir, ctx, registry, handle) {
-  if (!registry.hasContext(ctx.sessionManager.getSessionId())) throw careerRunError("context_required");
-  if (handle === void 0) throw careerRunError("invalid_request");
-  const resume = (await currentResumes(agentDir)).get(handle);
-  if (resume === void 0) throw careerRunError("resume_not_found");
-  return resume;
-}
-function resolveVacancy(ctx) {
-  const vacancy = reconstructWorkflowState(ctx.sessionManager.getBranch()).vacancy;
-  if (vacancy === void 0) throw careerRunError("vacancy_not_found");
-  return vacancy;
-}
-function ensureSchema(value, schema) {
-  if (value.schema_version !== schema) throw careerRunError("managed_result_invalid");
-}
-function safeSummary(value) {
-  return typeof value === "number" || typeof value === "string" ? String(value) : "complete";
-}
-function compactAnalyze(result) {
-  const projection = projectResumeAnalysis(result);
-  return {
-    result_schema: result.schema_version,
-    overall_score: projection.summary.overall_score,
-    category_scores: projection.summary.category_scores,
-    confidence_context: projection.summary.confidence_context,
-    top_strengths: projection.summary.top_strengths,
-    top_weaknesses: projection.summary.top_weaknesses,
-    improvement_actions: projection.summary.improvement_actions,
-    warnings: warnings(result)
-  };
-}
-function compactMatch(result) {
-  const projection = projectJobMatch(result);
-  return {
-    result_schema: result.schema_version,
-    overall_score: projection.summary.overall_score,
-    category_scores: projection.summary.category_scores,
-    confidence_context: projection.summary.confidence_context,
-    top_strengths: projection.summary.top_strengths,
-    top_gaps: projection.summary.top_gaps,
-    recommendation: projection.summary.recommendation,
-    warnings: warnings(result)
-  };
-}
-function validateAuthority(result) {
-  if (result.authority !== "assisted_non_authoritative") {
-    throw careerRunError("managed_result_invalid");
-  }
-}
-function compactSuggestionReview(result) {
-  ensureSchema(result, "career.resume_analysis_suggestion_review.v1");
-  validateAuthority(result);
-  return {
-    result_schema: result.schema_version,
-    authority: result.authority,
-    suggestions: arrayField2(result, "suggestions"),
-    discarded_suggestions: arrayField2(result, "discarded_suggestions"),
-    warnings: warnings(result)
-  };
-}
-function compactReplacementReview(result) {
-  ensureSchema(result, "career.resume_analysis_replacement_review.v1");
-  validateAuthority(result);
-  return {
-    result_schema: result.schema_version,
-    authority: result.authority,
-    replacements: arrayField2(result, "replacements"),
-    discarded_replacements: arrayField2(result, "discarded_replacements"),
-    warnings: warnings(result)
-  };
-}
-function compactCanonicalChanges(changes) {
-  return changes.map((change) => isRecord7(change) ? {
-    change_id: change.change_id,
-    section: change.section,
-    start_line: change.start_line,
-    end_line: change.end_line
-  } : change);
-}
-function compactVariantReview(result) {
-  ensureSchema(result, "career.resume_variant_review.v1");
-  validateAuthority(result);
-  const changes = arrayField2(result, "changes");
-  return {
-    result_schema: result.schema_version,
-    authority: result.authority,
-    retained_change_count: changes.length,
-    changes: compactCanonicalChanges(changes),
-    discarded_changes: arrayField2(result, "discarded_changes"),
-    warnings: warnings(result),
-    detail_guidance: "Use career_run detail with section=changes; add item=change-NNNN for one exact canonical change."
-  };
-}
-function compactVariant(result) {
-  ensureSchema(result, "career.resume_variant.v1");
-  validateAuthority(result);
-  const selected = arrayField2(result, "selected_changes");
-  return {
-    result_schema: result.schema_version,
-    authority: result.authority,
-    selected_change_count: selected.length,
-    selected_changes: compactCanonicalChanges(selected),
-    warnings: warnings(result),
-    detail_guidance: "Use career_run detail with section=document for assisted text or section=changes plus an item for one canonical change."
-  };
-}
-function evidenceDetail(value) {
-  const analysis = isRecord7(value.baseline_analysis) ? value.baseline_analysis : value;
-  const checks = isRecord7(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
-  return checks.flatMap((check) => isRecord7(check) && Array.isArray(check.evidence) ? [{ check_id: check.check_id, evidence: check.evidence }] : []);
-}
-var DETAIL_SUMMARIES = {
-  "resume.analyze": compactAnalyze,
-  "job.match": compactMatch,
-  "resume.analysis-suggestions.review": compactSuggestionReview,
-  "resume.analysis-replacements.review": compactReplacementReview,
-  "resume.variant.review": compactVariantReview,
-  "resume.variant.materialize": compactVariant
-};
-function analysisChecks(value) {
-  const analysis = isRecord7(value.baseline_analysis) ? value.baseline_analysis : value;
-  return isRecord7(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
-}
-function reviewedItems(value) {
-  const items = value.changes ?? value.suggestions ?? value.replacements ?? value.selected_changes ?? [];
-  if (!Array.isArray(items)) throw careerRunError("managed_result_invalid");
-  return items;
-}
-function exactReviewedItem(items, item) {
-  const found = items.find((candidate) => isRecord7(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
-  if (found === void 0) throw careerRunError("result_not_found");
-  return found;
-}
-function detailValue(entry, request) {
-  const value = entry.value;
-  if (request.section === "summary") {
-    return DETAIL_SUMMARIES[entry.operation]?.(value) ?? { schema_version: value.schema_version };
-  }
-  if (request.section === "warnings") return warnings(value);
-  if (request.section === "checks") return analysisChecks(value);
-  if (request.section === "evidence") return evidenceDetail(value);
-  if (request.section === "changes") {
-    const items = reviewedItems(value);
-    return request.item === void 0 ? items : exactReviewedItem(items, request.item);
-  }
-  if (request.section === "document") {
-    return value.assisted_resume_text ?? value.proposed_preview_text ?? null;
-  }
-  if (request.section === "raw") return value;
-  throw careerRunError("invalid_request");
-}
-function mapInternalError(error) {
-  if (error instanceof CareerRunError || error instanceof CareerInvocationError) throw error;
-  if (error instanceof Error && error.message === "session_changed") throw careerRunError("session_changed");
-  if (error instanceof Error && error.message === "managed_result_capacity") {
-    throw careerRunError("managed_result_capacity");
-  }
-  throw managedFailure(error);
-}
-function selectableVariantReview(review) {
-  if (review === void 0) throw careerRunError("review_not_found");
-  if (![review.operation === "resume.variant.review", review.retainedChangeIds !== void 0].every(Boolean)) {
-    throw careerRunError("review_not_found");
-  }
-  if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
-  ensureSchema(review.value, "career.resume_variant_review.v1");
-  validateAuthority(review.value);
-  return review;
-}
-function selectableVariantChanges(review) {
-  const values = arrayField2(review.value, "changes");
-  if (values.length !== review.retainedChangeIds.length) throw careerRunError("managed_result_invalid");
-  const changes = values.map((value, index) => variantSelectionChange(value, review.retainedChangeIds[index]));
-  if (changes.some((change) => change === void 0)) throw careerRunError("managed_result_invalid");
-  return changes;
-}
-var CareerRunEngine = class {
-  constructor(options) {
-    this.options = options;
-    this.registry = new ManagedRegistry(options.uuid, options.now);
-    this.dependencies = {
-      agentDir: options.agentDir,
-      invoke: options.invoke,
-      uuid: options.uuid,
-      now: options.now
-    };
-  }
-  options;
-  registry;
-  contracts = new ManagedContractCache();
-  dependencies;
-  enterSession(sessionId) {
-    this.registry.enterSession(sessionId);
-  }
-  resetSession(sessionId) {
-    this.registry.resetSession(sessionId);
-  }
-  shutdown() {
-    this.registry.clear();
-  }
-  materializedVariantForSave(handle, ctx) {
-    try {
-      const sessionId = ctx.sessionManager.getSessionId();
-      this.registry.enterSession(sessionId);
-      requireConsent(ctx);
-      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
-      const entry = this.registry.get(handle, "variant");
-      if (entry === void 0 || entry.operation !== "resume.variant.materialize" || entry.variantSource === void 0) throw careerRunError("variant_save_unavailable");
-      ensureSchema(entry.value, "career.resume_variant.v1");
-      validateAuthority(entry.value);
-      const assistedText = entry.value.assisted_resume_text;
-      const selected = arrayField2(entry.value, "selected_changes");
-      if (typeof assistedText !== "string" || selected.length === 0) {
-        throw careerRunError("managed_result_invalid");
-      }
-      const selectedChangeIds = selected.map((change) => isRecord7(change) && typeof change.change_id === "string" ? change.change_id : "");
-      if (selectedChangeIds.some((id) => !/^change-[0-9]{4}$/.test(id))) {
-        throw careerRunError("managed_result_invalid");
-      }
-      return {
-        handle: entry.handle,
-        assistedText,
-        selectedChangeIds,
-        source: { ...entry.variantSource }
-      };
-    } catch (error) {
-      mapInternalError(error);
-    }
-  }
-  variantSelectionReview(handle, ctx) {
-    try {
-      const sessionId = ctx.sessionManager.getSessionId();
-      this.registry.enterSession(sessionId);
-      requireConsent(ctx);
-      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
-      const review = selectableVariantReview(this.registry.get(handle, "review"));
-      return {
-        handle: review.handle,
-        authority: "assisted_non_authoritative",
-        changes: selectableVariantChanges(review),
-        discarded_changes: arrayField2(review.value, "discarded_changes"),
-        warnings: warnings(review.value)
-      };
-    } catch (error) {
-      mapInternalError(error);
-    }
-  }
-  async run(params, signal, ctx) {
-    try {
-      this.registry.enterSession(ctx.sessionManager.getSessionId());
-      exactDefinedKeys(params, ["command", "handle", "payload"]);
-      const managed = await this.contracts.load(this.options.invoke, signal);
-      switch (params.command) {
-        case "context":
-          return await this.context(params, ctx, managed.coreVersion);
-        case "consent":
-          return this.consent(params, ctx);
-        case "analyze":
-          return await this.analyze(params, signal, ctx);
-        case "match":
-          return await this.match(params, signal, ctx);
-        case "suggestion-review":
-          return await this.suggestionReview(params, signal, ctx);
-        case "replacement-review":
-          return await this.replacementReview(params, signal, ctx);
-        case "variant-review":
-          return await this.variantReview(params, signal, ctx);
-        case "materialize":
-          return await this.materialize(params, signal, ctx);
-        case "detail":
-          return this.detail(params, ctx);
-      }
-    } catch (error) {
-      mapInternalError(error);
-    }
-  }
-  consent(params, ctx) {
-    exactDefinedKeys(params, ["command", "payload"]);
-    if (!persisted(ctx)) throw careerRunError("invalid_request");
-    const granted = parseConsentDecision(params.payload) === "approve";
-    this.options.pi.appendEntry(
-      WORKFLOW_CUSTOM_TYPE,
-      createConsentEntry(granted, this.dependencies)
-    );
-    if (!granted) this.registry.resetSession(ctx.sessionManager.getSessionId());
-    return resultEnvelope("consent", {
-      persistence: "persistent",
-      consent: granted ? "approved" : "declined",
-      next_action: granted ? "Run career_run context." : "Start a new `pi --no-session` run."
-    }, {
-      status: "complete",
-      summary: granted ? "Session persistence approved" : "Session persistence declined"
-    });
-  }
-  async context(params, ctx, coreVersion) {
-    exactDefinedKeys(params, ["command"]);
-    const consent = persistenceConsent(ctx);
-    if (consent === "required" || consent === "declined") {
-      return this.consentRequiredContext(coreVersion, consent);
-    }
-    const config = await loadConfig(this.options.agentDir);
-    const scan = await scanLibrary(config);
-    const resumes = resumeHandles(eligibleOriginals(scan));
-    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
-    this.registry.markContextReady(ctx.sessionManager.getSessionId());
-    return resultEnvelope("context", {
-      core_version: coreVersion,
-      persistence: persisted(ctx) ? "persistent" : "transient",
-      consent,
-      resume_count: resumes.size,
-      resumes: [...resumes].slice(0, 100).map(([handle, resume]) => ({
-        handle,
-        label: resume.label,
-        format: resume.format
-      })),
-      resumes_omitted: Math.max(0, resumes.size - 100),
-      vacancy: state.vacancy === void 0 ? null : { handle: "vacancy:current", label: state.vacancy.vacancy_label },
-      application: state.application === void 0 ? null : { company: state.application.company_label, role: state.application.role_label },
-      notices: scan.warnings.length
-    }, {
-      status: "ready",
-      summary: `${resumes.size} original resume${resumes.size === 1 ? "" : "s"}`
-    });
-  }
-  consentRequiredContext(coreVersion, consent) {
-    return resultEnvelope("context", {
-      core_version: coreVersion,
-      persistence: "persistent",
-      consent: consent === "required" ? "consent_required" : "declined",
-      resumes: [],
-      next_action: consent === "required" ? "Ask whether this Pi session may persist private career content, then call career_run consent. Recommend `pi --no-session` when persistence is unwanted." : "Start a new `pi --no-session` run."
-    }, {
-      status: "consent_required",
-      summary: consent === "required" ? "Persistence decision required" : "Persistence declined"
-    });
-  }
-  preparePrivateCommand(params, ctx) {
-    requireConsent(ctx);
-    if (!this.registry.hasContext(ctx.sessionManager.getSessionId())) {
-      throw careerRunError("context_required");
-    }
-  }
-  async analyze(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle"]);
-    this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const invocation = await this.options.invoke(
-      { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    ensureSchema(value, "career.resume_analysis.v1");
-    const entry = this.registry.store({
-      kind: "result",
-      operation: "resume.analyze",
-      json: invocation.json,
-      value
-    });
-    const summary = compactAnalyze(value);
-    return resultEnvelope("analyze", { result: entry.handle, ...summary }, {
-      status: "complete",
-      handle: entry.handle,
-      summary: `Score ${safeSummary(summary.overall_score)}`
-    });
-  }
-  async match(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle"]);
-    this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const vacancy = resolveVacancy(ctx);
-    const invocation = await this.options.invoke(
-      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    ensureSchema(value, "career.job_match.v1");
-    const entry = this.registry.store({
-      kind: "result",
-      operation: "job.match",
-      json: invocation.json,
-      value
-    });
-    const summary = compactMatch(value);
-    return resultEnvelope("match", { result: entry.handle, ...summary }, {
-      status: "complete",
-      handle: entry.handle,
-      summary: `Match ${safeSummary(summary.overall_score)}`
-    });
-  }
-  async suggestionReview(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle", "payload"]);
-    this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const input = {
-      schema_version: "career.resume_analysis_suggestion_review_input.v1",
-      expected_analysis_policy_version: "resume_analysis_v1",
-      resume: buildResumeInput(resume),
-      proposal: {
-        schema_version: "career.resume_analysis_suggestion_proposal.v1",
-        suggestions: parseAnalysisSuggestions(params.payload)
-      }
-    };
-    const invocation = await this.options.invoke(
-      { kind: "resume", operation: "analysis-suggestions-review", inputJson: JSON.stringify(input) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    const summary = compactSuggestionReview(value);
-    const entry = this.registry.store({
-      kind: "review",
-      operation: "resume.analysis-suggestions.review",
-      json: invocation.json,
-      value
-    });
-    return resultEnvelope("suggestion-review", { review: entry.handle, ...summary }, {
-      status: "complete",
-      handle: entry.handle,
-      summary: `${arrayField2(value, "suggestions").length} retained suggestion(s)`
-    });
-  }
-  async replacementReview(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle", "payload"]);
-    this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const input = {
-      schema_version: "career.resume_analysis_replacement_review_input.v1",
-      expected_analysis_policy_version: "resume_analysis_v1",
-      resume: buildResumeInput(resume),
-      proposal: {
-        schema_version: "career.resume_analysis_replacement_proposal.v1",
-        replacements: parseAnalysisReplacements(params.payload)
-      }
-    };
-    const invocation = await this.options.invoke(
-      { kind: "resume", operation: "analysis-replacements-review", inputJson: JSON.stringify(input) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    const summary = compactReplacementReview(value);
-    const entry = this.registry.store({
-      kind: "review",
-      operation: "resume.analysis-replacements.review",
-      json: invocation.json,
-      value
-    });
-    return resultEnvelope("replacement-review", { review: entry.handle, ...summary }, {
-      status: "complete",
-      handle: entry.handle,
-      summary: `${arrayField2(value, "replacements").length} retained replacement(s)`
-    });
-  }
-  async variantReview(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle", "payload"]);
-    this.preparePrivateCommand(params, ctx);
-    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
-    const vacancy = resolveVacancy(ctx);
-    const input = {
-      schema_version: "career.resume_variant_review_input.v1",
-      resume: buildResumeInput(resume),
-      vacancy: {
-        schema_version: "career.job_input.v1",
-        text: vacancy.vacancy_text,
-        metadata: { document_id: vacancy.state_id }
-      },
-      proposal: {
-        schema_version: "career.resume_variant_proposal.v1",
-        changes: parseVariantChanges(params.payload)
-      }
-    };
-    const invocation = await this.options.invoke(
-      { kind: "resume", operation: "variant-review", inputJson: JSON.stringify(input) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    const summary = compactVariantReview(value);
-    const retainedChangeIds = this.retainedChangeIds(value);
-    const entry = this.registry.store({
-      kind: "review",
-      operation: "resume.variant.review",
-      json: invocation.json,
-      value,
-      reviewInput: input,
-      retainedChangeIds,
-      materializationAllowed: resume.format !== "pdf",
-      variantSource: {
-        resumeId: resume.id,
-        rootId: resume.root_id,
-        format: resume.format,
-        textSha256: resume.text_sha256
-      }
-    });
-    return resultEnvelope("variant-review", {
-      review: entry.handle,
-      ...summary,
-      next_action: resume.format === "pdf" ? "Stop this turn. Present the reviewed changes as manual-application guidance only; extracted PDF text cannot be materialized as a styled resume." : `Stop this turn. In TUI, ask the user to run /career-review ${entry.handle}; otherwise show exact change details and ask for explicit canonical IDs. Only a later user turn may materialize the selected IDs.`
-    }, {
-      status: "complete",
-      handle: entry.handle,
-      action: resume.format === "pdf" ? "pdf_manual" : "review_select",
-      summary: resume.format === "pdf" ? `${retainedChangeIds.length} retained change(s) • PDF manual application only` : `${retainedChangeIds.length} retained change(s) • explicit selection required`
-    });
-  }
-  retainedChangeIds(value) {
-    const changes = arrayField2(value, "changes");
-    const ids = changes.flatMap(
-      (change) => isRecord7(change) && typeof change.change_id === "string" ? [change.change_id] : []
-    );
-    if (ids.length !== changes.length || new Set(ids).size !== ids.length || ids.some((id) => !/^change-[0-9]{4}$/.test(id))) throw careerRunError("managed_result_invalid");
-    return ids;
-  }
-  async materialize(params, signal, ctx) {
-    exactDefinedKeys(params, ["command", "handle", "payload"]);
-    this.preparePrivateCommand(params, ctx);
-    if (params.handle === void 0) throw careerRunError("invalid_request");
-    const review = this.registry.get(params.handle, "review");
-    if (review === void 0 || review.operation !== "resume.variant.review" || review.reviewInput === void 0 || review.retainedChangeIds === void 0) {
-      throw careerRunError("review_not_found");
-    }
-    if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
-    if (review.variantSource === void 0) throw careerRunError("managed_result_invalid");
-    const selected = parseMaterializeRequest(params.payload);
-    const retained = new Set(review.retainedChangeIds);
-    if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
-    const input = {
-      schema_version: "career.resume_variant_materialization_input.v1",
-      expected_review_policy_version: "resume_variant_review_v1",
-      review_input: review.reviewInput,
-      selected_change_ids: selected
-    };
-    const invocation = await this.options.invoke(
-      { kind: "resume", operation: "variant-materialize", inputJson: JSON.stringify(input) },
-      signal,
-      MANAGED_INVOKE_OPTIONS
-    );
-    const value = parseCoreJson(invocation.json);
-    const summary = compactVariant(value);
-    const entry = this.registry.store({
-      kind: "variant",
-      operation: "resume.variant.materialize",
-      json: invocation.json,
-      value,
-      variantSource: review.variantSource
-    });
-    return resultEnvelope("materialize", {
-      variant: entry.handle,
-      ...summary,
-      next_action: `This assisted/non-authoritative result remains in memory. To review and save it locally, the user may run /career-save ${entry.handle}; never invoke saving as a model action.`
-    }, {
-      status: "complete",
-      handle: entry.handle,
-      action: "save_available",
-      summary: `${selected.length} selected change(s) materialized`
-    });
-  }
-  detail(params, ctx) {
-    exactDefinedKeys(params, ["command", "handle", "payload"]);
-    this.preparePrivateCommand(params, ctx);
-    if (params.handle === void 0) throw careerRunError("invalid_request");
-    const entry = this.registry.get(params.handle);
-    if (entry === void 0) throw careerRunError("result_not_found");
-    const request = parseDetailRequest(params.payload);
-    if (request.item !== void 0 && request.section !== "changes") {
-      throw careerRunError("invalid_request");
-    }
-    const text = JSON.stringify({
-      schema_version: "pi.career.run_detail.v1",
-      result: entry.handle,
-      operation: entry.operation,
-      section: request.section,
-      ...request.item === void 0 ? {} : { item: request.item },
-      complete: true,
-      value: detailValue(entry, request)
-    });
-    if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
-      throw careerRunError("detail_too_large");
-    }
-    return {
-      content: [{ type: "text", text }],
-      details: {
-        schema_version: "pi.career.run_details.v1",
-        command: "detail",
-        status: "complete",
-        handle: entry.handle,
-        summary: `${entry.operation} ${request.section}`
-      }
-    };
-  }
-};
-
 // src/workflow/renderers.ts
-import os from "node:os";
-import path5 from "node:path";
-import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import {
-  Container,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  wrapTextWithAnsi
-} from "@earendil-works/pi-tui";
 function privacyDisplayPath(absolutePath) {
   const home = os.homedir();
   const relative = path5.relative(home, absolutePath);
@@ -4375,256 +3389,70 @@ var DetailViewer = class {
   }
 };
 
-// src/workflow/detail-viewer.ts
-async function showDetailText(ctx, label, text) {
-  if (ctx.mode !== "tui") {
-    ctx.ui.notify(text, "info");
-    return;
+// src/workflow/application-readiness.ts
+function selectedRecord(selected, scan) {
+  if (scan.total_capped) return void 0;
+  const roots = scan.roots.filter((root2) => root2.root_id === selected.library_root_id);
+  const [root] = roots;
+  if (roots.length !== 1 || root === void 0 || root.stale || root.capped) return void 0;
+  const candidates = scan.records.filter(
+    (record) => record.root_id === selected.library_root_id && record.id === selected.document_id
+  );
+  const [candidate] = candidates;
+  if (candidates.length !== 1 || candidate === void 0) return void 0;
+  return candidate.kind === "original" && candidate.too_large_for_core_input !== true ? candidate : void 0;
+}
+function classifyResume(snapshot, evidence) {
+  const selected = snapshot.selected_original;
+  if (selected === null) {
+    if (snapshot.resume_artifact !== null) throw new TypeError("invalid validated readiness snapshot");
+    return { classification: "Missing", effective: null };
   }
-  await ctx.ui.custom((tui, theme, keybindings, done) => new DetailViewer(
-    label,
-    text,
-    theme,
-    keybindings,
-    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
-    () => tui.requestRender(),
-    () => done(void 0)
-  ));
+  if (snapshot.resume_artifact !== null && evidence.resume_artifact === "drifted") {
+    return { classification: "Drifted", effective: null };
+  }
+  const record = selectedRecord(selected, evidence.library_scan);
+  if (record === void 0) return { classification: "Unavailable", effective: null };
+  if (record.format !== selected.format || record.text_sha256 !== selected.text_sha256) {
+    return { classification: "Stale", effective: null };
+  }
+  if (snapshot.resume_artifact !== null) {
+    return {
+      classification: "Available",
+      digest: snapshot.resume_artifact.artifact_sha256,
+      effective: "tailored"
+    };
+  }
+  return { classification: "Available", digest: selected.text_sha256, effective: "original" };
 }
-
-// src/managed/review-selector.ts
-var CONTINUE = "Continue with selected changes";
-var BACK_TO_REVIEW = "Back to reviewed changes";
-var CANCEL = "Cancel";
-var REPEAT_SELECTION = { done: false };
-function lineRange(change) {
-  return change.start_line === change.end_line ? `line ${change.start_line}` : `lines ${change.start_line}-${change.end_line}`;
+function readinessLabel(available) {
+  if (available === 3) return "Ready 3/3";
+  if (available === 2) return "Incomplete 2/3";
+  if (available === 1) return "Incomplete 1/3";
+  return "Incomplete 0/3";
 }
-function exactChangeValue(change) {
+function deriveApplicationReadiness(snapshot, evidence) {
+  const job = snapshot.vacancy === null ? "Missing" : evidence.vacancy === "valid" ? "Available" : "Drifted";
+  const resume = classifyResume(snapshot, evidence);
+  let cover;
+  if (snapshot.cover_letter_artifact === null) {
+    cover = "Missing";
+  } else if (evidence.cover_letter_artifact === "drifted") {
+    cover = "Drifted";
+  } else if (job !== "Available" || resume.classification !== "Available") {
+    cover = "Unavailable";
+  } else if (snapshot.cover_letter_artifact.job_description_sha256 !== snapshot.vacancy?.content_sha256 || snapshot.cover_letter_artifact.effective_resume_sha256 !== resume.digest) {
+    cover = "Stale";
+  } else {
+    cover = "Available";
+  }
+  const available = [job, resume.classification, cover].filter((value) => value === "Available").length;
   return {
-    change_id: change.change_id,
-    section: change.section,
-    start_line: change.start_line,
-    end_line: change.end_line,
-    original_text: change.original_text,
-    proposed_text: change.proposed_text,
-    resume_evidence: change.resume_evidence,
-    vacancy_evidence: change.vacancy_evidence
+    components: { job_description: job, resume: resume.classification, cover_letter: cover },
+    readiness: readinessLabel(available),
+    effective_resume: resume.effective
   };
 }
-function exactChangeText(change) {
-  return JSON.stringify(exactChangeValue(change), null, 2);
-}
-function selectedChangeText(change, index, total) {
-  return [
-    `Change ${index + 1} of ${total}`,
-    `ID: ${JSON.stringify(change.change_id)}`,
-    `Section: ${JSON.stringify(change.section)}`,
-    `Line bounds: ${change.start_line}-${change.end_line}`,
-    `Before: ${JSON.stringify(change.original_text)}`,
-    `After: ${JSON.stringify(change.proposed_text)}`,
-    `Resume evidence (${change.resume_evidence.length}): ${JSON.stringify(change.resume_evidence)}`,
-    `Vacancy evidence (${change.vacancy_evidence.length}): ${JSON.stringify(change.vacancy_evidence)}`
-  ].join("\n");
-}
-function selectedChangesText(review, selected) {
-  return [
-    `Authority: ${review.authority}`,
-    `Selected changes: ${selected.length}`,
-    "",
-    selected.map((change, index) => selectedChangeText(change, index, selected.length)).join("\n\n")
-  ].join("\n");
-}
-function noticeText(review) {
-  return JSON.stringify({
-    authority: review.authority,
-    warnings: review.warnings,
-    discarded_changes: review.discarded_changes
-  }, null, 2);
-}
-function changeOption(change, included) {
-  return `${change.change_id} • ${change.section} • ${lineRange(change)} • ${included ? "included" : "excluded"}`;
-}
-function noticesOption(review, reviewed) {
-  return `Warnings and discards • ${review.warnings.length} warnings • ${review.discarded_changes.length} discarded • ${reviewed ? "reviewed" : "review required"}`;
-}
-function changeOptions(review, included) {
-  return new Map(review.changes.map((change) => [
-    changeOption(change, included.has(change.change_id)),
-    change
-  ]));
-}
-function selectedAction(selected, notices, byOption) {
-  const fixed = /* @__PURE__ */ new Map([
-    [void 0, { kind: "cancel" }],
-    [CANCEL, { kind: "cancel" }],
-    [notices, { kind: "notices" }],
-    [CONTINUE, { kind: "continue" }]
-  ]);
-  const change = byOption.get(selected ?? "");
-  return fixed.get(selected) ?? (change === void 0 ? { kind: "cancel" } : { kind: "change", change });
-}
-async function nextReviewAction(ctx, review, state) {
-  const notices = noticesOption(review, state.noticesReviewed);
-  const byOption = changeOptions(review, state.included);
-  const selected = await ctx.ui.select(
-    `Career reviewed changes • assisted/non-authoritative • ${state.included.size} selected`,
-    [notices, ...byOption.keys(), CONTINUE, CANCEL]
-  );
-  return selectedAction(selected, notices, byOption);
-}
-function selectionOptions(wasIncluded) {
-  return wasIncluded ? ["Keep included", "Exclude", "Back without changing"] : ["Include", "Keep excluded", "Back without changing"];
-}
-async function exactSelection(ctx, change, included) {
-  await showDetailText(
-    ctx,
-    `${change.change_id} • ${change.section} • ${lineRange(change)}`,
-    exactChangeText(change)
-  );
-  const decision = await ctx.ui.select(
-    `Explicit selection • ${change.change_id}`,
-    selectionOptions(included.has(change.change_id))
-  );
-  const decisions = /* @__PURE__ */ new Map([
-    ["Include", () => included.add(change.change_id)],
-    ["Keep included", () => included.add(change.change_id)],
-    ["Exclude", () => included.delete(change.change_id)],
-    ["Keep excluded", () => included.delete(change.change_id)]
-  ]);
-  decisions.get(decision)?.();
-}
-function completeSelection(ctx, review, state) {
-  if (!state.noticesReviewed) {
-    ctx.ui.notify("Review all Career Core warnings and discarded-change reasons before continuing.", "warning");
-    return void 0;
-  }
-  if (state.included.size === 0) {
-    ctx.ui.notify("Include at least one exact canonical change before continuing.", "warning");
-    return void 0;
-  }
-  return review.changes.filter((change) => state.included.has(change.change_id));
-}
-function prepareOption(count) {
-  return `Prepare ${count} selected change ID${count === 1 ? "" : "s"}`;
-}
-function finalChangeOption(change, index, total) {
-  return `Review selected ${index + 1}/${total} • ${change.change_id} • ${change.section} • ${lineRange(change)}`;
-}
-function confirmationOutcome(decision, prepare, selected) {
-  const outcomes = /* @__PURE__ */ new Map([
-    [void 0, { done: true }],
-    [CANCEL, { done: true }],
-    [BACK_TO_REVIEW, REPEAT_SELECTION],
-    [prepare, { done: true, selection: selected.map((change) => change.change_id) }]
-  ]);
-  return outcomes.get(decision) ?? { done: true };
-}
-async function confirmSelection(ctx, selected) {
-  const prepare = prepareOption(selected.length);
-  const byOption = new Map(selected.map((change, index) => [
-    finalChangeOption(change, index, selected.length),
-    { change, index }
-  ]));
-  while (true) {
-    const decision = await ctx.ui.select(
-      "Final selection • inspect, prepare, or go back • nothing runs automatically",
-      [...byOption.keys(), prepare, BACK_TO_REVIEW, CANCEL]
-    );
-    const target = byOption.get(decision ?? "");
-    if (target === void 0) return confirmationOutcome(decision, prepare, selected);
-    await showDetailText(
-      ctx,
-      `Selected ${target.index + 1}/${selected.length} • ${target.change.change_id}`,
-      selectedChangeText(target.change, target.index, selected.length)
-    );
-  }
-}
-async function continueSelection(ctx, review, state) {
-  const selected = completeSelection(ctx, review, state);
-  if (selected === void 0) return REPEAT_SELECTION;
-  await showDetailText(
-    ctx,
-    `${selected.length} selected change${selected.length === 1 ? "" : "s"} • final review`,
-    selectedChangesText(review, selected)
-  );
-  return await confirmSelection(ctx, selected);
-}
-async function reviewNotices(ctx, review, state) {
-  await showDetailText(ctx, "Warnings and discarded changes", noticeText(review));
-  state.noticesReviewed = true;
-  return REPEAT_SELECTION;
-}
-async function reviewChange(ctx, state, change) {
-  await exactSelection(ctx, change, state.included);
-  return REPEAT_SELECTION;
-}
-async function applyAction(ctx, review, state, action) {
-  const handlers = {
-    cancel: async () => ({ done: true }),
-    notices: async () => await reviewNotices(ctx, review, state),
-    continue: async () => await continueSelection(ctx, review, state),
-    change: async () => await reviewChange(
-      ctx,
-      state,
-      action.change
-    )
-  };
-  return await handlers[action.kind]();
-}
-function noticesRequired(review) {
-  return [review.warnings.length > 0, review.discarded_changes.length > 0].some(Boolean);
-}
-function selectableReview(ctx, review) {
-  return [ctx.mode === "tui", review.changes.length > 0].every(Boolean);
-}
-async function selectVariantChanges(ctx, review) {
-  if (!selectableReview(ctx, review)) return void 0;
-  const state = {
-    included: /* @__PURE__ */ new Set(),
-    noticesReviewed: !noticesRequired(review)
-  };
-  while (true) {
-    const action = await nextReviewAction(ctx, review, state);
-    const outcome = await applyAction(ctx, review, state, action);
-    if (outcome.done) return outcome.selection;
-  }
-}
-function materializeEditorText(reviewHandle, selectedChangeIds) {
-  const request = {
-    command: "materialize",
-    handle: reviewHandle,
-    payload: { selected_change_ids: selectedChangeIds }
-  };
-  return [
-    "I explicitly reviewed and selected these canonical Career Core changes in /career-review.",
-    "",
-    `Call career_run with exactly this request: ${JSON.stringify(request)}`,
-    "",
-    "Use exactly these selected IDs and the unchanged review handle. Keep the result assisted/non-authoritative. Do not analyze or match it as an original, and do not save or write any file."
-  ].join("\n");
-}
-
-// src/workflow/application-workspace.ts
-import { createHash as createHash4 } from "node:crypto";
-import { constants as constants2 } from "node:fs";
-import {
-  chmod,
-  link as link2,
-  lstat as lstat4,
-  mkdir as mkdir2,
-  open as open2,
-  opendir as opendir2,
-  readFile as readFile4,
-  realpath as realpath4,
-  rmdir,
-  unlink as unlink2
-} from "node:fs/promises";
-import path6 from "node:path";
-import { TextDecoder as TextDecoder5 } from "node:util";
-import {
-  withFileMutationQueue as withFileMutationQueue2
-} from "@earendil-works/pi-coding-agent";
 
 // src/workflow/session-attachment.ts
 var APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
@@ -4634,7 +3462,7 @@ var APPLICATION_ATTACHMENT_SCHEMA = "pi.career.application_attachment.v1";
 var APPLICATION_ASSISTANCE_SCHEMA = "pi.career.application_assistance.v1";
 var LOWERCASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var CANONICAL_TIMESTAMP2 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-function isRecord8(value) {
+function isRecord6(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function hasOrderedKeys(value, expected) {
@@ -4675,13 +3503,13 @@ function parseDetachment(value) {
   return validKeys && [value.detachment_id, value.attachment_id].every(isUuid2) ? value : void 0;
 }
 function parseApplicationAttachmentEntryData(value) {
-  if (!isRecord8(value) || value.schema_version !== APPLICATION_ATTACHMENT_SCHEMA) return void 0;
+  if (!isRecord6(value) || value.schema_version !== APPLICATION_ATTACHMENT_SCHEMA) return void 0;
   if (value.kind === "application_attachment") return parseAttachment(value);
   if (value.kind === "application_detachment") return parseDetachment(value);
   return void 0;
 }
 function parseApplicationAssistanceEntryData(value) {
-  if (!isRecord8(value) || !hasOrderedKeys(value, [
+  if (!isRecord6(value) || !hasOrderedKeys(value, [
     "schema_version",
     "kind",
     "activation_id",
@@ -4713,7 +3541,7 @@ function assistanceClaim(value) {
   return data === void 0 ? { kind: "invalid" } : { kind: "record", recordId: data.activation_id, applicationId: data.application_id };
 }
 function workflowClaim(value) {
-  if (!isRecord8(value) || value.kind !== "application") return { kind: "ignore" };
+  if (!isRecord6(value) || value.kind !== "application") return { kind: "ignore" };
   const workflow = parseWorkflowEntryData(value);
   return workflow?.kind === "application" ? { kind: "record", applicationId: workflow.application_id } : { kind: "invalid" };
 }
@@ -4868,7 +3696,7 @@ var APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "in
 function hashBytes2(bytes) {
   return createHash4("sha256").update(bytes).digest("hex");
 }
-function isRecord9(value) {
+function isRecord7(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function exactKeys6(value, keys) {
@@ -4933,7 +3761,7 @@ function assertRootPlanCurrent(expected, current) {
   }
 }
 function parseMarker(value) {
-  if (!isRecord9(value) || !exactKeys6(value, ["schema_version", "kind", "root_id", "created_at"]) || value.schema_version !== ROOT_MARKER_SCHEMA || value.kind !== "application_workspace_root" || !validUuid(value.root_id) || !validTimestamp(value.created_at)) return void 0;
+  if (!isRecord7(value) || !exactKeys6(value, ["schema_version", "kind", "root_id", "created_at"]) || value.schema_version !== ROOT_MARKER_SCHEMA || value.kind !== "application_workspace_root" || !validUuid(value.root_id) || !validTimestamp(value.created_at)) return void 0;
   return {
     schema_version: ROOT_MARKER_SCHEMA,
     kind: "application_workspace_root",
@@ -4942,7 +3770,7 @@ function parseMarker(value) {
   };
 }
 function parseManifest(value) {
-  if (!isRecord9(value) || !exactKeys6(value, [
+  if (!isRecord7(value) || !exactKeys6(value, [
     "schema_version",
     "kind",
     "application_id",
@@ -4961,7 +3789,7 @@ function parseManifest(value) {
 }
 function decodeApplicationIdentity(bytes, manifest) {
   return decodeCanonical(bytes, (value) => {
-    if (!isRecord9(value) || !exactKeys6(value, [
+    if (!isRecord7(value) || !exactKeys6(value, [
       "schema_version",
       "kind",
       "application_id",
@@ -5034,7 +3862,7 @@ async function readApplicationIdentity(directory, manifest) {
 }
 function parseVacancyBinding(value) {
   if (value === null) return null;
-  if (!isRecord9(value) || !exactKeys6(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) || !validRelativeBasename(value.relative_path) || !VACANCY_BASENAME.test(value.relative_path) || !validHash(value.content_sha256) || !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 1 || value.utf8_bytes > VACANCY_MAX_BYTES || !validSessionUuid(value.source_state_id)) return void 0;
+  if (!isRecord7(value) || !exactKeys6(value, ["relative_path", "content_sha256", "utf8_bytes", "source_state_id"]) || !validRelativeBasename(value.relative_path) || !VACANCY_BASENAME.test(value.relative_path) || !validHash(value.content_sha256) || !Number.isSafeInteger(value.utf8_bytes) || value.utf8_bytes < 1 || value.utf8_bytes > VACANCY_MAX_BYTES || !validSessionUuid(value.source_state_id)) return void 0;
   return {
     relative_path: value.relative_path,
     content_sha256: value.content_sha256,
@@ -5044,7 +3872,7 @@ function parseVacancyBinding(value) {
 }
 function parseSelectedOriginal(value) {
   if (value === null) return null;
-  if (!isRecord9(value) || !exactKeys6(value, ["document_id", "library_root_id", "text_sha256", "format"]) || !validHash(value.document_id) || !validHash(value.library_root_id) || !validHash(value.text_sha256) || !["markdown", "text", "pdf"].includes(value.format)) return void 0;
+  if (!isRecord7(value) || !exactKeys6(value, ["document_id", "library_root_id", "text_sha256", "format"]) || !validHash(value.document_id) || !validHash(value.library_root_id) || !validHash(value.text_sha256) || !["markdown", "text", "pdf"].includes(value.format)) return void 0;
   return {
     document_id: value.document_id,
     library_root_id: value.library_root_id,
@@ -5054,7 +3882,7 @@ function parseSelectedOriginal(value) {
 }
 function parseResumeArtifact(value) {
   if (value === null) return null;
-  if (!isRecord9(value) || !exactKeys6(value, [
+  if (!isRecord7(value) || !exactKeys6(value, [
     "relative_path",
     "artifact_sha256",
     "sidecar_relative_path",
@@ -5069,7 +3897,7 @@ function parseResumeArtifact(value) {
 }
 function parseCoverLetterArtifact(value) {
   if (value === null) return null;
-  if (!isRecord9(value) || !exactKeys6(value, [
+  if (!isRecord7(value) || !exactKeys6(value, [
     "relative_path",
     "artifact_sha256",
     "utf8_bytes",
@@ -5109,7 +3937,7 @@ function parseStateBase(value) {
   };
 }
 function parseState(value) {
-  if (!isRecord9(value)) return void 0;
+  if (!isRecord7(value)) return void 0;
   const v1 = value.schema_version === STATE_SCHEMA_V1;
   const v2 = value.schema_version === STATE_SCHEMA_V2;
   if (!v1 && !v2 || !exactKeys6(value, [
@@ -5284,7 +4112,7 @@ function assertCanonicalArtifactText(file) {
 }
 function parseApplicationSidecar(bytes, artifact, selected) {
   decodeCanonical(bytes, (value) => {
-    if (!isRecord9(value) || !exactKeys6(value, [
+    if (!isRecord7(value) || !exactKeys6(value, [
       "schema_version",
       "kind",
       "authority",
@@ -5543,7 +4371,7 @@ async function hasUnsupportedSchema(file, kind, schemaPrefix, supportedSchema, a
     if (bytes.length !== metadata.size) return false;
     const value = parseStrictJson(new TextDecoder5("utf-8", { fatal: true }).decode(bytes));
     const supportedSchemas = typeof supportedSchema === "string" ? [supportedSchema] : supportedSchema;
-    return isRecord9(value) && value.kind === kind && typeof value.schema_version === "string" && value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) && value.application_id === applicationId && (binding.createdAt === void 0 || value.created_at === binding.createdAt) && (binding.sequence === void 0 || value.sequence === binding.sequence) && canonicalJson(value).equals(bytes);
+    return isRecord7(value) && value.kind === kind && typeof value.schema_version === "string" && value.schema_version.startsWith(schemaPrefix) && !supportedSchemas.includes(value.schema_version) && value.application_id === applicationId && (binding.createdAt === void 0 || value.created_at === binding.createdAt) && (binding.sequence === void 0 || value.sequence === binding.sequence) && canonicalJson(value).equals(bytes);
   } catch {
     return false;
   }
@@ -5750,7 +4578,7 @@ function assertExactAttachmentBinding(evidence, attachment, match) {
     throw workflowError("workspace_identity_conflict");
   }
 }
-async function validateApplicationAttachment(agentDir, attachment) {
+async function inspectAttachedApplication(agentDir, attachment) {
   try {
     const snapshot = await loadConfigSnapshot(agentDir);
     const configured = snapshot.config.application_workspace;
@@ -5764,17 +4592,134 @@ async function validateApplicationAttachment(agentDir, attachment) {
     const match = exactValidatedMatch(initial, attachment);
     assertExactAttachmentBinding(initial, attachment, match);
     return {
-      attachment_id: attachment.attachment_id,
-      application_id: attachment.application_id,
-      root_id: attachment.root_id,
-      company_label: match.identity.company_label,
-      role_label: match.identity.role_label,
-      status: match.record.status,
-      updated_at: match.record.updated_at
+      snapshot,
+      evidence: initial,
+      inspected: match.inspected,
+      identity: match.identity
     };
   } catch (error) {
     return attachmentValidationError(error);
   }
+}
+function managedFile(application, relativePath) {
+  return application.managedFiles.find((file) => path6.basename(file.path) === relativePath);
+}
+function decodeManagedUtf8(file) {
+  let text;
+  try {
+    text = new TextDecoder5("utf-8", { fatal: true }).decode(file.bytes);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (file.bytes.subarray(0, 3).equals(Buffer.from([239, 187, 191])) || /[\u0000\r]/.test(text) || hasUnpairedSurrogate(text) || !isWithinCoreCharacterLimit(text)) {
+    throw workflowError("workspace_drift");
+  }
+  return text;
+}
+function vacancyLabelFromText(text) {
+  const label = text.split("\n").find((line) => line.trim().length > 0)?.trim() || "Current vacancy";
+  return label.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 120);
+}
+function vacancyFromBinding(application) {
+  const binding = application.head.vacancy;
+  if (binding === null) return void 0;
+  const file = managedFile(application, binding.relative_path);
+  if (file === void 0 || file.sha256 !== binding.content_sha256 || file.bytes.length !== binding.utf8_bytes) {
+    throw workflowError("workspace_drift");
+  }
+  const text = decodeManagedUtf8(file);
+  if (sha256(text) !== binding.content_sha256) throw workflowError("workspace_drift");
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    kind: "vacancy",
+    state_id: binding.source_state_id,
+    created_at: application.head.updated_at,
+    application_id: application.head.application_id,
+    vacancy_label: vacancyLabelFromText(text),
+    vacancy_text: text,
+    vacancy_text_sha256: binding.content_sha256,
+    source: "paste"
+  };
+}
+function tailoredResumeRecord(application, original) {
+  const artifact = application.head.resume_artifact;
+  if (artifact === null) throw workflowError("workspace_drift");
+  const file = managedFile(application, artifact.relative_path);
+  if (file === void 0 || file.sha256 !== artifact.artifact_sha256) throw workflowError("workspace_drift");
+  const text = decodeManagedUtf8(file);
+  const format = artifact.relative_path.endsWith(".md") ? "markdown" : "text";
+  return {
+    id: artifact.artifact_sha256,
+    root_id: original.root_id,
+    path: artifact.relative_path,
+    relative_path: artifact.relative_path,
+    label: original.label,
+    kind: "assisted_variant",
+    format,
+    modified_at: application.head.updated_at,
+    size_bytes: file.bytes.length,
+    text,
+    text_sha256: sha256(text)
+  };
+}
+async function validateApplicationAttachment(agentDir, attachment) {
+  const loaded = await inspectAttachedApplication(agentDir, attachment);
+  return {
+    attachment_id: attachment.attachment_id,
+    application_id: attachment.application_id,
+    root_id: attachment.root_id,
+    company_label: loaded.identity.company_label,
+    role_label: loaded.identity.role_label,
+    status: loaded.inspected.head.status,
+    updated_at: loaded.inspected.head.updated_at
+  };
+}
+async function loadAttachedApplicationSources(agentDir, attachment) {
+  const loaded = await inspectAttachedApplication(agentDir, attachment);
+  const application = loaded.inspected;
+  if (application.identity === void 0) throw workflowError("attachment_unavailable");
+  const scan = await scanLibrary(loaded.snapshot.config);
+  const selected = application.head.selected_original;
+  let selectedOriginal;
+  if (selected !== null) {
+    const root = scan.roots.find((item) => item.root_id === selected.library_root_id);
+    const matches = eligibleOriginals(scan).filter((record) => record.id === selected.document_id && record.root_id === selected.library_root_id && record.text_sha256 === selected.text_sha256 && record.format === selected.format);
+    if (scan.total_capped || root === void 0 || root.capped || root.stale || matches.length !== 1) {
+      throw workflowError("workspace_drift");
+    }
+    selectedOriginal = matches[0];
+  }
+  const readiness = deriveApplicationReadiness({
+    vacancy: application.head.vacancy === null ? null : { content_sha256: application.head.vacancy.content_sha256 },
+    selected_original: selected,
+    resume_artifact: application.head.resume_artifact === null ? null : { artifact_sha256: application.head.resume_artifact.artifact_sha256 },
+    cover_letter_artifact: application.head.schema_version === STATE_SCHEMA_V2 ? application.head.cover_letter_artifact : null
+  }, {
+    vacancy: "valid",
+    resume_artifact: "valid",
+    cover_letter_artifact: "valid",
+    library_scan: scan
+  });
+  if (application.head.resume_artifact !== null && readiness.effective_resume !== "tailored") {
+    throw workflowError("workspace_drift");
+  }
+  if (selected !== null && readiness.effective_resume === null) throw workflowError("workspace_drift");
+  const effective = readiness.effective_resume === "tailored" && selectedOriginal !== void 0 ? tailoredResumeRecord(application, selectedOriginal) : selectedOriginal;
+  const vacancy = vacancyFromBinding(application);
+  return {
+    application_id: application.manifest.application_id,
+    company_label: loaded.identity.company_label,
+    role_label: loaded.identity.role_label,
+    status: application.head.status,
+    ...vacancy === void 0 ? {} : { vacancy },
+    ...selectedOriginal === void 0 ? {} : { selected_original: selectedOriginal },
+    ...effective === void 0 ? {} : { effective_resume: effective }
+  };
+}
+async function attachedApplicationSourcesForSession(agentDir, branch, allEntries = branch) {
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid" || records.attachment === void 0) return void 0;
+  return loadAttachedApplicationSources(agentDir, records.attachment);
 }
 function slug(value, fallback) {
   const normalized = value.normalize("NFKD").replace(new RegExp("\\p{M}", "gu"), "").replace(/[A-Z]/g, (letter) => letter.toLowerCase()).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32).replace(/-+$/g, "");
@@ -6130,13 +5075,16 @@ function stateBytes(state) {
 function stateName(sequence) {
   return `.pi-career-state-${String(sequence).padStart(6, "0")}.json`;
 }
-function vacancyBinding(fileName, bytes, vacancy) {
+function vacancyBindingFromBytes(fileName, bytes, sourceStateId) {
   return {
     relative_path: fileName,
     content_sha256: hashBytes2(bytes),
     utf8_bytes: bytes.length,
-    source_state_id: vacancy.state_id
+    source_state_id: sourceStateId
   };
+}
+function vacancyBinding(fileName, bytes, vacancy) {
+  return vacancyBindingFromBytes(fileName, bytes, vacancy.state_id);
 }
 function assertApplicationCapacity(application, additions, revisionAdditions = 1) {
   const entryCount = application.entries.length + additions.length;
@@ -6259,6 +5207,122 @@ var ApplicationWorkspaceWorkflow = class {
     if (action === "Open application in new Pi session") return this.openInNewSession(ctx);
     if (action === "Detach current application from session") return this.detachCurrent(ctx);
     if (action === "Activate Career assistance") return this.activateAssistance(ctx);
+  }
+  async writeAttachedVacancy(ctx, text) {
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
+    if (!ctx.isIdle()) throw workflowError("workspace_unavailable");
+    const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    if (records.integrity !== "valid" || records.attachment === void 0) {
+      throw workflowError("attachment_unavailable");
+    }
+    const loaded = await inspectAttachedApplication(this.options.agentDir, records.attachment);
+    const application = loaded.inspected;
+    const configured = loaded.snapshot.config.application_workspace;
+    if (configured === null || application.identity === void 0) throw workflowError("attachment_unavailable");
+    await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 !== void 0 && (identity2.identity.application_id !== application.manifest.application_id || identity2.identity.created_at !== application.manifest.application_created_at || identity2.identity.company_label !== application.identity.company_label || identity2.identity.role_label !== application.identity.role_label)) throw workflowError("workspace_identity_conflict");
+    const nextBytes = text === null ? void 0 : Buffer.from(text, "utf8");
+    if (text !== null && (nextBytes === void 0 || nextBytes.length === 0 || nextBytes.length > VACANCY_MAX_BYTES || text.includes("\r") || hasUnpairedSurrogate(text) || !isWithinCoreCharacterLimit(text) || sha256(text) !== hashBytes2(nextBytes))) {
+      throw workflowError("invalid_command_arguments");
+    }
+    const current = application.head.vacancy;
+    const unchanged = text === null ? current === null : current !== null && nextBytes !== void 0 && current.content_sha256 === hashBytes2(nextBytes) && current.utf8_bytes === nextBytes.length;
+    if (unchanged) {
+      ctx.ui.notify("Workspace vacancy already matches this input; no revision was added.", "info");
+      return "unchanged";
+    }
+    const mutationId = this.options.uuid().toLowerCase();
+    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const { createdAt, sequence } = prepared;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
+    const vacancyFile = path6.join(application.directoryPath, vacancyName);
+    const sourceStateId = this.options.uuid().toLowerCase();
+    const nextVacancy = text === null || nextBytes === void 0 ? null : vacancyBindingFromBytes(vacancyName, nextBytes, sourceStateId);
+    const state = {
+      schema_version: STATE_SCHEMA_V2,
+      kind: "application_state_revision",
+      application_id: application.manifest.application_id,
+      sequence,
+      parent_sha256: prepared.parentSha256,
+      status: application.head.status,
+      vacancy: nextVacancy,
+      selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact,
+      cover_letter_artifact: prepared.coverLetterArtifact,
+      updated_at: createdAt
+    };
+    const stateBuffer = stateBytes(state);
+    const files = [
+      ...prepared.transitionFiles,
+      ...nextBytes === void 0 ? [] : [{
+        final: vacancyFile,
+        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
+        bytes: nextBytes
+      }],
+      {
+        final: path6.join(application.directoryPath, stateName(sequence)),
+        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer
+      }
+    ];
+    for (const file of files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, files, prepared.revisionAdditions);
+    if (ctx.sessionManager.getSessionFile() === void 0) {
+      ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
+    }
+    const target = {
+      directoryPath: application.directoryPath,
+      applicationId: application.manifest.application_id,
+      applicationCreatedAt: application.manifest.application_created_at,
+      companyLabel: application.identity.company_label,
+      roleLabel: application.identity.role_label
+    };
+    const root = await inspectRoot(configured.root_path, {
+      expectedRootId: configured.root_id,
+      currentApplication: target
+    });
+    const attachment = {
+      snapshot: loaded.snapshot,
+      root,
+      application
+    };
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "update_vacancy",
+      application.manifest.application_id,
+      identity2,
+      loaded.snapshot.sha256,
+      application.headFile.sha256,
+      files.map((file) => createPreview(file.final, file.bytes)),
+      [],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      ctx.sessionManager.getSessionFile() === void 0 ? ["Transient session: the revision outlives this process."] : [],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return "cancelled";
+    await this.commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, async () => {
+      await validateSelectedBinding(loaded.snapshot.config, application.head.selected_original);
+    }, target);
+    ctx.ui.notify(
+      `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`,
+      "info"
+    );
+    return "written";
+  }
+  async prepareAssistanceHandoff(ctx) {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === void 0) throw workflowError("attachment_unavailable");
+    await validateApplicationAttachment(this.options.agentDir, records.attachment);
+    if (records.activation !== void 0) {
+      ctx.ui.setEditorText(CAREER_ASSISTANCE_HANDOFF);
+      ctx.ui.notify("Career assistance is already active. Review the editor handoff; nothing was submitted.", "info");
+      return;
+    }
+    await this.activateAssistance(ctx);
   }
   async menuState(ctx, identity2) {
     const records = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
@@ -7068,10 +6132,16 @@ var ApplicationWorkspaceWorkflow = class {
     );
     if (!await approve(plan, ctx)) return;
     await this.commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, async (current) => {
-      if (current.current.status !== identity2.current.status || (current.vacancy?.state_id ?? null) !== (identity2.vacancy?.state_id ?? null)) {
+      if (current === void 0 || current.current.status !== identity2.current.status || (current.vacancy?.state_id ?? null) !== (identity2.vacancy?.state_id ?? null)) {
         throw workflowError("workspace_identity_conflict");
       }
       await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
+    }, {
+      directoryPath: application.directoryPath,
+      applicationId: identity2.identity.application_id,
+      applicationCreatedAt: identity2.identity.created_at,
+      companyLabel: identity2.identity.company_label,
+      roleLabel: identity2.identity.role_label
     });
     ctx.ui.notify(`Recorded immutable workspace state revision ${sequence}. Earlier vacancy files remain unchanged.`, "info");
   }
@@ -7151,10 +6221,16 @@ var ApplicationWorkspaceWorkflow = class {
     await this.commitRevision(plan, ctx, attachment, identity2, files, bytes, async () => {
       const freshScan = await scanLibrary(attachment.snapshot.config);
       freshRecord(freshScan, selected);
+    }, {
+      directoryPath: application.directoryPath,
+      applicationId: identity2.identity.application_id,
+      applicationCreatedAt: identity2.identity.created_at,
+      companyLabel: identity2.identity.company_label,
+      roleLabel: identity2.identity.role_label
     });
     ctx.ui.notify(`Recorded selected-original binding in immutable revision ${sequence}; no original bytes were copied or changed.`, "info");
   }
-  async commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, sourceValidation) {
+  async commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, sourceValidation, target) {
     const configured = attachment.snapshot.config.application_workspace;
     const application = attachment.application;
     if (configured === null || application === void 0) throw workflowError("workspace_unavailable");
@@ -7177,7 +6253,7 @@ var ApplicationWorkspaceWorkflow = class {
       const published = [];
       try {
         const current = assertSessionPlan(plan, ctx);
-        if (current === void 0 || current.identity.application_id !== identity2.identity.application_id) {
+        if (identity2 === void 0 !== (current === void 0) || identity2 !== void 0 && current?.identity.application_id !== identity2.identity.application_id || target.applicationId !== application.manifest.application_id) {
           throw workflowError("workspace_identity_conflict");
         }
         await assertConfigSnapshotCurrent(attachment.snapshot);
@@ -7185,13 +6261,7 @@ var ApplicationWorkspaceWorkflow = class {
         const root = await inspectRoot(configured.root_path, {
           expectedRootId: configured.root_id,
           ownedLock: rootLock.path,
-          currentApplication: {
-            directoryPath: application.directoryPath,
-            applicationId: identity2.identity.application_id,
-            applicationCreatedAt: identity2.identity.created_at,
-            companyLabel: identity2.identity.company_label,
-            roleLabel: identity2.identity.role_label
-          }
+          currentApplication: target
         });
         assertRootPlanCurrent(attachment.root, root);
         const currentApplication = root.currentApplication;
@@ -7218,6 +6288,1293 @@ var ApplicationWorkspaceWorkflow = class {
     });
   }
 };
+
+// src/managed/errors.ts
+var MESSAGES = {
+  invalid_request: "The career_run request is invalid.",
+  consent_required: "Explicit Pi session-persistence consent is required before loading private career context.",
+  consent_declined: "Session persistence was declined. Start a new `pi --no-session` run for a transient workflow.",
+  context_required: "Run career_run context first to obtain current ephemeral handles.",
+  resume_not_found: "The requested original-resume handle is unavailable or stale.",
+  vacancy_not_found: "The requested current-vacancy handle is unavailable or stale.",
+  result_not_found: "The requested ephemeral result handle is unavailable or expired.",
+  review_not_found: "The requested ephemeral review handle is unavailable or expired.",
+  selection_invalid: "Selected change IDs are invalid for this reviewed proposal.",
+  pdf_materialization_unsupported: "PDF review changes are manual-application guidance and cannot be materialized from extracted text.",
+  managed_contract_invalid: "The selected Career Core managed-adapter contracts are incompatible.",
+  managed_result_invalid: "Career Core returned an unexpected managed-workflow result.",
+  managed_result_capacity: "The complete Career Core result exceeds the bounded in-memory managed-result capacity.",
+  detail_too_large: "The requested model-visible detail is too large; request a narrower section.",
+  session_changed: "The Pi session changed; run career_run context again for fresh ephemeral handles.",
+  assistance_required: "Career assistance is inactive in this session.",
+  variant_save_unavailable: "The materialized variant is unavailable, stale, or ineligible for local saving.",
+  variant_save_destination_invalid: "The managed variants destination is unavailable or does not meet the private-directory contract.",
+  variant_save_preview_changed: "The exact save preview changed or was cancelled; no file was written.",
+  variant_save_collision: "A save destination already exists; no existing file was replaced.",
+  variant_save_verification_failed: "The saved variant could not be verified as an excluded assisted artifact.",
+  variant_save_status_unknown: "The save reached an indeterminate local-filesystem state; inspect the approved destination before retrying."
+};
+var CareerRunError = class extends Error {
+  code;
+  constructor(code) {
+    super(JSON.stringify({
+      schema_version: "pi.career.run_error.v1",
+      code,
+      message: MESSAGES[code]
+    }));
+    this.name = "CareerRunError";
+    this.code = code;
+  }
+};
+function careerRunErrorMessage(code) {
+  return MESSAGES[code];
+}
+function careerRunError(code) {
+  return new CareerRunError(code);
+}
+function managedFailure(error) {
+  if (error instanceof CareerRunError) return error;
+  if (error instanceof Error && error.message === "managed_contract_invalid") {
+    return careerRunError("managed_contract_invalid");
+  }
+  if (error instanceof Error && error.message === "managed_payload_invalid") {
+    return careerRunError("invalid_request");
+  }
+  return careerRunError("managed_result_invalid");
+}
+
+// src/managed/proposals.ts
+var SECTIONS = /* @__PURE__ */ new Set([
+  "contact",
+  "summary",
+  "experience",
+  "education",
+  "skills",
+  "projects",
+  "certifications",
+  "other"
+]);
+function isRecord8(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function hasExactKeys(value, keys) {
+  return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+function boundedString(value, minimum, maximum) {
+  if (typeof value !== "string") return false;
+  const length = [...value].length;
+  return length >= minimum && length <= maximum;
+}
+function boundedInteger(value, minimum, maximum) {
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+function stringList(value, minimum, maximum, itemMaximum) {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) return void 0;
+  if (!value.every((item) => boundedString(item, 1, itemMaximum))) return void 0;
+  const strings = value;
+  return new Set(strings).size === strings.length ? [...strings] : void 0;
+}
+function parseVariantChange(value) {
+  if (!isRecord8(value) || !hasExactKeys(value, [
+    "section",
+    "start_line",
+    "end_line",
+    "original_text",
+    "proposed_text",
+    "resume_evidence",
+    "vacancy_evidence"
+  ])) return void 0;
+  const resumeEvidence = stringList(value.resume_evidence, 1, 5, 300);
+  const vacancyEvidence = stringList(value.vacancy_evidence, 1, 5, 300);
+  if (typeof value.section !== "string" || !SECTIONS.has(value.section) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.original_text, 1, 1e4) || !boundedString(value.proposed_text, 0, 1e4) || resumeEvidence === void 0 || vacancyEvidence === void 0) return void 0;
+  return {
+    section: value.section,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    original_text: value.original_text,
+    proposed_text: value.proposed_text,
+    resume_evidence: resumeEvidence,
+    vacancy_evidence: vacancyEvidence
+  };
+}
+function parseAnalysisSuggestion(value) {
+  if (!isRecord8(value) || !hasExactKeys(value, [
+    "basis_check_id",
+    "start_line",
+    "end_line",
+    "source_target",
+    "source_evidence",
+    "suggestion"
+  ])) return void 0;
+  const evidence = stringList(value.source_evidence, 1, 2, 240);
+  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.suggestion, 1, 600)) return void 0;
+  return {
+    basis_check_id: value.basis_check_id,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    source_target: value.source_target,
+    source_evidence: evidence,
+    suggestion: value.suggestion
+  };
+}
+function parseAnalysisReplacement(value) {
+  if (!isRecord8(value) || !hasExactKeys(value, [
+    "basis_check_id",
+    "start_line",
+    "end_line",
+    "source_target",
+    "source_evidence",
+    "proposed_replacement"
+  ])) return void 0;
+  const evidence = stringList(value.source_evidence, 1, 2, 240);
+  if (!boundedString(value.basis_check_id, 1, 100) || !/^[a-z0-9_]+$/.test(value.basis_check_id) || !boundedInteger(value.start_line, 1, 2e3) || !boundedInteger(value.end_line, 1, 2e3) || !boundedString(value.source_target, 1, 500) || evidence === void 0 || !boundedString(value.proposed_replacement, 0, 600)) return void 0;
+  return {
+    basis_check_id: value.basis_check_id,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    source_target: value.source_target,
+    source_evidence: evidence,
+    proposed_replacement: value.proposed_replacement
+  };
+}
+function parseVariantChanges(payload) {
+  if (!isRecord8(payload) || !hasExactKeys(payload, ["changes"]) || !Array.isArray(payload.changes) || payload.changes.length > 50) {
+    throw new Error("managed_payload_invalid");
+  }
+  const changes = payload.changes.map(parseVariantChange);
+  if (changes.some((change) => change === void 0)) throw new Error("managed_payload_invalid");
+  return changes;
+}
+function parseAnalysisSuggestions(payload) {
+  if (!isRecord8(payload) || !hasExactKeys(payload, ["suggestions"]) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 3) {
+    throw new Error("managed_payload_invalid");
+  }
+  const suggestions = payload.suggestions.map(parseAnalysisSuggestion);
+  if (suggestions.some((suggestion) => suggestion === void 0)) {
+    throw new Error("managed_payload_invalid");
+  }
+  return suggestions;
+}
+function parseAnalysisReplacements(payload) {
+  if (!isRecord8(payload) || !hasExactKeys(payload, ["replacements"]) || !Array.isArray(payload.replacements) || payload.replacements.length > 3) {
+    throw new Error("managed_payload_invalid");
+  }
+  const replacements = payload.replacements.map(parseAnalysisReplacement);
+  if (replacements.some((replacement) => replacement === void 0)) {
+    throw new Error("managed_payload_invalid");
+  }
+  return replacements;
+}
+function parseSelectedChangeIds(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 50 || !value.every((item) => typeof item === "string" && /^change-[0-9]{4}$/.test(item)) || new Set(value).size !== value.length) throw new Error("managed_payload_invalid");
+  return [...value];
+}
+
+// src/managed/registry.ts
+var MAX_ENTRY_COUNT = 16;
+var MAX_TOTAL_BYTES = 67108864;
+var HANDLE_SUFFIX_PATTERN = /^[a-f0-9-]{8,64}$/;
+function handlePrefix(kind) {
+  return kind === "review" ? "review" : kind === "variant" ? "variant" : "result";
+}
+function entryBytes(entry) {
+  return Buffer.byteLength(entry.json, "utf8") + (entry.reviewInput === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.reviewInput), "utf8")) + (entry.variantSource === void 0 ? 0 : Buffer.byteLength(JSON.stringify(entry.variantSource), "utf8"));
+}
+var ManagedRegistry = class {
+  constructor(uuid, now) {
+    this.uuid = uuid;
+    this.now = now;
+  }
+  uuid;
+  now;
+  sessionId;
+  contextReady = false;
+  entries = /* @__PURE__ */ new Map();
+  totalBytes = 0;
+  enterSession(sessionId) {
+    if (this.sessionId === sessionId) return;
+    this.clear();
+    this.sessionId = sessionId;
+  }
+  resetSession(sessionId) {
+    this.clear();
+    this.sessionId = sessionId;
+  }
+  markContextReady(sessionId) {
+    this.enterSession(sessionId);
+    this.contextReady = true;
+  }
+  hasContext(sessionId) {
+    return this.sessionId === sessionId && this.contextReady;
+  }
+  store(entry) {
+    const bytes = entryBytes(entry);
+    if (bytes > MAX_TOTAL_BYTES) throw new Error("managed_result_capacity");
+    while (this.entries.size >= MAX_ENTRY_COUNT || this.totalBytes + bytes > MAX_TOTAL_BYTES) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === void 0) break;
+      this.delete(oldest);
+    }
+    let handle;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const suffix = this.uuid().toLowerCase().replace(/[^a-f0-9-]/g, "").slice(0, 24);
+      if (!HANDLE_SUFFIX_PATTERN.test(suffix)) throw new Error("managed_result_capacity");
+      const candidate = `${handlePrefix(entry.kind)}:${suffix}`;
+      if (!this.entries.has(candidate)) {
+        handle = candidate;
+        break;
+      }
+    }
+    if (handle === void 0) throw new Error("managed_result_capacity");
+    const stored = {
+      ...entry,
+      handle,
+      createdAt: this.now().getTime(),
+      bytes
+    };
+    this.entries.set(handle, stored);
+    this.totalBytes += bytes;
+    return stored;
+  }
+  get(handle, kind) {
+    const entry = this.entries.get(handle);
+    if (entry === void 0 || kind !== void 0 && entry.kind !== kind) return void 0;
+    return entry;
+  }
+  clear() {
+    this.entries.clear();
+    this.totalBytes = 0;
+    this.contextReady = false;
+    this.sessionId = void 0;
+  }
+  delete(handle) {
+    const entry = this.entries.get(handle);
+    if (entry === void 0) return;
+    this.totalBytes -= entry.bytes;
+    this.entries.delete(handle);
+  }
+};
+
+// src/managed/schema.ts
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+var RAW_TOOL_NAMES = [
+  "career_core_discover",
+  "career_core_resume",
+  "career_core_job"
+];
+var MANAGED_TOOL_NAME = "career_run";
+var CAREER_RUN_COMMANDS = [
+  "context",
+  "consent",
+  "analyze",
+  "match",
+  "suggestion-review",
+  "replacement-review",
+  "variant-review",
+  "materialize",
+  "detail"
+];
+var DETAIL_SECTIONS = [
+  "summary",
+  "warnings",
+  "checks",
+  "evidence",
+  "changes",
+  "document",
+  "raw"
+];
+var careerRunParameters = Type.Object({
+  command: StringEnum(CAREER_RUN_COMMANDS),
+  handle: Type.Optional(Type.String({
+    pattern: "^(resume|result|review|variant):[a-f0-9-]{8,64}$",
+    maxLength: 80
+  })),
+  payload: Type.Optional(Type.Unknown({
+    description: "Native command payload; never a JSON string or complete Core envelope."
+  }))
+}, { additionalProperties: false });
+
+// src/managed/engine.ts
+var MODEL_DETAIL_MAX_BYTES = 5e4;
+function isRecord9(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function stringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function validVariantSelectionChange(value, expectedId) {
+  if (!isRecord9(value)) return false;
+  return [
+    value.change_id === expectedId,
+    typeof value.section === "string",
+    Number.isSafeInteger(value.start_line),
+    Number.isSafeInteger(value.end_line),
+    typeof value.original_text === "string",
+    typeof value.proposed_text === "string",
+    stringArray(value.resume_evidence),
+    stringArray(value.vacancy_evidence)
+  ].every(Boolean);
+}
+function variantSelectionChange(value, expectedId) {
+  if (!validVariantSelectionChange(value, expectedId)) return void 0;
+  return {
+    change_id: expectedId,
+    section: value.section,
+    start_line: value.start_line,
+    end_line: value.end_line,
+    original_text: value.original_text,
+    proposed_text: value.proposed_text,
+    resume_evidence: [...value.resume_evidence],
+    vacancy_evidence: [...value.vacancy_evidence]
+  };
+}
+function arrayField2(value, field) {
+  const found = value[field];
+  if (!Array.isArray(found)) throw careerRunError("managed_result_invalid");
+  return found;
+}
+function warnings(value) {
+  return arrayField2(value, "warnings");
+}
+function exactDefinedKeys(params, allowed) {
+  const keys = Object.entries(params).filter(([, value]) => value !== void 0).map(([key]) => key);
+  if (keys.some((key) => !allowed.includes(key))) throw careerRunError("invalid_request");
+}
+function parseConsentDecision(payload) {
+  if (payload !== "approve" && payload !== "decline") throw careerRunError("invalid_request");
+  return payload;
+}
+function parseMaterializeRequest(payload) {
+  if (!isRecord9(payload) || Object.keys(payload).join("") !== "selected_change_ids") {
+    throw careerRunError("invalid_request");
+  }
+  return parseSelectedChangeIds(payload.selected_change_ids);
+}
+function parseDetailRequest(payload) {
+  if (!isRecord9(payload)) throw careerRunError("invalid_request");
+  const keys = Object.keys(payload).sort().join("\0");
+  if (keys !== "section" && keys !== "item\0section") throw careerRunError("invalid_request");
+  if (!DETAIL_SECTIONS.includes(payload.section)) {
+    throw careerRunError("invalid_request");
+  }
+  if (payload.item !== void 0 && (typeof payload.item !== "string" || !/^(change|suggestion|replacement)-[0-9]{4}$/.test(payload.item))) {
+    throw careerRunError("invalid_request");
+  }
+  return {
+    section: payload.section,
+    ...payload.item === void 0 ? {} : { item: payload.item }
+  };
+}
+function resultEnvelope(command, body, details) {
+  const text = JSON.stringify({ schema_version: "pi.career.run_result.v1", command, ...body });
+  if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
+    throw careerRunError("detail_too_large");
+  }
+  return {
+    content: [{ type: "text", text }],
+    details: { schema_version: "pi.career.run_details.v1", command, ...details }
+  };
+}
+function resumeHandles(records) {
+  const shortCounts = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    const short = record.id.slice(0, 16);
+    shortCounts.set(short, (shortCounts.get(short) ?? 0) + 1);
+  }
+  return new Map(records.map((record) => {
+    const short = record.id.slice(0, 16);
+    const suffix = shortCounts.get(short) === 1 ? short : record.id.slice(0, 24);
+    return [`resume:${suffix}`, record];
+  }));
+}
+function persisted(ctx) {
+  return ctx.sessionManager.getSessionFile() !== void 0;
+}
+function persistenceConsent(ctx) {
+  if (!persisted(ctx)) return "not_required";
+  const consent = reconstructWorkflowState(ctx.sessionManager.getBranch()).consent;
+  if (consent?.granted === true) return "approved";
+  if (consent?.granted === false) return "declined";
+  return "required";
+}
+function requireConsent(ctx) {
+  const consent = persistenceConsent(ctx);
+  if (consent === "required") throw careerRunError("consent_required");
+  if (consent === "declined") throw careerRunError("consent_declined");
+}
+async function currentResumes(agentDir) {
+  const config = await loadConfig(agentDir);
+  const scan = await scanLibrary(config);
+  return resumeHandles(eligibleOriginals(scan));
+}
+function mapAttachedCareerError(error) {
+  if (error instanceof CareerWorkflowError) {
+    if (error.code === "attachment_unavailable" || error.code === "workspace_identity_conflict") {
+      throw careerRunError("assistance_required");
+    }
+    if (error.code === "workspace_drift") throw careerRunError("resume_not_found");
+  }
+  throw error;
+}
+async function attachedCareerSources(agentDir, ctx) {
+  const branch = ctx.sessionManager.getBranch();
+  const allEntries = typeof ctx.sessionManager.getEntries === "function" ? ctx.sessionManager.getEntries() : branch;
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid" || records.attachment === void 0) return void 0;
+  if (records.activation === void 0) throw careerRunError("assistance_required");
+  try {
+    return await loadAttachedApplicationSources(agentDir, records.attachment);
+  } catch (error) {
+    return mapAttachedCareerError(error);
+  }
+}
+function attachedResumeHandles(sources) {
+  const records = [
+    ...sources.selected_original === void 0 ? [] : [sources.selected_original],
+    ...sources.effective_resume === void 0 || sources.effective_resume.id === sources.selected_original?.id ? [] : [sources.effective_resume]
+  ];
+  return resumeHandles(records);
+}
+async function resolveResume(agentDir, ctx, registry, handle, role = "analyze") {
+  if (!registry.hasContext(ctx.sessionManager.getSessionId())) throw careerRunError("context_required");
+  if (handle === void 0) throw careerRunError("invalid_request");
+  const attached = await attachedCareerSources(agentDir, ctx);
+  if (attached !== void 0) {
+    const required = role === "match" ? attached.effective_resume : attached.selected_original;
+    if (required === void 0) throw careerRunError("resume_not_found");
+    const found = attachedResumeHandles(attached).get(handle);
+    if (found === void 0 || found.id !== required.id) throw careerRunError("resume_not_found");
+    return found;
+  }
+  const resume = (await currentResumes(agentDir)).get(handle);
+  if (resume === void 0) throw careerRunError("resume_not_found");
+  return resume;
+}
+async function resolveVacancy(agentDir, ctx) {
+  const attached = await attachedCareerSources(agentDir, ctx);
+  if (attached !== void 0) {
+    if (attached.vacancy === void 0) throw careerRunError("vacancy_not_found");
+    return attached.vacancy;
+  }
+  const vacancy = reconstructWorkflowState(ctx.sessionManager.getBranch()).vacancy;
+  if (vacancy === void 0) throw careerRunError("vacancy_not_found");
+  return vacancy;
+}
+function ensureSchema(value, schema) {
+  if (value.schema_version !== schema) throw careerRunError("managed_result_invalid");
+}
+function safeSummary(value) {
+  return typeof value === "number" || typeof value === "string" ? String(value) : "complete";
+}
+function compactAnalyze(result) {
+  const projection = projectResumeAnalysis(result);
+  return {
+    result_schema: result.schema_version,
+    overall_score: projection.summary.overall_score,
+    category_scores: projection.summary.category_scores,
+    confidence_context: projection.summary.confidence_context,
+    top_strengths: projection.summary.top_strengths,
+    top_weaknesses: projection.summary.top_weaknesses,
+    improvement_actions: projection.summary.improvement_actions,
+    warnings: warnings(result)
+  };
+}
+function compactMatch(result) {
+  const projection = projectJobMatch(result);
+  return {
+    result_schema: result.schema_version,
+    overall_score: projection.summary.overall_score,
+    category_scores: projection.summary.category_scores,
+    confidence_context: projection.summary.confidence_context,
+    top_strengths: projection.summary.top_strengths,
+    top_gaps: projection.summary.top_gaps,
+    recommendation: projection.summary.recommendation,
+    warnings: warnings(result)
+  };
+}
+function validateAuthority(result) {
+  if (result.authority !== "assisted_non_authoritative") {
+    throw careerRunError("managed_result_invalid");
+  }
+}
+function compactSuggestionReview(result) {
+  ensureSchema(result, "career.resume_analysis_suggestion_review.v1");
+  validateAuthority(result);
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    suggestions: arrayField2(result, "suggestions"),
+    discarded_suggestions: arrayField2(result, "discarded_suggestions"),
+    warnings: warnings(result)
+  };
+}
+function compactReplacementReview(result) {
+  ensureSchema(result, "career.resume_analysis_replacement_review.v1");
+  validateAuthority(result);
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    replacements: arrayField2(result, "replacements"),
+    discarded_replacements: arrayField2(result, "discarded_replacements"),
+    warnings: warnings(result)
+  };
+}
+function compactCanonicalChanges(changes) {
+  return changes.map((change) => isRecord9(change) ? {
+    change_id: change.change_id,
+    section: change.section,
+    start_line: change.start_line,
+    end_line: change.end_line
+  } : change);
+}
+function compactVariantReview(result) {
+  ensureSchema(result, "career.resume_variant_review.v1");
+  validateAuthority(result);
+  const changes = arrayField2(result, "changes");
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    retained_change_count: changes.length,
+    changes: compactCanonicalChanges(changes),
+    discarded_changes: arrayField2(result, "discarded_changes"),
+    warnings: warnings(result),
+    detail_guidance: "Use career_run detail with section=changes; add item=change-NNNN for one exact canonical change."
+  };
+}
+function compactVariant(result) {
+  ensureSchema(result, "career.resume_variant.v1");
+  validateAuthority(result);
+  const selected = arrayField2(result, "selected_changes");
+  return {
+    result_schema: result.schema_version,
+    authority: result.authority,
+    selected_change_count: selected.length,
+    selected_changes: compactCanonicalChanges(selected),
+    warnings: warnings(result),
+    detail_guidance: "Use career_run detail with section=document for assisted text or section=changes plus an item for one canonical change."
+  };
+}
+function evidenceDetail(value) {
+  const analysis = isRecord9(value.baseline_analysis) ? value.baseline_analysis : value;
+  const checks = isRecord9(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+  return checks.flatMap((check) => isRecord9(check) && Array.isArray(check.evidence) ? [{ check_id: check.check_id, evidence: check.evidence }] : []);
+}
+var DETAIL_SUMMARIES = {
+  "resume.analyze": compactAnalyze,
+  "job.match": compactMatch,
+  "resume.analysis-suggestions.review": compactSuggestionReview,
+  "resume.analysis-replacements.review": compactReplacementReview,
+  "resume.variant.review": compactVariantReview,
+  "resume.variant.materialize": compactVariant
+};
+function analysisChecks(value) {
+  const analysis = isRecord9(value.baseline_analysis) ? value.baseline_analysis : value;
+  return isRecord9(analysis) && Array.isArray(analysis.checks) ? analysis.checks : [];
+}
+function reviewedItems(value) {
+  const items = value.changes ?? value.suggestions ?? value.replacements ?? value.selected_changes ?? [];
+  if (!Array.isArray(items)) throw careerRunError("managed_result_invalid");
+  return items;
+}
+function exactReviewedItem(items, item) {
+  const found = items.find((candidate) => isRecord9(candidate) && (candidate.change_id === item || candidate.suggestion_id === item || candidate.replacement_id === item));
+  if (found === void 0) throw careerRunError("result_not_found");
+  return found;
+}
+function detailValue(entry, request) {
+  const value = entry.value;
+  if (request.section === "summary") {
+    return DETAIL_SUMMARIES[entry.operation]?.(value) ?? { schema_version: value.schema_version };
+  }
+  if (request.section === "warnings") return warnings(value);
+  if (request.section === "checks") return analysisChecks(value);
+  if (request.section === "evidence") return evidenceDetail(value);
+  if (request.section === "changes") {
+    const items = reviewedItems(value);
+    return request.item === void 0 ? items : exactReviewedItem(items, request.item);
+  }
+  if (request.section === "document") {
+    return value.assisted_resume_text ?? value.proposed_preview_text ?? null;
+  }
+  if (request.section === "raw") return value;
+  throw careerRunError("invalid_request");
+}
+function mapInternalError(error) {
+  if (error instanceof CareerRunError || error instanceof CareerInvocationError) throw error;
+  if (error instanceof Error && error.message === "session_changed") throw careerRunError("session_changed");
+  if (error instanceof Error && error.message === "managed_result_capacity") {
+    throw careerRunError("managed_result_capacity");
+  }
+  throw managedFailure(error);
+}
+function selectableVariantReview(review) {
+  if (review === void 0) throw careerRunError("review_not_found");
+  if (![review.operation === "resume.variant.review", review.retainedChangeIds !== void 0].every(Boolean)) {
+    throw careerRunError("review_not_found");
+  }
+  if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+  ensureSchema(review.value, "career.resume_variant_review.v1");
+  validateAuthority(review.value);
+  return review;
+}
+function selectableVariantChanges(review) {
+  const values = arrayField2(review.value, "changes");
+  if (values.length !== review.retainedChangeIds.length) throw careerRunError("managed_result_invalid");
+  const changes = values.map((value, index) => variantSelectionChange(value, review.retainedChangeIds[index]));
+  if (changes.some((change) => change === void 0)) throw careerRunError("managed_result_invalid");
+  return changes;
+}
+var CareerRunEngine = class {
+  constructor(options) {
+    this.options = options;
+    this.registry = new ManagedRegistry(options.uuid, options.now);
+    this.dependencies = {
+      agentDir: options.agentDir,
+      invoke: options.invoke,
+      uuid: options.uuid,
+      now: options.now
+    };
+  }
+  options;
+  registry;
+  contracts = new ManagedContractCache();
+  dependencies;
+  enterSession(sessionId) {
+    this.registry.enterSession(sessionId);
+  }
+  resetSession(sessionId) {
+    this.registry.resetSession(sessionId);
+  }
+  shutdown() {
+    this.registry.clear();
+  }
+  materializedVariantForSave(handle, ctx) {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const entry = this.registry.get(handle, "variant");
+      if (entry === void 0 || entry.operation !== "resume.variant.materialize" || entry.variantSource === void 0) throw careerRunError("variant_save_unavailable");
+      ensureSchema(entry.value, "career.resume_variant.v1");
+      validateAuthority(entry.value);
+      const assistedText = entry.value.assisted_resume_text;
+      const selected = arrayField2(entry.value, "selected_changes");
+      if (typeof assistedText !== "string" || selected.length === 0) {
+        throw careerRunError("managed_result_invalid");
+      }
+      const selectedChangeIds = selected.map((change) => isRecord9(change) && typeof change.change_id === "string" ? change.change_id : "");
+      if (selectedChangeIds.some((id) => !/^change-[0-9]{4}$/.test(id))) {
+        throw careerRunError("managed_result_invalid");
+      }
+      return {
+        handle: entry.handle,
+        assistedText,
+        selectedChangeIds,
+        source: { ...entry.variantSource }
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
+  }
+  variantSelectionReview(handle, ctx) {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      this.registry.enterSession(sessionId);
+      requireConsent(ctx);
+      if (!this.registry.hasContext(sessionId)) throw careerRunError("context_required");
+      const review = selectableVariantReview(this.registry.get(handle, "review"));
+      return {
+        handle: review.handle,
+        authority: "assisted_non_authoritative",
+        changes: selectableVariantChanges(review),
+        discarded_changes: arrayField2(review.value, "discarded_changes"),
+        warnings: warnings(review.value)
+      };
+    } catch (error) {
+      mapInternalError(error);
+    }
+  }
+  async run(params, signal, ctx) {
+    try {
+      this.registry.enterSession(ctx.sessionManager.getSessionId());
+      exactDefinedKeys(params, ["command", "handle", "payload"]);
+      const managed = await this.contracts.load(this.options.invoke, signal);
+      switch (params.command) {
+        case "context":
+          return await this.context(params, ctx, managed.coreVersion);
+        case "consent":
+          return this.consent(params, ctx);
+        case "analyze":
+          return await this.analyze(params, signal, ctx);
+        case "match":
+          return await this.match(params, signal, ctx);
+        case "suggestion-review":
+          return await this.suggestionReview(params, signal, ctx);
+        case "replacement-review":
+          return await this.replacementReview(params, signal, ctx);
+        case "variant-review":
+          return await this.variantReview(params, signal, ctx);
+        case "materialize":
+          return await this.materialize(params, signal, ctx);
+        case "detail":
+          return this.detail(params, ctx);
+      }
+    } catch (error) {
+      mapInternalError(error);
+    }
+  }
+  consent(params, ctx) {
+    exactDefinedKeys(params, ["command", "payload"]);
+    if (!persisted(ctx)) throw careerRunError("invalid_request");
+    const granted = parseConsentDecision(params.payload) === "approve";
+    this.options.pi.appendEntry(
+      WORKFLOW_CUSTOM_TYPE,
+      createConsentEntry(granted, this.dependencies)
+    );
+    if (!granted) this.registry.resetSession(ctx.sessionManager.getSessionId());
+    return resultEnvelope("consent", {
+      persistence: "persistent",
+      consent: granted ? "approved" : "declined",
+      next_action: granted ? "Run career_run context." : "Start a new `pi --no-session` run."
+    }, {
+      status: "complete",
+      summary: granted ? "Session persistence approved" : "Session persistence declined"
+    });
+  }
+  async context(params, ctx, coreVersion) {
+    exactDefinedKeys(params, ["command"]);
+    const consent = persistenceConsent(ctx);
+    if (consent === "required" || consent === "declined") {
+      return this.consentRequiredContext(coreVersion, consent);
+    }
+    const attached = await attachedCareerSources(this.options.agentDir, ctx);
+    const config = await loadConfig(this.options.agentDir);
+    const scan = await scanLibrary(config);
+    const resumes = attached === void 0 ? resumeHandles(eligibleOriginals(scan)) : attachedResumeHandles(attached);
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    const vacancy = attached === void 0 ? state.vacancy : attached.vacancy;
+    const application = attached === void 0 ? state.application === void 0 ? null : { company: state.application.company_label, role: state.application.role_label } : { company: attached.company_label, role: attached.role_label };
+    this.registry.markContextReady(ctx.sessionManager.getSessionId());
+    return resultEnvelope("context", {
+      core_version: coreVersion,
+      persistence: persisted(ctx) ? "persistent" : "transient",
+      consent,
+      resume_count: resumes.size,
+      resumes: [...resumes].slice(0, 100).map(([handle, resume]) => ({
+        handle,
+        label: resume.label,
+        format: resume.format
+      })),
+      resumes_omitted: Math.max(0, resumes.size - 100),
+      vacancy: vacancy === void 0 ? null : { handle: "vacancy:current", label: vacancy.vacancy_label },
+      application,
+      notices: scan.warnings.length
+    }, {
+      status: "ready",
+      summary: `${resumes.size} original resume${resumes.size === 1 ? "" : "s"}`
+    });
+  }
+  consentRequiredContext(coreVersion, consent) {
+    return resultEnvelope("context", {
+      core_version: coreVersion,
+      persistence: "persistent",
+      consent: consent === "required" ? "consent_required" : "declined",
+      resumes: [],
+      next_action: consent === "required" ? "Ask whether this Pi session may persist private career content, then call career_run consent. Recommend `pi --no-session` when persistence is unwanted." : "Start a new `pi --no-session` run."
+    }, {
+      status: "consent_required",
+      summary: consent === "required" ? "Persistence decision required" : "Persistence declined"
+    });
+  }
+  preparePrivateCommand(params, ctx) {
+    requireConsent(ctx);
+    if (!this.registry.hasContext(ctx.sessionManager.getSessionId())) {
+      throw careerRunError("context_required");
+    }
+  }
+  async analyze(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    ensureSchema(value, "career.resume_analysis.v1");
+    const entry = this.registry.store({
+      kind: "result",
+      operation: "resume.analyze",
+      json: invocation.json,
+      value
+    });
+    const summary = compactAnalyze(value);
+    return resultEnvelope("analyze", { result: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `Score ${safeSummary(summary.overall_score)}`
+    });
+  }
+  async match(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    const vacancy = await resolveVacancy(this.options.agentDir, ctx);
+    const invocation = await this.options.invoke(
+      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    ensureSchema(value, "career.job_match.v1");
+    const entry = this.registry.store({
+      kind: "result",
+      operation: "job.match",
+      json: invocation.json,
+      value
+    });
+    const summary = compactMatch(value);
+    return resultEnvelope("match", { result: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `Match ${safeSummary(summary.overall_score)}`
+    });
+  }
+  async suggestionReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const input = {
+      schema_version: "career.resume_analysis_suggestion_review_input.v1",
+      expected_analysis_policy_version: "resume_analysis_v1",
+      resume: buildResumeInput(resume),
+      proposal: {
+        schema_version: "career.resume_analysis_suggestion_proposal.v1",
+        suggestions: parseAnalysisSuggestions(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analysis-suggestions-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactSuggestionReview(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.analysis-suggestions.review",
+      json: invocation.json,
+      value
+    });
+    return resultEnvelope("suggestion-review", { review: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${arrayField2(value, "suggestions").length} retained suggestion(s)`
+    });
+  }
+  async replacementReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle);
+    const input = {
+      schema_version: "career.resume_analysis_replacement_review_input.v1",
+      expected_analysis_policy_version: "resume_analysis_v1",
+      resume: buildResumeInput(resume),
+      proposal: {
+        schema_version: "career.resume_analysis_replacement_proposal.v1",
+        replacements: parseAnalysisReplacements(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "analysis-replacements-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactReplacementReview(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.analysis-replacements.review",
+      json: invocation.json,
+      value
+    });
+    return resultEnvelope("replacement-review", { review: entry.handle, ...summary }, {
+      status: "complete",
+      handle: entry.handle,
+      summary: `${arrayField2(value, "replacements").length} retained replacement(s)`
+    });
+  }
+  async variantReview(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    const vacancy = await resolveVacancy(this.options.agentDir, ctx);
+    const input = {
+      schema_version: "career.resume_variant_review_input.v1",
+      resume: buildResumeInput(resume),
+      vacancy: {
+        schema_version: "career.job_input.v1",
+        text: vacancy.vacancy_text,
+        metadata: { document_id: vacancy.state_id }
+      },
+      proposal: {
+        schema_version: "career.resume_variant_proposal.v1",
+        changes: parseVariantChanges(params.payload)
+      }
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "variant-review", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactVariantReview(value);
+    const retainedChangeIds = this.retainedChangeIds(value);
+    const entry = this.registry.store({
+      kind: "review",
+      operation: "resume.variant.review",
+      json: invocation.json,
+      value,
+      reviewInput: input,
+      retainedChangeIds,
+      materializationAllowed: resume.format !== "pdf",
+      variantSource: {
+        resumeId: resume.id,
+        rootId: resume.root_id,
+        format: resume.format,
+        textSha256: resume.text_sha256
+      }
+    });
+    return resultEnvelope("variant-review", {
+      review: entry.handle,
+      ...summary,
+      next_action: resume.format === "pdf" ? "Stop this turn. Present the reviewed changes as manual-application guidance only; extracted PDF text cannot be materialized as a styled resume." : `Stop this turn. In TUI, ask the user to run /career-review ${entry.handle}; otherwise show exact change details and ask for explicit canonical IDs. Only a later user turn may materialize the selected IDs.`
+    }, {
+      status: "complete",
+      handle: entry.handle,
+      action: resume.format === "pdf" ? "pdf_manual" : "review_select",
+      summary: resume.format === "pdf" ? `${retainedChangeIds.length} retained change(s) • PDF manual application only` : `${retainedChangeIds.length} retained change(s) • explicit selection required`
+    });
+  }
+  retainedChangeIds(value) {
+    const changes = arrayField2(value, "changes");
+    const ids = changes.flatMap(
+      (change) => isRecord9(change) && typeof change.change_id === "string" ? [change.change_id] : []
+    );
+    if (ids.length !== changes.length || new Set(ids).size !== ids.length || ids.some((id) => !/^change-[0-9]{4}$/.test(id))) throw careerRunError("managed_result_invalid");
+    return ids;
+  }
+  async materialize(params, signal, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    if (params.handle === void 0) throw careerRunError("invalid_request");
+    const review = this.registry.get(params.handle, "review");
+    if (review === void 0 || review.operation !== "resume.variant.review" || review.reviewInput === void 0 || review.retainedChangeIds === void 0) {
+      throw careerRunError("review_not_found");
+    }
+    if (review.materializationAllowed !== true) throw careerRunError("pdf_materialization_unsupported");
+    if (review.variantSource === void 0) throw careerRunError("managed_result_invalid");
+    const selected = parseMaterializeRequest(params.payload);
+    const retained = new Set(review.retainedChangeIds);
+    if (selected.some((id) => !retained.has(id))) throw careerRunError("selection_invalid");
+    const input = {
+      schema_version: "career.resume_variant_materialization_input.v1",
+      expected_review_policy_version: "resume_variant_review_v1",
+      review_input: review.reviewInput,
+      selected_change_ids: selected
+    };
+    const invocation = await this.options.invoke(
+      { kind: "resume", operation: "variant-materialize", inputJson: JSON.stringify(input) },
+      signal,
+      MANAGED_INVOKE_OPTIONS
+    );
+    const value = parseCoreJson(invocation.json);
+    const summary = compactVariant(value);
+    const entry = this.registry.store({
+      kind: "variant",
+      operation: "resume.variant.materialize",
+      json: invocation.json,
+      value,
+      variantSource: review.variantSource
+    });
+    return resultEnvelope("materialize", {
+      variant: entry.handle,
+      ...summary,
+      next_action: `This assisted/non-authoritative result remains in memory. To review and save it locally, the user may run /career-save ${entry.handle}; never invoke saving as a model action.`
+    }, {
+      status: "complete",
+      handle: entry.handle,
+      action: "save_available",
+      summary: `${selected.length} selected change(s) materialized`
+    });
+  }
+  detail(params, ctx) {
+    exactDefinedKeys(params, ["command", "handle", "payload"]);
+    this.preparePrivateCommand(params, ctx);
+    if (params.handle === void 0) throw careerRunError("invalid_request");
+    const entry = this.registry.get(params.handle);
+    if (entry === void 0) throw careerRunError("result_not_found");
+    const request = parseDetailRequest(params.payload);
+    if (request.item !== void 0 && request.section !== "changes") {
+      throw careerRunError("invalid_request");
+    }
+    const text = JSON.stringify({
+      schema_version: "pi.career.run_detail.v1",
+      result: entry.handle,
+      operation: entry.operation,
+      section: request.section,
+      ...request.item === void 0 ? {} : { item: request.item },
+      complete: true,
+      value: detailValue(entry, request)
+    });
+    if (Buffer.byteLength(text, "utf8") > MODEL_DETAIL_MAX_BYTES) {
+      throw careerRunError("detail_too_large");
+    }
+    return {
+      content: [{ type: "text", text }],
+      details: {
+        schema_version: "pi.career.run_details.v1",
+        command: "detail",
+        status: "complete",
+        handle: entry.handle,
+        summary: `${entry.operation} ${request.section}`
+      }
+    };
+  }
+};
+
+// src/workflow/detail-viewer.ts
+async function showDetailText(ctx, label, text) {
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(text, "info");
+    return;
+  }
+  await ctx.ui.custom((tui, theme, keybindings, done) => new DetailViewer(
+    label,
+    text,
+    theme,
+    keybindings,
+    Math.max(1, Math.min(20, tui.terminal.rows - 6)),
+    () => tui.requestRender(),
+    () => done(void 0)
+  ));
+}
+
+// src/managed/review-selector.ts
+var CONTINUE = "Continue with selected changes";
+var BACK_TO_REVIEW = "Back to reviewed changes";
+var CANCEL = "Cancel";
+var REPEAT_SELECTION = { done: false };
+function lineRange(change) {
+  return change.start_line === change.end_line ? `line ${change.start_line}` : `lines ${change.start_line}-${change.end_line}`;
+}
+function exactChangeValue(change) {
+  return {
+    change_id: change.change_id,
+    section: change.section,
+    start_line: change.start_line,
+    end_line: change.end_line,
+    original_text: change.original_text,
+    proposed_text: change.proposed_text,
+    resume_evidence: change.resume_evidence,
+    vacancy_evidence: change.vacancy_evidence
+  };
+}
+function exactChangeText(change) {
+  return JSON.stringify(exactChangeValue(change), null, 2);
+}
+function selectedChangeText(change, index, total) {
+  return [
+    `Change ${index + 1} of ${total}`,
+    `ID: ${JSON.stringify(change.change_id)}`,
+    `Section: ${JSON.stringify(change.section)}`,
+    `Line bounds: ${change.start_line}-${change.end_line}`,
+    `Before: ${JSON.stringify(change.original_text)}`,
+    `After: ${JSON.stringify(change.proposed_text)}`,
+    `Resume evidence (${change.resume_evidence.length}): ${JSON.stringify(change.resume_evidence)}`,
+    `Vacancy evidence (${change.vacancy_evidence.length}): ${JSON.stringify(change.vacancy_evidence)}`
+  ].join("\n");
+}
+function selectedChangesText(review, selected) {
+  return [
+    `Authority: ${review.authority}`,
+    `Selected changes: ${selected.length}`,
+    "",
+    selected.map((change, index) => selectedChangeText(change, index, selected.length)).join("\n\n")
+  ].join("\n");
+}
+function noticeText(review) {
+  return JSON.stringify({
+    authority: review.authority,
+    warnings: review.warnings,
+    discarded_changes: review.discarded_changes
+  }, null, 2);
+}
+function changeOption(change, included) {
+  return `${change.change_id} • ${change.section} • ${lineRange(change)} • ${included ? "included" : "excluded"}`;
+}
+function noticesOption(review, reviewed) {
+  return `Warnings and discards • ${review.warnings.length} warnings • ${review.discarded_changes.length} discarded • ${reviewed ? "reviewed" : "review required"}`;
+}
+function changeOptions(review, included) {
+  return new Map(review.changes.map((change) => [
+    changeOption(change, included.has(change.change_id)),
+    change
+  ]));
+}
+function selectedAction(selected, notices, byOption) {
+  const fixed = /* @__PURE__ */ new Map([
+    [void 0, { kind: "cancel" }],
+    [CANCEL, { kind: "cancel" }],
+    [notices, { kind: "notices" }],
+    [CONTINUE, { kind: "continue" }]
+  ]);
+  const change = byOption.get(selected ?? "");
+  return fixed.get(selected) ?? (change === void 0 ? { kind: "cancel" } : { kind: "change", change });
+}
+async function nextReviewAction(ctx, review, state) {
+  const notices = noticesOption(review, state.noticesReviewed);
+  const byOption = changeOptions(review, state.included);
+  const selected = await ctx.ui.select(
+    `Career reviewed changes • assisted/non-authoritative • ${state.included.size} selected`,
+    [notices, ...byOption.keys(), CONTINUE, CANCEL]
+  );
+  return selectedAction(selected, notices, byOption);
+}
+function selectionOptions(wasIncluded) {
+  return wasIncluded ? ["Keep included", "Exclude", "Back without changing"] : ["Include", "Keep excluded", "Back without changing"];
+}
+async function exactSelection(ctx, change, included) {
+  await showDetailText(
+    ctx,
+    `${change.change_id} • ${change.section} • ${lineRange(change)}`,
+    exactChangeText(change)
+  );
+  const decision = await ctx.ui.select(
+    `Explicit selection • ${change.change_id}`,
+    selectionOptions(included.has(change.change_id))
+  );
+  const decisions = /* @__PURE__ */ new Map([
+    ["Include", () => included.add(change.change_id)],
+    ["Keep included", () => included.add(change.change_id)],
+    ["Exclude", () => included.delete(change.change_id)],
+    ["Keep excluded", () => included.delete(change.change_id)]
+  ]);
+  decisions.get(decision)?.();
+}
+function completeSelection(ctx, review, state) {
+  if (!state.noticesReviewed) {
+    ctx.ui.notify("Review all Career Core warnings and discarded-change reasons before continuing.", "warning");
+    return void 0;
+  }
+  if (state.included.size === 0) {
+    ctx.ui.notify("Include at least one exact canonical change before continuing.", "warning");
+    return void 0;
+  }
+  return review.changes.filter((change) => state.included.has(change.change_id));
+}
+function prepareOption(count) {
+  return `Prepare ${count} selected change ID${count === 1 ? "" : "s"}`;
+}
+function finalChangeOption(change, index, total) {
+  return `Review selected ${index + 1}/${total} • ${change.change_id} • ${change.section} • ${lineRange(change)}`;
+}
+function confirmationOutcome(decision, prepare, selected) {
+  const outcomes = /* @__PURE__ */ new Map([
+    [void 0, { done: true }],
+    [CANCEL, { done: true }],
+    [BACK_TO_REVIEW, REPEAT_SELECTION],
+    [prepare, { done: true, selection: selected.map((change) => change.change_id) }]
+  ]);
+  return outcomes.get(decision) ?? { done: true };
+}
+async function confirmSelection(ctx, selected) {
+  const prepare = prepareOption(selected.length);
+  const byOption = new Map(selected.map((change, index) => [
+    finalChangeOption(change, index, selected.length),
+    { change, index }
+  ]));
+  while (true) {
+    const decision = await ctx.ui.select(
+      "Final selection • inspect, prepare, or go back • nothing runs automatically",
+      [...byOption.keys(), prepare, BACK_TO_REVIEW, CANCEL]
+    );
+    const target = byOption.get(decision ?? "");
+    if (target === void 0) return confirmationOutcome(decision, prepare, selected);
+    await showDetailText(
+      ctx,
+      `Selected ${target.index + 1}/${selected.length} • ${target.change.change_id}`,
+      selectedChangeText(target.change, target.index, selected.length)
+    );
+  }
+}
+async function continueSelection(ctx, review, state) {
+  const selected = completeSelection(ctx, review, state);
+  if (selected === void 0) return REPEAT_SELECTION;
+  await showDetailText(
+    ctx,
+    `${selected.length} selected change${selected.length === 1 ? "" : "s"} • final review`,
+    selectedChangesText(review, selected)
+  );
+  return await confirmSelection(ctx, selected);
+}
+async function reviewNotices(ctx, review, state) {
+  await showDetailText(ctx, "Warnings and discarded changes", noticeText(review));
+  state.noticesReviewed = true;
+  return REPEAT_SELECTION;
+}
+async function reviewChange(ctx, state, change) {
+  await exactSelection(ctx, change, state.included);
+  return REPEAT_SELECTION;
+}
+async function applyAction(ctx, review, state, action) {
+  const handlers = {
+    cancel: async () => ({ done: true }),
+    notices: async () => await reviewNotices(ctx, review, state),
+    continue: async () => await continueSelection(ctx, review, state),
+    change: async () => await reviewChange(
+      ctx,
+      state,
+      action.change
+    )
+  };
+  return await handlers[action.kind]();
+}
+function noticesRequired(review) {
+  return [review.warnings.length > 0, review.discarded_changes.length > 0].some(Boolean);
+}
+function selectableReview(ctx, review) {
+  return [ctx.mode === "tui", review.changes.length > 0].every(Boolean);
+}
+async function selectVariantChanges(ctx, review) {
+  if (!selectableReview(ctx, review)) return void 0;
+  const state = {
+    included: /* @__PURE__ */ new Set(),
+    noticesReviewed: !noticesRequired(review)
+  };
+  while (true) {
+    const action = await nextReviewAction(ctx, review, state);
+    const outcome = await applyAction(ctx, review, state, action);
+    if (outcome.done) return outcome.selection;
+  }
+}
+function materializeEditorText(reviewHandle, selectedChangeIds) {
+  const request = {
+    command: "materialize",
+    handle: reviewHandle,
+    payload: { selected_change_ids: selectedChangeIds }
+  };
+  return [
+    "I explicitly reviewed and selected these canonical Career Core changes in /career-review.",
+    "",
+    `Call career_run with exactly this request: ${JSON.stringify(request)}`,
+    "",
+    "Use exactly these selected IDs and the unchanged review handle. Keep the result assisted/non-authoritative. Do not analyze or match it as an original, and do not save or write any file."
+  ].join("\n");
+}
 
 // src/workflow/session-model-surface.ts
 var CAREER_MODEL_TOOL_NAMES = [MANAGED_TOOL_NAME, ...RAW_TOOL_NAMES];
@@ -8298,10 +8655,24 @@ function registerCareerCommands(pi, options = {}) {
   let transientNoticeSession;
   const renderedData = /* @__PURE__ */ new Map();
   const renderedTieStateIds = /* @__PURE__ */ new Set();
+  const attachedSources = (ctx) => attachedApplicationSourcesForSession(
+    dependencies.agentDir,
+    ctx.sessionManager.getBranch(),
+    ctx.sessionManager.getEntries()
+  );
   const refreshState = async (ctx) => {
     const library = await loadLibrary(dependencies);
     const branch = ctx.sessionManager.getBranch();
-    const state = withCurrentStaleness(reconstructWorkflowState(branch), library.scan);
+    const attached = await attachedSources(ctx);
+    const state = withCurrentStaleness(
+      reconstructWorkflowState(branch),
+      library.scan,
+      attached === void 0 ? void 0 : attached.vacancy?.vacancy_text_sha256 ?? null,
+      [
+        ...attached?.selected_original === void 0 ? [] : [attached.selected_original],
+        ...attached?.effective_resume === void 0 ? [] : [attached.effective_resume]
+      ]
+    );
     renderedData.clear();
     for (const entry of [
       ...state.application === void 0 ? [] : [state.application],
@@ -8662,6 +9033,60 @@ Application context is session-scoped; no workspace files were created.${state.v
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== void 0) {
+        requireInteractive(ctx);
+        const persistWorkspaceVacancy = async (text3) => {
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, text3);
+          owner.assert(run, ctx);
+          if (outcome === "cancelled") {
+            ctx.ui.notify("Vacancy change cancelled; workspace and session were not changed.", "info");
+          }
+        };
+        if (argument === "clear") {
+          if (attached.vacancy !== void 0) await persistWorkspaceVacancy(null);
+          return;
+        }
+        let prefill2 = "";
+        if (attached.vacancy !== void 0) {
+          const action = await ctx.ui.select("Current career vacancy", ["Replace", "View", "Clear", "Cancel"]);
+          owner.assert(run, ctx);
+          if (action === "View") {
+            ctx.ui.notify(`Current vacancy: ${attached.vacancy.vacancy_label}`, "info");
+            return;
+          }
+          if (action === "Clear") {
+            await persistWorkspaceVacancy(null);
+            return;
+          }
+          if (action !== "Replace") return;
+          prefill2 = attached.vacancy.vacancy_text;
+        }
+        const edited2 = await ctx.ui.editor(
+          attached.vacancy === void 0 ? "Paste career vacancy" : "Replace career vacancy",
+          prefill2
+        );
+        if (edited2 === void 0) return;
+        const text2 = edited2.replace(/\r\n?/g, "\n");
+        if (text2.trim().length === 0 || !isWithinCoreCharacterLimit(text2)) {
+          throw workflowError("invalid_command_arguments");
+        }
+        const vacancy2 = createVacancyEntry(text2, attached.vacancy === void 0 ? "paste" : "replace", {
+          ...dependencies,
+          applicationId: attached.application_id
+        });
+        await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
+          const result = await dependencies.invoke(
+            { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy2)) },
+            signal
+          );
+          const parsed = parseCoreJson(result.json);
+          if (parsed.schema_version !== "career.job_normalization.v1") throw workflowError("core_result_invalid");
+        });
+        await persistWorkspaceVacancy(text2);
+        return;
+      }
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
       if (argument === "clear") {
         if (state.vacancy !== void 0) {
@@ -8718,6 +9143,12 @@ Application context is session-scoped; no workspace files were created.${state.v
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
+      if (attached !== void 0) {
+        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        return;
+      }
       const { config, scan } = await refreshState(ctx);
       const candidates = filteredResumes(eligibleOriginals(scan), filter);
       if (candidates.length === 0) throw workflowError("library_empty");
@@ -8734,13 +9165,21 @@ Application context is session-scoped; no workspace files were created.${state.v
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
       const { config, scan } = await refreshState(ctx);
-      const candidates = filteredResumes(eligibleOriginals(scan), filter);
-      if (candidates.length === 0) throw workflowError("library_empty");
-      const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
-      const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
-      const resume = selected === void 0 ? void 0 : byOption.get(selected);
-      if (resume === void 0) return;
+      let resume;
+      if (attached !== void 0) {
+        resume = attached.selected_original;
+        if (resume === void 0) throw workflowError("library_empty");
+      } else {
+        const candidates = filteredResumes(eligibleOriginals(scan), filter);
+        if (candidates.length === 0) throw workflowError("library_empty");
+        const byOption = new Map(candidates.map((record) => [recordOption(record), record]));
+        const selected = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+        resume = selected === void 0 ? void 0 : byOption.get(selected);
+        if (resume === void 0) return;
+      }
       owner.assert(run, ctx);
       await ensureConsent(ctx, run);
       let result;
@@ -8762,9 +9201,10 @@ Application context is session-scoped; no workspace files were created.${state.v
       }
       const projection = projectResumeAnalysis(result);
       const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
+      const applicationId = attached?.application_id ?? currentState.application?.application_id;
       const card = createResultCard({
         workflow: "analyze",
-        ...currentState.application === void 0 ? {} : { applicationId: currentState.application.application_id },
+        ...applicationId === void 0 ? {} : { applicationId },
         runId: run.runId,
         resume,
         projection,
@@ -8774,9 +9214,10 @@ Application context is session-scoped; no workspace files were created.${state.v
       appendData(pi, owner, run, ctx, card);
       renderedData.set(card.state_id, card);
       ctx.ui.notify(plainResultCard(card), "info");
+      const matchVacancy = attached === void 0 ? currentState.vacancy : attached.vacancy;
       const actions = [
         "View all analysis or one section",
-        ...currentState.vacancy === void 0 ? [] : ["Career match this resume"],
+        ...matchVacancy === void 0 ? [] : ["Career match this resume"],
         "Open guided Pi rebuild workbench",
         "Close"
       ];
@@ -8787,6 +9228,10 @@ Application context is session-scoped; no workspace files were created.${state.v
         ctx.ui.setEditorText(`/career-match ${resume.id}`);
         ctx.ui.notify("Prepared a deterministic single-resume career match command.", "info");
       } else if (action === "Open guided Pi rebuild workbench") {
+        if (attached !== void 0) {
+          await applicationWorkspace.prepareAssistanceHandoff(ctx);
+          return;
+        }
         await prepareWorkbenchPrompt(ctx, run, resume, config);
       }
     })
@@ -8797,28 +9242,36 @@ Application context is session-scoped; no workspace files were created.${state.v
       requireInteractive(ctx);
       const filter = parseFilter(args);
       const run = owner.start(ctx);
+      const attached = await attachedSources(ctx);
+      owner.assert(run, ctx);
       const { scan } = await refreshState(ctx);
       const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
-      const vacancy = state.vacancy;
+      const vacancy = attached === void 0 ? state.vacancy : attached.vacancy;
       if (vacancy === void 0) throw workflowError("vacancy_required");
-      const candidates = filteredResumes(eligibleOriginals(scan), filter);
-      if (candidates.length === 0) throw workflowError("library_empty");
-      const scope = await ctx.ui.select("Career match", ["All original resumes", "Select subset", "Cancel"]);
-      if (scope === void 0 || scope === "Cancel") return;
-      let selected = candidates;
-      if (scope === "Select subset") {
-        const remaining = new Map(candidates.map((record) => [recordOption(record), record]));
-        selected = [];
-        while (remaining.size > 0) {
-          const choice = await ctx.ui.select("Select resumes", ["Done", ...remaining.keys()]);
-          if (choice === void 0 || choice === "Done") break;
-          const record = remaining.get(choice);
-          if (record !== void 0) {
-            selected.push(record);
-            remaining.delete(choice);
+      let selected;
+      if (attached !== void 0) {
+        if (attached.effective_resume === void 0) throw workflowError("library_empty");
+        selected = [attached.effective_resume];
+      } else {
+        const candidates = filteredResumes(eligibleOriginals(scan), filter);
+        if (candidates.length === 0) throw workflowError("library_empty");
+        const scope = await ctx.ui.select("Career match", ["All original resumes", "Select subset", "Cancel"]);
+        if (scope === void 0 || scope === "Cancel") return;
+        selected = candidates;
+        if (scope === "Select subset") {
+          const remaining = new Map(candidates.map((record) => [recordOption(record), record]));
+          selected = [];
+          while (remaining.size > 0) {
+            const choice = await ctx.ui.select("Select resumes", ["Done", ...remaining.keys()]);
+            if (choice === void 0 || choice === "Done") break;
+            const record = remaining.get(choice);
+            if (record !== void 0) {
+              selected.push(record);
+              remaining.delete(choice);
+            }
           }
+          if (selected.length === 0) return;
         }
-        if (selected.length === 0) return;
       }
       owner.assert(run, ctx);
       await ensureConsent(ctx, run);
@@ -8831,9 +9284,10 @@ Application context is session-scoped; no workspace files were created.${state.v
       );
       owner.assert(run, ctx);
       const ranked = rankMatches(queue.matches);
+      const applicationId = attached?.application_id ?? state.application?.application_id;
       const cards = ranked.map((item2) => createResultCard({
         workflow: "match",
-        ...state.application === void 0 ? {} : { applicationId: state.application.application_id },
+        ...applicationId === void 0 ? {} : { applicationId },
         runId: run.runId,
         resume: item2.resume,
         vacancy,
