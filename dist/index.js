@@ -1615,6 +1615,37 @@ async function loadConfigSnapshot(agentDir) {
 async function loadConfig(agentDir) {
   return (await loadConfigSnapshotInternal(agentDir, true)).config;
 }
+async function canonicalizeRoot(inputPath) {
+  if (typeof inputPath !== "string" || inputPath.length === 0 || inputPath.includes("\0") || Buffer.byteLength(inputPath, "utf8") > PATH_MAX_BYTES2) throw workflowError("root_invalid");
+  try {
+    const absolute = path3.resolve(inputPath);
+    const suppliedMetadata = await lstat2(absolute);
+    if (!suppliedMetadata.isDirectory() || suppliedMetadata.isSymbolicLink()) throw workflowError("root_invalid");
+    const canonical = await realpath2(absolute);
+    const metadata = await lstat2(canonical);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw workflowError("root_invalid");
+    await access2(canonical, constants.R_OK);
+    return canonical;
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("root_invalid");
+  }
+}
+function defaultRootLabel(canonicalPath) {
+  const label = path3.basename(canonicalPath).trim();
+  return (label || "Resume library").slice(0, LABEL_MAX_CHARACTERS);
+}
+async function addLibraryRoot(config, inputPath, label) {
+  const canonical = await canonicalizeRoot(inputPath);
+  const chosenLabel = label?.trim() || defaultRootLabel(canonical);
+  if (!validLabel(chosenLabel)) throw workflowError("root_invalid");
+  const id = rootId(canonical);
+  const withoutExisting = config.library_roots.filter((root) => root.id !== id);
+  return inheritSnapshot(config, canonicalConfig({
+    ...config,
+    library_roots: [...withoutExisting, { id, path: canonical, label: chosenLabel }]
+  }));
+}
 function suggestedGeneratedVariantsRoot(config, selectedRootId) {
   if (config.generated_variants_root !== null) return config.generated_variants_root;
   const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
@@ -1698,6 +1729,56 @@ async function syncDirectory(directory) {
   } catch {
     if (handle !== void 0) await handle.close().catch(() => void 0);
     throw workflowError("workspace_status_unknown");
+  }
+}
+async function validateConfigBootstrapParent(agentDir) {
+  if (!canonicalBoundedAbsolutePath(agentDir)) throw workflowError("config_invalid");
+  try {
+    await noSymlinkComponentWalk(agentDir, "config_invalid");
+    const metadata = await lstat2(agentDir);
+    const canonical = await realpath2(agentDir);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || canonical !== agentDir || metadata.uid !== effectiveUserId()) throw workflowError("config_invalid");
+  } catch (error) {
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
+  }
+}
+function assertCreatedDirectoryIdentity(created, opened) {
+  if (!created.isDirectory() || created.isSymbolicLink() || created.uid !== effectiveUserId() || created.dev !== opened.dev || created.ino !== opened.ino) throw workflowError("config_invalid");
+}
+function assertPrivateDirectoryIdentity(expected, current) {
+  if (current.dev !== expected.dev || current.ino !== expected.ino || !exactPrivateMode(current, 448)) throw workflowError("config_invalid");
+}
+async function createPrivateConfigDirectory(agentDir, directory) {
+  await mkdir(directory, { recursive: false, mode: 448 });
+  const created = await lstat2(directory);
+  let handle;
+  try {
+    handle = await open(directory, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY);
+    assertCreatedDirectoryIdentity(created, await handle.stat());
+    await handle.chmod(448);
+    const privateCreated = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    assertPrivateDirectoryIdentity(privateCreated, await lstat2(directory));
+    await validateConfigDirectory(directory);
+    await syncDirectory(agentDir);
+  } finally {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+  }
+}
+async function ensureConfigDirectoryForOrdinaryWrite(agentDir, directory) {
+  if (await validateConfigDirectory(directory, true)) return;
+  await validateConfigBootstrapParent(agentDir);
+  try {
+    await createPrivateConfigDirectory(agentDir, directory);
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      await validateConfigDirectory(directory);
+      return;
+    }
+    if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+    throw workflowError("config_invalid");
   }
 }
 function configLockPath(agentDir) {
@@ -1872,6 +1953,55 @@ async function commitConfigUnderLock(snapshot, next, temporaryPath, targetFormat
 function configTemporaryPath(agentDir, mutationId) {
   if (!UUID.test(mutationId)) throw workflowError("config_invalid");
   return path3.join(path3.dirname(configPath(agentDir)), `.config.v1.${mutationId}.tmp`);
+}
+async function withQueues(keys, operation) {
+  const unique = [...new Set(keys)].sort();
+  const run = (index) => index >= unique.length ? operation() : withFileMutationQueue(unique[index], () => run(index + 1));
+  return run(0);
+}
+async function writeConfig(agentDir, config, uuid = randomUUID, options = {}) {
+  const mutationId = uuid().toLowerCase();
+  const createdAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
+  if (!UUID.test(mutationId)) throw workflowError("config_invalid");
+  const file = configPath(agentDir);
+  const directory = path3.dirname(file);
+  const inherited = SNAPSHOTS.get(config);
+  const snapshot = inherited?.filePath === file ? inherited : await loadConfigSnapshotInternal(agentDir, true);
+  const targetFormat = snapshot.sourceFormat === "v2" ? "v2" : "v1";
+  await assertApplicationWorkspaceDisjoint(config);
+  const queueKeys = [file, ...config.application_workspace === null ? [] : [config.application_workspace.root_path]];
+  await withQueues(queueKeys, async () => {
+    await ensureConfigDirectoryForOrdinaryWrite(agentDir, directory);
+    const configLock = await acquireMutationLock(configLockPath(agentDir), "config_mutation_lock", mutationId, createdAt);
+    let rootLock;
+    try {
+      if (config.application_workspace !== null) {
+        rootLock = await acquireMutationLock(
+          workspaceLockPath(config.application_workspace.root_path),
+          "workspace_mutation_lock",
+          mutationId,
+          createdAt
+        );
+        await assertApplicationWorkspaceDisjoint(config);
+      }
+      await commitConfigUnderLock(snapshot, config, configTemporaryPath(agentDir, mutationId), targetFormat);
+    } finally {
+      try {
+        if (rootLock !== void 0) await releaseMutationLock(rootLock);
+      } finally {
+        await releaseMutationLock(configLock);
+      }
+    }
+  });
+  const committed = await loadConfigSnapshot(agentDir);
+  attachSnapshot(config, {
+    filePath: committed.filePath,
+    directoryPath: committed.directoryPath,
+    bytes: committed.bytes,
+    sha256: committed.sha256,
+    identity: committed.identity,
+    sourceFormat: committed.sourceFormat
+  });
 }
 
 // src/workflow/core-input.ts
@@ -4721,7 +4851,7 @@ async function unlinkOwned(published) {
   } catch {
   }
 }
-async function withQueues(paths, operation) {
+async function withQueues2(paths, operation) {
   const sorted = [...new Set(paths)].sort();
   const run = (index) => index >= sorted.length ? operation() : withFileMutationQueue2(sorted[index], () => run(index + 1));
   return run(0);
@@ -5462,7 +5592,7 @@ var ApplicationWorkspaceWorkflow = class {
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
     const queuePaths = [snapshot.filePath, ...markerBytes === void 0 ? [] : [markerPath]];
-    await withQueues(queuePaths, async () => {
+    await withQueues2(queuePaths, async () => {
       const configLock = await acquireMutationLock(configLockPath(this.options.agentDir), "config_mutation_lock", mutationId, createdAt);
       let rootLock;
       let publishedMarker;
@@ -5569,7 +5699,7 @@ var ApplicationWorkspaceWorkflow = class {
     );
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
-    await withQueues([snapshot.filePath], async () => {
+    await withQueues2([snapshot.filePath], async () => {
       const configLock = await acquireMutationLock(configLockPath(this.options.agentDir), "config_mutation_lock", mutationId, createdAt);
       let rootLock;
       try {
@@ -5638,7 +5768,7 @@ var ApplicationWorkspaceWorkflow = class {
     );
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
-    await withQueues([final], async () => {
+    await withQueues2([final], async () => {
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path),
         "workspace_mutation_lock",
@@ -5774,7 +5904,7 @@ var ApplicationWorkspaceWorkflow = class {
     );
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
-    await withQueues([directoryPath, ...files.map((file) => file.final)], async () => {
+    await withQueues2([directoryPath, ...files.map((file) => file.final)], async () => {
       const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
       const published = [];
       let createdDirectory;
@@ -6023,7 +6153,7 @@ var ApplicationWorkspaceWorkflow = class {
         storedIdentity
       );
     };
-    await withQueues(files.map((file) => file.final), async () => {
+    await withQueues2(files.map((file) => file.final), async () => {
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path),
         "workspace_mutation_lock",
@@ -8108,7 +8238,8 @@ var CAREER_UI_RPC_ACTIONS = {
   switchView: "Switch view",
   close: "Close",
   back: "Back",
-  attach: "Attach"
+  attach: "Attach",
+  addRoot: "Add root"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
@@ -8288,6 +8419,9 @@ var CareerUiSession = class {
   get canAttach() {
     return this.selected?.pointer !== void 0 && this.actions.attach !== void 0 && !this.busyFlag;
   }
+  get canAddRoot() {
+    return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== void 0 && !this.busyFlag;
+  }
   switchView(view) {
     this.current = view;
     this.detail = false;
@@ -8333,6 +8467,19 @@ var CareerUiSession = class {
       this.busyFlag = false;
     }
   }
+  async addRoot() {
+    if (!this.canAddRoot || this.actions.addRoot === void 0) return false;
+    this.busyFlag = true;
+    try {
+      const added = await this.actions.addRoot();
+      if (added === true && this.reloadModel !== void 0) this.model = await this.reloadModel();
+      return added === true;
+    } catch {
+      return false;
+    } finally {
+      this.busyFlag = false;
+    }
+  }
 };
 function uniqueItemOptions(items) {
   const counts = /* @__PURE__ */ new Map();
@@ -8361,9 +8508,18 @@ async function runCareerUiRpc(ctx, session) {
       const choice2 = await ctx.ui.select(
         `${viewTitle(session.view)}
 ${session.pane.intro}`,
-        [...options.keys(), CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_RPC_ACTIONS.close]
+        [
+          ...options.keys(),
+          ...session.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : [],
+          CAREER_UI_RPC_ACTIONS.switchView,
+          CAREER_UI_RPC_ACTIONS.close
+        ]
       );
       if (choice2 === void 0 || choice2 === CAREER_UI_RPC_ACTIONS.close) return;
+      if (choice2 === CAREER_UI_RPC_ACTIONS.addRoot) {
+        await session.addRoot();
+        continue;
+      }
       if (choice2 === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
         continue;
@@ -8439,6 +8595,10 @@ var CareerOverlay = class {
       void this.session.attach().finally(() => this.requestRender());
       return;
     }
+    if ((data === "n" || data === "N") && this.session.canAddRoot) {
+      void this.session.addRoot().finally(() => this.requestRender());
+      return;
+    }
     if (this.session.showingDetail) return;
     if (this.keybindings.matches(data, "tui.select.up") || matchesKey2(data, Key2.up)) {
       this.session.move(-1);
@@ -8466,7 +8626,8 @@ var CareerOverlay = class {
       pane.intro,
       ...pane.items.map((entry, index) => index === this.session.cursor ? `> ${entry.label}` : `  ${entry.label}`)
     ];
-    const footer = this.session.showingDetail ? "Esc back • a attach • 1-8 view • no model or Core call" : "↑↓ move • Enter open • a attach • Esc close • 1-8 view • no model or Core call";
+    const addRootHint = this.session.canAddRoot ? " • n add root" : "";
+    const footer = this.session.showingDetail ? `Esc back • a attach${addRootHint} • 1-8 view • no model or Core call` : `↑↓ move • Enter open • a attach${addRootHint} • Esc close • 1-8 view • no model or Core call`;
     return [
       this.theme.fg("accent", this.theme.bold(viewTitle(this.session.view))),
       nav,
@@ -8580,7 +8741,21 @@ function registerCareerCommands(pi, options = {}) {
   );
   const openUi = async (ctx, view) => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
-      attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer)
+      attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
+      addRoot: async () => {
+        const rootPath = await ctx.ui.input("Resume root", "Absolute path");
+        if (rootPath === void 0) return false;
+        const confirmed = await ctx.ui.confirm(
+          "Add resume root",
+          "Add this resume library root to config? Indexed resumes stay local. No directory is created and Core is not called."
+        );
+        if (confirmed !== true) return false;
+        const config = await loadConfig(dependencies.agentDir);
+        const updated = await addLibraryRoot(config, rootPath);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root added. No files were created.", "info");
+        return true;
+      }
     });
   };
   const refreshState = async (ctx) => {

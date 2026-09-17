@@ -54,6 +54,7 @@ export const CAREER_UI_RPC_ACTIONS = {
   close: "Close",
   back: "Back",
   attach: "Attach",
+  addRoot: "Add root",
 } as const;
 
 export interface CareerUiItem {
@@ -72,6 +73,7 @@ export type CareerUiModel = Record<CareerUiView, CareerUiPane>;
 
 export interface CareerUiActions {
   attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
+  addRoot?: () => Promise<boolean>;
 }
 
 function unavailablePane(): CareerUiPane {
@@ -262,6 +264,10 @@ export class CareerUiSession {
     return this.selected?.pointer !== undefined && this.actions.attach !== undefined && !this.busyFlag;
   }
 
+  get canAddRoot(): boolean {
+    return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== undefined && !this.busyFlag;
+  }
+
   switchView(view: CareerUiView): void {
     this.current = view;
     this.detail = false;
@@ -313,6 +319,20 @@ export class CareerUiSession {
       this.busyFlag = false;
     }
   }
+
+  async addRoot(): Promise<boolean> {
+    if (!this.canAddRoot || this.actions.addRoot === undefined) return false;
+    this.busyFlag = true;
+    try {
+      const added = await this.actions.addRoot();
+      if (added === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
+      return added === true;
+    } catch {
+      return false;
+    } finally {
+      this.busyFlag = false;
+    }
+  }
 }
 
 function uniqueItemOptions(items: CareerUiItem[]): Map<string, CareerUiItem> {
@@ -346,9 +366,18 @@ export async function runCareerUiRpc(
       const options = uniqueItemOptions(session.pane.items);
       const choice = await ctx.ui.select(
         `${viewTitle(session.view)}\n${session.pane.intro}`,
-        [...options.keys(), CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_RPC_ACTIONS.close],
+        [
+          ...options.keys(),
+          ...(session.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : []),
+          CAREER_UI_RPC_ACTIONS.switchView,
+          CAREER_UI_RPC_ACTIONS.close,
+        ],
       );
       if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) return;
+      if (choice === CAREER_UI_RPC_ACTIONS.addRoot) {
+        await session.addRoot();
+        continue;
+      }
       if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
         continue;
@@ -425,6 +454,10 @@ export class CareerOverlay implements Component {
       void this.session.attach().finally(() => this.requestRender());
       return;
     }
+    if ((data === "n" || data === "N") && this.session.canAddRoot) {
+      void this.session.addRoot().finally(() => this.requestRender());
+      return;
+    }
     if (this.session.showingDetail) return;
     if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) {
       this.session.move(-1);
@@ -455,9 +488,10 @@ export class CareerOverlay implements Component {
         pane.intro,
         ...pane.items.map((entry, index) => index === this.session.cursor ? `> ${entry.label}` : `  ${entry.label}`),
       ];
+    const addRootHint = this.session.canAddRoot ? " • n add root" : "";
     const footer = this.session.showingDetail
-      ? "Esc back • a attach • 1-8 view • no model or Core call"
-      : "↑↓ move • Enter open • a attach • Esc close • 1-8 view • no model or Core call";
+      ? `Esc back • a attach${addRootHint} • 1-8 view • no model or Core call`
+      : `↑↓ move • Enter open • a attach${addRootHint} • Esc close • 1-8 view • no model or Core call`;
     return [
       this.theme.fg("accent", this.theme.bold(viewTitle(this.session.view))),
       nav,

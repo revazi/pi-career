@@ -47,7 +47,7 @@ Every overlay slice must prove with synthetic scenarios that:
 9. no persisted index, watcher, prompt/result cache, document duplication, telemetry, or background work is introduced; and
 10. benchmarks report ordinary model turns outside activated Career assistance sessions as zero Career-specific context tokens, separately from activated workflows, and preserve stable activated-session surfaces for prompt caching.
 
-TUI overlay and RPC select/confirm dialogs render one Career view model. `/career` and the listed slash-command views only choose the starting view. Opening, browsing, and highlighting do not attach, activate assistance, call Core or a provider, or submit a message. Attach stays confirmation-gated and assistance-inactive.
+TUI overlay and RPC select/confirm dialogs render one Career view model. `/career` and the listed slash-command views only choose the starting view. Opening, browsing, and highlighting do not attach, activate assistance, call Core or a provider, or submit a message. Attach stays confirmation-gated and assistance-inactive. Adding a library root is a confirmation-gated config write on the same model.
 
 ## Implemented current phase: managed agent tool and deterministic slash commands
 
