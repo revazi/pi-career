@@ -1646,6 +1646,12 @@ async function addLibraryRoot(config, inputPath, label) {
     library_roots: [...withoutExisting, { id, path: canonical, label: chosenLabel }]
   }));
 }
+function removeLibraryRoot(config, id) {
+  return inheritSnapshot(config, canonicalConfig({
+    ...config,
+    library_roots: config.library_roots.filter((root) => root.id !== id)
+  }));
+}
 function suggestedGeneratedVariantsRoot(config, selectedRootId) {
   if (config.generated_variants_root !== null) return config.generated_variants_root;
   const selectedRoot = selectedRootId === void 0 ? config.library_roots[0] : config.library_roots.find((root) => root.id === selectedRootId);
@@ -2612,6 +2618,69 @@ function projectJobMatch(result) {
     ui_flags: { adjusted, provisional, close_cluster: false, stale: false }
   };
 }
+function createResultCard(options) {
+  return {
+    schema_version: WORKFLOW_STATE_SCHEMA,
+    kind: "result_card",
+    ...options.applicationId === void 0 ? {} : { application_id: options.applicationId },
+    state_id: options.uuid(),
+    created_at: options.now().toISOString(),
+    workflow: options.workflow,
+    run_id: options.runId,
+    resume_id: options.resume.id,
+    resume_label: options.resume.label,
+    resume_path_fingerprint: sha256(options.resume.path),
+    input_digests: {
+      resume_text_sha256: options.resume.text_sha256,
+      vacancy_text_sha256: options.vacancy?.vacancy_text_sha256 ?? sha256("")
+    },
+    projection: options.projection
+  };
+}
+var RECOMMENDATION_BUCKET = {
+  apply_now: 3,
+  apply_after_small_edits: 2,
+  improve_first: 1
+};
+function recommendationLabel(result) {
+  const recommendation = recordField(result, "recommendation").label;
+  if (recommendation !== "apply_now" && recommendation !== "apply_after_small_edits" && recommendation !== "improve_first") throw workflowError("core_result_invalid");
+  return recommendation;
+}
+function compareText2(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function rankMatches(values) {
+  const ranked = values.map(({ resume, result, projection }) => ({
+    resume,
+    result,
+    projection: projection ?? projectJobMatch(result),
+    overallScore: numberField(result, "overall_score"),
+    recommendation: recommendationLabel(result),
+    tie: false,
+    closeCluster: false
+  }));
+  ranked.sort((left, right) => {
+    if (left.overallScore !== right.overallScore) return right.overallScore - left.overallScore;
+    const bucket = RECOMMENDATION_BUCKET[right.recommendation] - RECOMMENDATION_BUCKET[left.recommendation];
+    if (bucket !== 0) return bucket;
+    const pathOrder = compareText2(left.resume.path, right.resume.path);
+    return pathOrder !== 0 ? pathOrder : compareText2(left.resume.id, right.resume.id);
+  });
+  const topScore = ranked[0]?.overallScore;
+  const secondScore = ranked[1]?.overallScore;
+  const tie = topScore !== void 0 && secondScore === topScore;
+  const close = topScore !== void 0 && secondScore !== void 0 && topScore - secondScore <= 3;
+  for (const [index, item2] of ranked.entries()) {
+    item2.tie = tie && item2.overallScore === topScore;
+    item2.closeCluster = close && index < 2;
+    item2.projection = {
+      ...item2.projection,
+      ui_flags: { ...item2.projection.ui_flags, close_cluster: item2.closeCluster }
+    };
+  }
+  return ranked;
+}
 
 // src/workflow/application-workspace.ts
 import { createHash as createHash4 } from "node:crypto";
@@ -2893,8 +2962,34 @@ function base(options) {
     created_at: options.now().toISOString()
   };
 }
+function cleanApplicationLabel(value) {
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  return [...cleaned].slice(0, 120).join("");
+}
+function createApplicationEntry(company, role, status, options, applicationId) {
+  return {
+    ...base(options),
+    kind: "application",
+    application_id: applicationId ?? options.uuid(),
+    company_label: cleanApplicationLabel(company),
+    role_label: cleanApplicationLabel(role),
+    status
+  };
+}
 function createApplicationClearEntry(application, options) {
   return { ...base(options), kind: "application_clear", clears_state_id: application.state_id };
+}
+function createVacancyEntry(text, source, options) {
+  const label = text.split("\n").find((line) => line.trim().length > 0)?.trim() || "Current vacancy";
+  return {
+    ...base(options),
+    kind: "vacancy",
+    ...options.applicationId === void 0 ? {} : { application_id: options.applicationId },
+    vacancy_label: label.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 120),
+    vacancy_text: text,
+    vacancy_text_sha256: sha256(text),
+    source
+  };
 }
 function createVacancyClearEntry(vacancy, options) {
   return { ...base(options), kind: "vacancy_clear", clears_state_id: vacancy.state_id };
@@ -2999,7 +3094,7 @@ function librarySummary(config, scan, persisted3) {
 function summaryRecord(card) {
   return card.projection.summary;
 }
-function recommendationLabel(card) {
+function recommendationLabel2(card) {
   const recommendation = summaryRecord(card).recommendation;
   if (recommendation !== null && typeof recommendation === "object" && !Array.isArray(recommendation)) {
     const label = recommendation.label;
@@ -3053,6 +3148,16 @@ function matchProjectionDetails(projection) {
     `gaps ${previewItems(summary, "top_gaps")} • warnings ${warningCount}`
   ];
 }
+function plainResultCard(card, tie = false) {
+  const labels = badges(card, tie);
+  const recommendation = recommendationLabel2(card);
+  return [
+    `${card.workflow === "match" ? "Career match" : "Career analyze"}: ${card.resume_label}`,
+    `score ${score(card)}${recommendation ? ` • ${recommendation}` : ""}`,
+    ...labels.length > 0 ? [labels.join(" • ")] : [],
+    ...card.workflow === "match" ? matchProjectionDetails(card.projection) : []
+  ].join("\n");
+}
 function stateEntryText(data) {
   switch (data.kind) {
     case "application":
@@ -3072,7 +3177,7 @@ function stateEntryText(data) {
 function resultCardLines(card, theme, width, tie) {
   const label = theme.fg("accent", theme.bold(card.resume_label));
   const flags = badges(card, tie);
-  const recommendation = recommendationLabel(card);
+  const recommendation = recommendationLabel2(card);
   const recommendationText = recommendation ? ` • ${recommendation}` : "";
   const flagText = flags.length > 0 ? flags.join(" • ") : void 0;
   const matchDetails = card.workflow === "match" ? matchProjectionDetails(card.projection) : [];
@@ -3119,6 +3224,15 @@ function registerWorkflowEntryRenderer(pi, currentData, currentTie) {
   });
 }
 var WORKFLOW_RENDERER_TYPE = "career.workflow";
+function oversizeResultMessage(command, runId, code) {
+  return `${command} • run ${runId} • ${code}
+No partial output exists and the result was not stored.`;
+}
+function unavailableMatchResultMessage(runId, resumeLabel2, code) {
+  return `career-match • run ${runId} • ${code}
+${resumeLabel2} • result unavailable
+No partial output exists and the result was not stored.`;
+}
 function deriveMatchTieStateIds(cards) {
   const byRun = /* @__PURE__ */ new Map();
   for (const card of cards) {
@@ -5016,11 +5130,11 @@ function freshRecord(scan, record) {
   }
   return matches[0];
 }
-function compareText2(left, right) {
+function compareText3(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 function selectedOriginalOptions(records) {
-  const ordered = [...records].sort((left, right) => compareText2(left.relative_path, right.relative_path) || compareText2(left.id, right.id) || compareText2(left.root_id, right.root_id));
+  const ordered = [...records].sort((left, right) => compareText3(left.relative_path, right.relative_path) || compareText3(left.id, right.id) || compareText3(left.root_id, right.root_id));
   const options = ordered.map((record) => ({
     option: `${record.label} — ${record.format} — ${record.relative_path.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 240)} — ${record.id} — ${record.root_id}`,
     record
@@ -5345,6 +5459,9 @@ var ApplicationWorkspaceWorkflow = class {
       "Attach application",
       "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
     );
+  }
+  async initializeCurrentApplication(ctx) {
+    return this.initialize(ctx);
   }
   async selectAttachable(ctx, title) {
     const items = await this.listAttachable();
@@ -8209,6 +8326,7 @@ Sidecar: ${outcome.sidecarPath}`,
 // src/workflow/commands.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import {
+  BorderedLoader,
   getAgentDir as getAgentDir2
 } from "@earendil-works/pi-coding-agent";
 
@@ -8249,7 +8367,15 @@ var CAREER_UI_RPC_ACTIONS = {
   close: "Close",
   back: "Back",
   attach: "Attach",
-  addRoot: "Add root"
+  addRoot: "Add root",
+  removeRoot: "Remove root",
+  rescan: "Rescan",
+  create: "Create application",
+  analyze: "Run analyze",
+  match: "Run match",
+  editVacancy: "Edit job description",
+  updateStatus: "Update status",
+  workspace: "Manage workspace"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
@@ -8432,6 +8558,44 @@ var CareerUiSession = class {
   get canAddRoot() {
     return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== void 0 && !this.busyFlag;
   }
+  get canRemoveRoot() {
+    return this.current === "setup" && this.selected !== void 0 && this.actions.removeRoot !== void 0 && !this.busyFlag;
+  }
+  get canRescan() {
+    return (this.current === "setup" || this.current === "library") && this.actions.rescan !== void 0 && !this.busyFlag;
+  }
+  get canCreate() {
+    return this.current === "applications" && this.actions.createApplication !== void 0 && !this.busyFlag;
+  }
+  get canAnalyze() {
+    return this.current === "analyze" && this.actions.analyze !== void 0 && !this.busyFlag;
+  }
+  get canMatch() {
+    return this.current === "match" && this.actions.match !== void 0 && !this.busyFlag;
+  }
+  get canEditVacancy() {
+    return this.current === "vacancy" && this.actions.editVacancy !== void 0 && !this.busyFlag;
+  }
+  get canUpdateStatus() {
+    return this.current === "applications" && this.actions.updateStatus !== void 0 && !this.busyFlag;
+  }
+  get canWorkspace() {
+    return this.current === "workspace" && this.actions.workspace !== void 0 && !this.busyFlag;
+  }
+  rpcActions() {
+    return [
+      ...this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : [],
+      ...this.canCreate ? [CAREER_UI_RPC_ACTIONS.create] : [],
+      ...this.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : [],
+      ...this.canRemoveRoot ? [CAREER_UI_RPC_ACTIONS.removeRoot] : [],
+      ...this.canRescan ? [CAREER_UI_RPC_ACTIONS.rescan] : [],
+      ...this.canAnalyze ? [CAREER_UI_RPC_ACTIONS.analyze] : [],
+      ...this.canMatch ? [CAREER_UI_RPC_ACTIONS.match] : [],
+      ...this.canEditVacancy ? [CAREER_UI_RPC_ACTIONS.editVacancy] : [],
+      ...this.canUpdateStatus ? [CAREER_UI_RPC_ACTIONS.updateStatus] : [],
+      ...this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : []
+    ];
+  }
   switchView(view) {
     this.current = view;
     this.detail = false;
@@ -8463,32 +8627,83 @@ var CareerUiSession = class {
     }
     return "close";
   }
-  async attach() {
-    const pointer = this.selected?.pointer;
-    if (pointer === void 0 || this.actions.attach === void 0 || this.busyFlag) return false;
+  async runBound(enabled, operation) {
+    if (!enabled || this.busyFlag) return false;
     this.busyFlag = true;
     try {
-      const attached = await this.actions.attach(pointer);
-      if (attached === true && this.reloadModel !== void 0) this.model = await this.reloadModel();
-      return attached === true;
+      const ok = await operation();
+      if (ok === true && this.reloadModel !== void 0) this.model = await this.reloadModel();
+      return ok === true;
     } catch {
       return false;
     } finally {
       this.busyFlag = false;
     }
   }
+  async attach() {
+    const pointer = this.selected?.pointer;
+    const action = this.actions.attach;
+    if (pointer === void 0 || action === void 0) return false;
+    return this.runBound(true, () => action(pointer));
+  }
   async addRoot() {
-    if (!this.canAddRoot || this.actions.addRoot === void 0) return false;
-    this.busyFlag = true;
-    try {
-      const added = await this.actions.addRoot();
-      if (added === true && this.reloadModel !== void 0) this.model = await this.reloadModel();
-      return added === true;
-    } catch {
-      return false;
-    } finally {
-      this.busyFlag = false;
-    }
+    const action = this.actions.addRoot;
+    if (action === void 0) return false;
+    return this.runBound(this.canAddRoot, action);
+  }
+  async removeRoot() {
+    const action = this.actions.removeRoot;
+    const id = this.selected?.id;
+    if (action === void 0 || id === void 0) return false;
+    return this.runBound(this.canRemoveRoot, () => action(id));
+  }
+  async rescan() {
+    const action = this.actions.rescan;
+    if (action === void 0) return false;
+    return this.runBound(this.canRescan, action);
+  }
+  async createApplication() {
+    const action = this.actions.createApplication;
+    if (action === void 0) return false;
+    return this.runBound(this.canCreate, action);
+  }
+  async analyze() {
+    const action = this.actions.analyze;
+    if (action === void 0) return false;
+    return this.runBound(this.canAnalyze, action);
+  }
+  async match() {
+    const action = this.actions.match;
+    if (action === void 0) return false;
+    return this.runBound(this.canMatch, action);
+  }
+  async editVacancy() {
+    const action = this.actions.editVacancy;
+    if (action === void 0) return false;
+    return this.runBound(this.canEditVacancy, action);
+  }
+  async updateStatus() {
+    const action = this.actions.updateStatus;
+    if (action === void 0) return false;
+    return this.runBound(this.canUpdateStatus, action);
+  }
+  async workspace() {
+    const action = this.actions.workspace;
+    if (action === void 0) return false;
+    return this.runBound(this.canWorkspace, action);
+  }
+  async runRpcAction(choice) {
+    if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
+    if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
+    if (choice === CAREER_UI_RPC_ACTIONS.removeRoot) return this.removeRoot();
+    if (choice === CAREER_UI_RPC_ACTIONS.rescan) return this.rescan();
+    if (choice === CAREER_UI_RPC_ACTIONS.create) return this.createApplication();
+    if (choice === CAREER_UI_RPC_ACTIONS.analyze) return this.analyze();
+    if (choice === CAREER_UI_RPC_ACTIONS.match) return this.match();
+    if (choice === CAREER_UI_RPC_ACTIONS.editVacancy) return this.editVacancy();
+    if (choice === CAREER_UI_RPC_ACTIONS.updateStatus) return this.updateStatus();
+    if (choice === CAREER_UI_RPC_ACTIONS.workspace) return this.workspace();
+    return false;
   }
 };
 function uniqueItemOptions(items) {
@@ -8520,18 +8735,18 @@ async function runCareerUiRpc(ctx, session) {
 ${session.pane.intro}`,
         [
           ...options.keys(),
-          ...session.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : [],
+          ...session.rpcActions(),
           CAREER_UI_RPC_ACTIONS.switchView,
           CAREER_UI_RPC_ACTIONS.close
         ]
       );
       if (choice2 === void 0 || choice2 === CAREER_UI_RPC_ACTIONS.close) return;
-      if (choice2 === CAREER_UI_RPC_ACTIONS.addRoot) {
-        await session.addRoot();
-        continue;
-      }
       if (choice2 === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
+        continue;
+      }
+      if (session.rpcActions().includes(choice2)) {
+        await session.runRpcAction(choice2);
         continue;
       }
       const entry = options.get(choice2);
@@ -8542,7 +8757,7 @@ ${session.pane.intro}`,
     const selected = session.selected;
     const choice = await ctx.ui.select(selected?.detail ?? session.pane.intro, [
       CAREER_UI_RPC_ACTIONS.back,
-      ...session.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : [],
+      ...session.rpcActions(),
       CAREER_UI_RPC_ACTIONS.switchView,
       CAREER_UI_RPC_ACTIONS.close
     ]);
@@ -8551,11 +8766,11 @@ ${session.pane.intro}`,
       session.back();
       continue;
     }
-    if (choice === CAREER_UI_RPC_ACTIONS.attach) {
-      await session.attach();
+    if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
+      await switchViewRpc(ctx, session);
       continue;
     }
-    if (choice === CAREER_UI_RPC_ACTIONS.switchView) await switchViewRpc(ctx, session);
+    if (session.rpcActions().includes(choice)) await session.runRpcAction(choice);
   }
 }
 function rule(theme, width) {
@@ -8629,12 +8844,10 @@ var CareerOverlay = class {
       this.requestRender();
       return;
     }
-    if ((data === "a" || data === "A") && this.session.canAttach) {
-      void this.session.attach().finally(() => this.requestRender());
-      return;
-    }
-    if ((data === "n" || data === "N") && this.session.canAddRoot) {
-      void this.session.addRoot().finally(() => this.requestRender());
+    const key = data.length === 1 ? data.toLowerCase() : data;
+    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : void 0;
+    if (keyed !== void 0) {
+      void keyed.finally(() => this.requestRender());
       return;
     }
     if (this.session.showingDetail) return;
@@ -8669,8 +8882,21 @@ var CareerOverlay = class {
     });
     const fullNav = packChips(fullChips, renderWidth);
     const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
-    const addRootHint = this.session.canAddRoot ? "   n add root" : "";
-    const footer = this.session.showingDetail ? `esc back   a attach${addRootHint}   1-8 view   no model or Core call` : `↑↓ move   enter open   a attach${addRootHint}   esc close   1-8 view   no model or Core call`;
+    const hints = [
+      ...this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"],
+      ...this.session.canAttach ? ["a attach"] : [],
+      ...this.session.canCreate ? ["c create"] : [],
+      ...this.session.canAddRoot ? ["n add root"] : [],
+      ...this.session.canRemoveRoot ? ["x remove"] : [],
+      ...this.session.canRescan ? ["r rescan"] : [],
+      ...this.session.canAnalyze ? ["g analyze"] : [],
+      ...this.session.canMatch ? ["g match"] : [],
+      ...this.session.canEditVacancy ? ["e edit"] : [],
+      ...this.session.canUpdateStatus ? ["s status"] : [],
+      ...this.session.canWorkspace ? ["m workspace"] : [],
+      "1-8 view"
+    ];
+    const footer = hints.join("   ");
     const body = this.session.showingDetail && selected !== void 0 ? [
       "",
       ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
@@ -8724,6 +8950,8 @@ async function openCareerUi(ctx, view, agentDir, actions = {}) {
 // src/workflow/commands.ts
 var SETUP_BANNER = "pi-career not configured — run /career-setup";
 var EMPTY_LIBRARY_BANNER = "No resumes found — add a searchable PDF, Markdown, or text file to a configured root, then run /career-library.";
+var CONSENT_COPY = "Pi may save private vacancy/resume text and result cards in the current session JSONL. `pi-career` does not write documents outside the files you chose. Use `pi --no-session` for an ephemeral run. This is not secure erasure.";
+var TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
 var MAX_FILTER_CHARACTERS = 200;
 var RunOwner = class {
   constructor(uuid) {
@@ -8771,8 +8999,88 @@ function parseFilter(args) {
   }
   return value.toLowerCase();
 }
+function validApplicationLabel(value) {
+  return value !== void 0 && value.trim().length > 0 && [...value.trim()].length <= 120 && !/[\u0000-\u001f\u007f]/.test(value);
+}
 function applicationSummary(application) {
   return `${application.company_label} — ${application.role_label} — ${application.status}`;
+}
+function safeAdapterCode(error) {
+  return error instanceof CareerInvocationError ? error.payload.code : void 0;
+}
+function isOversizeCode(code) {
+  return code === "result_too_large" || code === "result_too_many_lines";
+}
+async function runOperation(ctx, owner, run, label, operation) {
+  owner.assert(run, ctx);
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(label, "info");
+    const value = await operation(run.controller.signal);
+    owner.assert(run, ctx);
+    return value;
+  }
+  const result = await ctx.ui.custom((tui, theme, _keybindings, done) => {
+    const loader = new BorderedLoader(tui, theme, label);
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      done(value);
+    };
+    loader.onAbort = () => {
+      run.controller.abort();
+      finish(null);
+    };
+    operation(run.controller.signal).then((value) => finish({ ok: true, value })).catch((error) => finish({ ok: false, error }));
+    return loader;
+  });
+  if (result === null) throw workflowError("workflow_cancelled");
+  if (!result.ok) throw result.error;
+  owner.assert(run, ctx);
+  return result.value;
+}
+function retainOversizeFailure(error, resume, unavailable) {
+  const code = safeAdapterCode(error);
+  if (!isOversizeCode(code)) return false;
+  unavailable.set(resume.id, { resume, code });
+  return true;
+}
+async function executeMatchQueue(dependencies, resumes, vacancy, signal) {
+  const unavailable = /* @__PURE__ */ new Map();
+  const normalized = await dependencies.invoke(
+    { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+    signal
+  );
+  if (parseCoreJson(normalized.json).schema_version !== "career.job_normalization.v1") {
+    throw workflowError("core_result_invalid");
+  }
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+        signal
+      );
+      projectResumeAnalysis(parseCoreJson(invocation.json));
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+  const matches = [];
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+        signal
+      );
+      const result = parseCoreJson(invocation.json);
+      if (!unavailable.has(resume.id)) matches.push({ resume, result });
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+  return { matches, unavailable };
 }
 async function loadLibrary(dependencies) {
   const config = await loadConfig(dependencies.agentDir);
@@ -8796,6 +9104,7 @@ function registerCareerCommands(pi, options = {}) {
     uuid: dependencies.uuid,
     appendEntry: (customType, data) => pi.appendEntry(customType, data)
   });
+  let transientNoticeSession;
   const renderedData = /* @__PURE__ */ new Map();
   const renderedTieStateIds = /* @__PURE__ */ new Set();
   const attachedSources = (ctx) => attachedApplicationSourcesForSession(
@@ -8803,6 +9112,25 @@ function registerCareerCommands(pi, options = {}) {
     ctx.sessionManager.getBranch(),
     ctx.sessionManager.getEntries()
   );
+  const ensureConsent = async (ctx, run) => {
+    if (!persisted2(ctx)) {
+      if (transientNoticeSession !== run.sessionId) {
+        ctx.ui.notify(TRANSIENT_NOTICE, "info");
+        transientNoticeSession = run.sessionId;
+      }
+      return;
+    }
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    if (state.consent?.granted === true) return;
+    const choice = await ctx.ui.select(CONSENT_COPY, [
+      "Continue in this session",
+      "Cancel and restart with --no-session"
+    ]);
+    owner.assert(run, ctx);
+    const granted = choice === "Continue in this session";
+    appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies));
+    if (!granted) throw workflowError("consent_required");
+  };
   const openUi = async (ctx, view) => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
@@ -8818,6 +9146,231 @@ function registerCareerCommands(pi, options = {}) {
         const updated = await addLibraryRoot(config, rootPath);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         ctx.ui.notify("Resume root added. No files were created.", "info");
+        return true;
+      },
+      removeRoot: async (rootId2) => {
+        const confirmed = await ctx.ui.confirm(
+          "Remove resume root",
+          "Remove this resume root from config? No files are changed."
+        );
+        if (confirmed !== true) return false;
+        const config = await loadConfig(dependencies.agentDir);
+        const updated = removeLibraryRoot(config, rootId2);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root removed from config; no files were changed.", "info");
+        return true;
+      },
+      rescan: async () => true,
+      createApplication: async () => {
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.application !== void 0) {
+          ctx.ui.notify("This session already has an application. Use /new before creating another.", "warning");
+          return false;
+        }
+        if (state.application_context_seen === true) {
+          ctx.ui.notify("This session already contained an application. Run /new, then create another application, to keep company contexts separate.", "warning");
+          return false;
+        }
+        const company = await ctx.ui.input("Company", "Company name");
+        if (company === void 0) return false;
+        if (!validApplicationLabel(company)) throw workflowError("invalid_command_arguments");
+        const role = await ctx.ui.input("Role", "Role title");
+        if (role === void 0) return false;
+        if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
+        const confirmed = await ctx.ui.confirm(
+          "Create application",
+          "Create this application? It is not attached until you confirm attach. Career assistance stays inactive."
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        await ensureConsent(ctx, run);
+        const created = createApplicationEntry(company, role, "preparing", dependencies);
+        appendData(pi, owner, run, ctx, created);
+        if (pi.getSessionName() === void 0) pi.setSessionName(`${created.company_label} — ${created.role_label}`);
+        const config = await loadConfig(dependencies.agentDir);
+        if (config.application_workspace !== null) {
+          await applicationWorkspace.initializeCurrentApplication(ctx);
+        } else {
+          ctx.ui.notify(
+            `${applicationSummary(created)}
+Application context is session-scoped; no workspace files were created.`,
+            "info"
+          );
+        }
+        return true;
+      },
+      updateStatus: async () => {
+        const statuses = /* @__PURE__ */ new Map([
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"]
+        ]);
+        const selected = await ctx.ui.select("Application status", [...statuses.keys()]);
+        const status = selected === void 0 ? void 0 : statuses.get(selected);
+        if (status === void 0) return false;
+        const attached = await attachedSources(ctx);
+        if (attached !== void 0) {
+          const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
+          return outcome === "written";
+        }
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.application === void 0) {
+          ctx.ui.notify("No active career application.", "warning");
+          return false;
+        }
+        const run = owner.start(ctx);
+        await ensureConsent(ctx, run);
+        const updated = createApplicationEntry(
+          state.application.company_label,
+          state.application.role_label,
+          status,
+          dependencies,
+          state.application.application_id
+        );
+        appendData(pi, owner, run, ctx, updated);
+        ctx.ui.notify(applicationSummary(updated), "info");
+        return true;
+      },
+      editVacancy: async () => {
+        const attached = await attachedSources(ctx);
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const current = attached?.vacancy ?? state.vacancy;
+        const edited = await ctx.ui.editor(
+          current === void 0 ? "Paste career vacancy" : "Replace career vacancy",
+          current?.vacancy_text ?? ""
+        );
+        if (edited === void 0) return false;
+        const text = edited.replace(/\r\n?/g, "\n");
+        if (text.trim().length === 0 || !isWithinCoreCharacterLimit(text)) {
+          throw workflowError("invalid_command_arguments");
+        }
+        const run = owner.start(ctx);
+        const applicationId = attached?.application_id ?? state.application?.application_id;
+        const vacancy = createVacancyEntry(text, current === void 0 ? "paste" : "replace", {
+          ...dependencies,
+          ...applicationId === void 0 ? {} : { applicationId }
+        });
+        await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
+          const result = await dependencies.invoke(
+            { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+            signal
+          );
+          const parsed = parseCoreJson(result.json);
+          if (parsed.schema_version !== "career.job_normalization.v1") throw workflowError("core_result_invalid");
+        });
+        if (attached !== void 0) {
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, text);
+          return outcome === "written";
+        }
+        await ensureConsent(ctx, run);
+        appendData(pi, owner, run, ctx, vacancy);
+        ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
+        return true;
+      },
+      analyze: async () => {
+        const confirmed = await ctx.ui.confirm(
+          "Run analyze",
+          "Run deterministic resume analysis with Career Core? This does not call a model or attach an application."
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        const attached = await attachedSources(ctx);
+        const { scan } = await refreshState(ctx);
+        let resume = attached?.selected_original;
+        if (resume === void 0) {
+          const originals = eligibleOriginals(scan);
+          if (originals.length === 0) throw workflowError("library_empty");
+          resume = originals[0];
+        }
+        if (resume === void 0) throw workflowError("library_empty");
+        await ensureConsent(ctx, run);
+        let result;
+        try {
+          result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            const invocation = await dependencies.invoke(
+              { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+              signal
+            );
+            return parseCoreJson(invocation.json);
+          });
+        } catch (error) {
+          const code = safeAdapterCode(error);
+          if (isOversizeCode(code)) {
+            ctx.ui.notify(oversizeResultMessage("career-analyze", run.runId, code), "error");
+            return false;
+          }
+          throw error;
+        }
+        const projection = projectResumeAnalysis(result);
+        const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const applicationId = attached?.application_id ?? currentState.application?.application_id;
+        const card = createResultCard({
+          workflow: "analyze",
+          ...applicationId === void 0 ? {} : { applicationId },
+          runId: run.runId,
+          resume,
+          projection,
+          uuid: dependencies.uuid,
+          now: dependencies.now
+        });
+        appendData(pi, owner, run, ctx, card);
+        renderedData.set(card.state_id, card);
+        ctx.ui.notify(plainResultCard(card), "info");
+        return true;
+      },
+      match: async () => {
+        const confirmed = await ctx.ui.confirm(
+          "Run match",
+          "Run deterministic career match with Career Core? This does not call a model or attach an application."
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        const attached = await attachedSources(ctx);
+        const { scan } = await refreshState(ctx);
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const vacancy = attached === void 0 ? state.vacancy : attached.vacancy;
+        if (vacancy === void 0) throw workflowError("vacancy_required");
+        const selected = attached?.effective_resume === void 0 ? eligibleOriginals(scan) : [attached.effective_resume];
+        if (selected.length === 0) throw workflowError("library_empty");
+        await ensureConsent(ctx, run);
+        const queue = await runOperation(
+          ctx,
+          owner,
+          run,
+          "Running deterministic career match queue…",
+          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal)
+        );
+        const ranked = rankMatches(queue.matches);
+        const applicationId = attached?.application_id ?? state.application?.application_id;
+        const cards = ranked.map((item2) => createResultCard({
+          workflow: "match",
+          ...applicationId === void 0 ? {} : { applicationId },
+          runId: run.runId,
+          resume: item2.resume,
+          vacancy,
+          projection: item2.projection,
+          uuid: dependencies.uuid,
+          now: dependencies.now
+        }));
+        for (const card of cards) {
+          appendData(pi, owner, run, ctx, card);
+          renderedData.set(card.state_id, card);
+        }
+        const unavailableRows = [...queue.unavailable.values()].map(
+          (item2) => unavailableMatchResultMessage(run.runId, item2.resume.label, item2.code)
+        );
+        ctx.ui.notify(
+          [
+            ...cards.slice(0, 20).map((card, index) => `${index + 1}. ${plainResultCard(card, ranked[index]?.tie === true)}`),
+            ...unavailableRows
+          ].join("\n\n"),
+          ranked.length === 0 ? "error" : "info"
+        );
+        return ranked.length > 0;
+      },
+      workspace: async () => {
+        await applicationWorkspace.run("", ctx);
         return true;
       }
     });

@@ -2633,6 +2633,10 @@ export class ApplicationWorkspaceWorkflow {
     );
   }
 
+  async initializeCurrentApplication(ctx: ExtensionCommandContext): Promise<void> {
+    return this.initialize(ctx);
+  }
+
   private async selectAttachable(
     ctx: ExtensionCommandContext,
     title: string,

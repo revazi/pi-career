@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  BorderedLoader,
   getAgentDir,
   type ExtensionAPI,
   type ExtensionCommandContext,
@@ -15,28 +16,47 @@ import {
   attachedApplicationSourcesForSession,
 } from "./application-workspace.ts";
 import { openCareerUi, type CareerUiView } from "./career-ui.ts";
-import { addLibraryRoot, loadConfig, writeConfig } from "./config.ts";
+import { addLibraryRoot, loadConfig, removeLibraryRoot, writeConfig } from "./config.ts";
+import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput } from "./core-input.ts";
 import {
   deriveMatchTieStateIds,
   librarySummary,
   libraryWarningPreview,
+  oversizeResultMessage,
+  plainResultCard,
   registerWorkflowEntryRenderer,
   setupSummary,
+  unavailableMatchResultMessage,
 } from "./renderers.ts";
-import { scanLibrary } from "./scan.ts";
+import {
+  createResultCard,
+  parseCoreJson,
+  projectResumeAnalysis,
+  rankMatches,
+  type CoreResult,
+} from "./result-projection.ts";
+import { eligibleOriginals, scanLibrary } from "./scan.ts";
 import {
   createApplicationClearEntry,
+  createApplicationEntry,
+  createConsentEntry,
   createVacancyClearEntry,
+  createVacancyEntry,
   reconstructWorkflowState,
   withCurrentStaleness,
   workflowResultCards,
 } from "./session-state.ts";
+import { isWithinCoreCharacterLimit } from "./text-limit.ts";
 import {
   CareerWorkflowError,
   type ApplicationEntry,
+  type ApplicationStatus,
   type CareerConfig,
   type LibraryScan,
   type OwnedRun,
+  type ResultCardEntry,
+  type ResumeRecord,
+  type VacancyEntry,
   type WorkflowDependencies,
   type WorkflowEntryData,
   WORKFLOW_CUSTOM_TYPE,
@@ -46,6 +66,9 @@ import {
 
 const SETUP_BANNER = "pi-career not configured — run /career-setup";
 const EMPTY_LIBRARY_BANNER = "No resumes found — add a searchable PDF, Markdown, or text file to a configured root, then run /career-library.";
+const CONSENT_COPY =
+  "Pi may save private vacancy/resume text and result cards in the current session JSONL. `pi-career` does not write documents outside the files you chose. Use `pi --no-session` for an ephemeral run. This is not secure erasure.";
+const TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
 const MAX_FILTER_CHARACTERS = 200;
 
 interface CommandRuntimeOptions {
@@ -111,8 +134,123 @@ function parseFilter(args: string): string {
   return value.toLowerCase();
 }
 
+function validApplicationLabel(value: string | undefined): value is string {
+  return value !== undefined &&
+    value.trim().length > 0 &&
+    [...value.trim()].length <= 120 &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
 function applicationSummary(application: ApplicationEntry): string {
   return `${application.company_label} — ${application.role_label} — ${application.status}`;
+}
+
+function safeAdapterCode(error: unknown): string | undefined {
+  return error instanceof CareerInvocationError ? error.payload.code : undefined;
+}
+
+function isOversizeCode(code: string | undefined): code is "result_too_large" | "result_too_many_lines" {
+  return code === "result_too_large" || code === "result_too_many_lines";
+}
+
+interface LoaderSuccess<T> { ok: true; value: T }
+interface LoaderFailure { ok: false; error: unknown }
+type LoaderResult<T> = LoaderSuccess<T> | LoaderFailure | null;
+
+async function runOperation<T>(
+  ctx: ExtensionCommandContext,
+  owner: RunOwner,
+  run: OwnedRun,
+  label: string,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  owner.assert(run, ctx);
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify(label, "info");
+    const value = await operation(run.controller.signal);
+    owner.assert(run, ctx);
+    return value;
+  }
+  const result = await ctx.ui.custom<LoaderResult<T>>((tui, theme, _keybindings, done) => {
+    const loader = new BorderedLoader(tui, theme, label);
+    let settled = false;
+    const finish = (value: LoaderResult<T>) => {
+      if (settled) return;
+      settled = true;
+      done(value);
+    };
+    loader.onAbort = () => {
+      run.controller.abort();
+      finish(null);
+    };
+    operation(run.controller.signal)
+      .then((value) => finish({ ok: true, value }))
+      .catch((error: unknown) => finish({ ok: false, error }));
+    return loader;
+  });
+  if (result === null) throw workflowError("workflow_cancelled");
+  if (!result.ok) throw result.error;
+  owner.assert(run, ctx);
+  return result.value;
+}
+
+interface MatchQueueResult {
+  matches: Array<{ resume: ResumeRecord; result: CoreResult }>;
+  unavailable: Map<string, { resume: ResumeRecord; code: string }>;
+}
+
+function retainOversizeFailure(
+  error: unknown,
+  resume: ResumeRecord,
+  unavailable: MatchQueueResult["unavailable"],
+): boolean {
+  const code = safeAdapterCode(error);
+  if (!isOversizeCode(code)) return false;
+  unavailable.set(resume.id, { resume, code });
+  return true;
+}
+
+async function executeMatchQueue(
+  dependencies: WorkflowDependencies,
+  resumes: ResumeRecord[],
+  vacancy: VacancyEntry,
+  signal: AbortSignal,
+): Promise<MatchQueueResult> {
+  const unavailable: MatchQueueResult["unavailable"] = new Map();
+  const normalized = await dependencies.invoke(
+    { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+    signal,
+  );
+  if (parseCoreJson(normalized.json).schema_version !== "career.job_normalization.v1") {
+    throw workflowError("core_result_invalid");
+  }
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+        signal,
+      );
+      projectResumeAnalysis(parseCoreJson(invocation.json));
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+  const matches: MatchQueueResult["matches"] = [];
+  for (const resume of resumes) {
+    if (signal.aborted) throw workflowError("workflow_cancelled");
+    try {
+      const invocation = await dependencies.invoke(
+        { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+        signal,
+      );
+      const result = parseCoreJson(invocation.json);
+      if (!unavailable.has(resume.id)) matches.push({ resume, result });
+    } catch (error) {
+      if (!retainOversizeFailure(error, resume, unavailable)) throw error;
+    }
+  }
+  return { matches, unavailable };
 }
 
 async function loadLibrary(dependencies: WorkflowDependencies): Promise<{
@@ -148,6 +286,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     uuid: dependencies.uuid,
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
   });
+  let transientNoticeSession: string | undefined;
   const renderedData = new Map<string, WorkflowEntryData>();
   const renderedTieStateIds = new Set<string>();
 
@@ -156,6 +295,26 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     ctx.sessionManager.getBranch(),
     ctx.sessionManager.getEntries(),
   );
+
+  const ensureConsent = async (ctx: ExtensionCommandContext, run: OwnedRun): Promise<void> => {
+    if (!persisted(ctx)) {
+      if (transientNoticeSession !== run.sessionId) {
+        ctx.ui.notify(TRANSIENT_NOTICE, "info");
+        transientNoticeSession = run.sessionId;
+      }
+      return;
+    }
+    const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+    if (state.consent?.granted === true) return;
+    const choice = await ctx.ui.select(CONSENT_COPY, [
+      "Continue in this session",
+      "Cancel and restart with --no-session",
+    ]);
+    owner.assert(run, ctx);
+    const granted = choice === "Continue in this session";
+    appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies));
+    if (!granted) throw workflowError("consent_required");
+  };
 
   const openUi = async (ctx: ExtensionCommandContext, view: CareerUiView): Promise<void> => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
@@ -172,6 +331,220 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const updated = await addLibraryRoot(config, rootPath);
         await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
         ctx.ui.notify("Resume root added. No files were created.", "info");
+        return true;
+      },
+      removeRoot: async (rootId) => {
+        const confirmed = await ctx.ui.confirm(
+          "Remove resume root",
+          "Remove this resume root from config? No files are changed.",
+        );
+        if (confirmed !== true) return false;
+        const config = await loadConfig(dependencies.agentDir);
+        const updated = removeLibraryRoot(config, rootId);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root removed from config; no files were changed.", "info");
+        return true;
+      },
+      rescan: async () => true,
+      createApplication: async () => {
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.application !== undefined) {
+          ctx.ui.notify("This session already has an application. Use /new before creating another.", "warning");
+          return false;
+        }
+        if (state.application_context_seen === true) {
+          ctx.ui.notify("This session already contained an application. Run /new, then create another application, to keep company contexts separate.", "warning");
+          return false;
+        }
+        const company = await ctx.ui.input("Company", "Company name");
+        if (company === undefined) return false;
+        if (!validApplicationLabel(company)) throw workflowError("invalid_command_arguments");
+        const role = await ctx.ui.input("Role", "Role title");
+        if (role === undefined) return false;
+        if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
+        const confirmed = await ctx.ui.confirm(
+          "Create application",
+          "Create this application? It is not attached until you confirm attach. Career assistance stays inactive.",
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        await ensureConsent(ctx, run);
+        const created = createApplicationEntry(company, role, "preparing", dependencies);
+        appendData(pi, owner, run, ctx, created);
+        if (pi.getSessionName() === undefined) pi.setSessionName(`${created.company_label} — ${created.role_label}`);
+        const config = await loadConfig(dependencies.agentDir);
+        if (config.application_workspace !== null) {
+          await applicationWorkspace.initializeCurrentApplication(ctx);
+        } else {
+          ctx.ui.notify(
+            `${applicationSummary(created)}\nApplication context is session-scoped; no workspace files were created.`,
+            "info",
+          );
+        }
+        return true;
+      },
+      updateStatus: async () => {
+        const statuses = new Map<string, ApplicationStatus>([
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"],
+        ]);
+        const selected = await ctx.ui.select("Application status", [...statuses.keys()]);
+        const status = selected === undefined ? undefined : statuses.get(selected);
+        if (status === undefined) return false;
+        const attached = await attachedSources(ctx);
+        if (attached !== undefined) {
+          const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
+          return outcome === "written";
+        }
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.application === undefined) {
+          ctx.ui.notify("No active career application.", "warning");
+          return false;
+        }
+        const run = owner.start(ctx);
+        await ensureConsent(ctx, run);
+        const updated = createApplicationEntry(
+          state.application.company_label,
+          state.application.role_label,
+          status,
+          dependencies,
+          state.application.application_id,
+        );
+        appendData(pi, owner, run, ctx, updated);
+        ctx.ui.notify(applicationSummary(updated), "info");
+        return true;
+      },
+      editVacancy: async () => {
+        const attached = await attachedSources(ctx);
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const current = attached?.vacancy ?? state.vacancy;
+        const edited = await ctx.ui.editor(
+          current === undefined ? "Paste career vacancy" : "Replace career vacancy",
+          current?.vacancy_text ?? "",
+        );
+        if (edited === undefined) return false;
+        const text = edited.replace(/\r\n?/g, "\n");
+        if (text.trim().length === 0 || !isWithinCoreCharacterLimit(text)) {
+          throw workflowError("invalid_command_arguments");
+        }
+        const run = owner.start(ctx);
+        const applicationId = attached?.application_id ?? state.application?.application_id;
+        const vacancy = createVacancyEntry(text, current === undefined ? "paste" : "replace", {
+          ...dependencies,
+          ...(applicationId === undefined ? {} : { applicationId }),
+        });
+        await runOperation(ctx, owner, run, "Validating vacancy with Career Core…", async (signal) => {
+          const result = await dependencies.invoke(
+            { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+            signal,
+          );
+          const parsed = parseCoreJson(result.json);
+          if (parsed.schema_version !== "career.job_normalization.v1") throw workflowError("core_result_invalid");
+        });
+        if (attached !== undefined) {
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, text);
+          return outcome === "written";
+        }
+        await ensureConsent(ctx, run);
+        appendData(pi, owner, run, ctx, vacancy);
+        ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
+        return true;
+      },
+      analyze: async () => {
+        const confirmed = await ctx.ui.confirm(
+          "Run analyze",
+          "Run deterministic resume analysis with Career Core? This does not call a model or attach an application.",
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        const attached = await attachedSources(ctx);
+        const { scan } = await refreshState(ctx);
+        let resume: ResumeRecord | undefined = attached?.selected_original;
+        if (resume === undefined) {
+          const originals = eligibleOriginals(scan);
+          if (originals.length === 0) throw workflowError("library_empty");
+          resume = originals[0];
+        }
+        if (resume === undefined) throw workflowError("library_empty");
+        await ensureConsent(ctx, run);
+        let result: CoreResult;
+        try {
+          result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            const invocation = await dependencies.invoke(
+              { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+              signal,
+            );
+            return parseCoreJson(invocation.json);
+          });
+        } catch (error) {
+          const code = safeAdapterCode(error);
+          if (isOversizeCode(code)) {
+            ctx.ui.notify(oversizeResultMessage("career-analyze", run.runId, code), "error");
+            return false;
+          }
+          throw error;
+        }
+        const projection = projectResumeAnalysis(result);
+        const currentState = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const applicationId = attached?.application_id ?? currentState.application?.application_id;
+        const card = createResultCard({
+          workflow: "analyze",
+          ...(applicationId === undefined ? {} : { applicationId }),
+          runId: run.runId, resume, projection,
+          uuid: dependencies.uuid, now: dependencies.now,
+        });
+        appendData(pi, owner, run, ctx, card);
+        renderedData.set(card.state_id, card);
+        ctx.ui.notify(plainResultCard(card), "info");
+        return true;
+      },
+      match: async () => {
+        const confirmed = await ctx.ui.confirm(
+          "Run match",
+          "Run deterministic career match with Career Core? This does not call a model or attach an application.",
+        );
+        if (confirmed !== true) return false;
+        const run = owner.start(ctx);
+        const attached = await attachedSources(ctx);
+        const { scan } = await refreshState(ctx);
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const vacancy = attached === undefined ? state.vacancy : attached.vacancy;
+        if (vacancy === undefined) throw workflowError("vacancy_required");
+        const selected = attached?.effective_resume === undefined ? eligibleOriginals(scan) : [attached.effective_resume];
+        if (selected.length === 0) throw workflowError("library_empty");
+        await ensureConsent(ctx, run);
+        const queue = await runOperation(
+          ctx, owner, run, "Running deterministic career match queue…",
+          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal),
+        );
+        const ranked = rankMatches(queue.matches);
+        const applicationId = attached?.application_id ?? state.application?.application_id;
+        const cards: ResultCardEntry[] = ranked.map((item) => createResultCard({
+          workflow: "match",
+          ...(applicationId === undefined ? {} : { applicationId }),
+          runId: run.runId, resume: item.resume, vacancy,
+          projection: item.projection, uuid: dependencies.uuid, now: dependencies.now,
+        }));
+        for (const card of cards) {
+          appendData(pi, owner, run, ctx, card);
+          renderedData.set(card.state_id, card);
+        }
+        const unavailableRows = [...queue.unavailable.values()].map((item) =>
+          unavailableMatchResultMessage(run.runId, item.resume.label, item.code),
+        );
+        ctx.ui.notify(
+          [
+            ...cards.slice(0, 20).map((card, index) => `${index + 1}. ${plainResultCard(card, ranked[index]?.tie === true)}`),
+            ...unavailableRows,
+          ].join("\n\n"),
+          ranked.length === 0 ? "error" : "info",
+        );
+        return ranked.length > 0;
+      },
+      workspace: async () => {
+        await applicationWorkspace.run("", ctx);
         return true;
       },
     });
