@@ -406,7 +406,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
   const openTuiOverlay = async (ctx: ExtensionCommandContext, view: CareerOverlayView): Promise<boolean> => {
     if (ctx.mode !== "tui") return false;
-    await openCareerOverlay(ctx, view, dependencies.agentDir);
+    await openCareerOverlay(ctx, view, dependencies.agentDir, {
+      attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
+    });
     return true;
   };
 

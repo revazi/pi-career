@@ -3,10 +3,15 @@
 import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
-import { attachedApplicationSourcesForSession, readApplicationCatalog } from "./application-workspace.ts";
+import {
+  attachedApplicationSourcesForSession,
+  listCatalogApplications,
+  readApplicationCatalog,
+} from "./application-workspace.ts";
 import { loadConfig } from "./config.ts";
 import { privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
+import type { ApplicationAttachmentPointer } from "./session-attachment.ts";
 
 export const CAREER_OVERLAY_VIEWS = [
   "setup",
@@ -48,6 +53,7 @@ export interface CareerOverlayItem {
   id: string;
   label: string;
   detail: string;
+  pointer?: ApplicationAttachmentPointer;
 }
 
 export interface CareerOverlayPane {
@@ -61,8 +67,17 @@ function unavailablePane(): CareerOverlayPane {
   return { intro: "Local career data is unavailable.", items: [] };
 }
 
-function item(id: string, label: string, detail: string): CareerOverlayItem {
-  return { id, label, detail };
+function item(
+  id: string,
+  label: string,
+  detail: string,
+  pointer?: ApplicationAttachmentPointer,
+): CareerOverlayItem {
+  return pointer === undefined ? { id, label, detail } : { id, label, detail, pointer };
+}
+
+export interface CareerOverlayActions {
+  attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
 }
 
 export async function buildCareerOverlayModel(
@@ -112,18 +127,22 @@ export async function buildCareerOverlayModel(
     const workspace = config.application_workspace;
     if (workspace !== null) {
       const catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id);
+      const pointers = new Map(
+        (await listCatalogApplications(agentDir)).map((entry) => [entry.pointer.applicationId, entry.pointer]),
+      );
       empty.applications = {
         intro: catalog.applications.length === 0
           ? "No persistent applications. Opening this view does not attach or activate assistance."
-          : "Browse applications without attaching. Enter opens local detail only.",
+          : "Browse applications without attaching. Enter opens local detail. a attaches the selected valid application.",
         items: catalog.applications.map((application) => {
+          const pointer = pointers.get(application.application_id);
           const label = application.identity === undefined
             ? `Legacy application — ${application.status}`
             : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
           const detail = application.identity === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
-            : `${application.identity.company_label} — ${application.identity.role_label}\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application or activate Career assistance.`;
-          return item(application.application_id, label, detail);
+            : `${application.identity.company_label} — ${application.identity.role_label}\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
+          return item(application.application_id, label, detail, pointer);
         }),
       };
     }
@@ -184,16 +203,21 @@ export class CareerOverlay implements Component {
   private current: CareerOverlayView;
   private readonly cursors: Record<CareerOverlayView, number>;
   private detail = false;
+  private busy = false;
+  private model: CareerOverlayModel;
 
   constructor(
     readonly view: CareerOverlayView,
-    private readonly model: CareerOverlayModel,
+    model: CareerOverlayModel,
     private readonly theme: Theme,
     private readonly keybindings: KeybindingsManager,
     private readonly requestRender: () => void,
     private readonly close: () => void,
+    private readonly actions: CareerOverlayActions = {},
+    private readonly reload?: () => Promise<CareerOverlayModel>,
   ) {
     this.current = view;
+    this.model = model;
     this.cursors = {
       setup: 0, library: 0, applications: 0, vacancy: 0, match: 0, analyze: 0, workbench: 0, workspace: 0,
     };
@@ -226,9 +250,24 @@ export class CareerOverlay implements Component {
     this.requestRender();
   }
 
+  private async attachSelected(): Promise<void> {
+    const pointer = this.currentItem?.pointer;
+    if (pointer === undefined || this.actions.attach === undefined || this.busy) return;
+    this.busy = true;
+    try {
+      const attached = await this.actions.attach(pointer);
+      if (attached === true && this.reload !== undefined) this.model = await this.reload();
+    } catch {
+      // Payload-free overlay: attachment failure stays in-view without leaking paths.
+    } finally {
+      this.busy = false;
+      this.requestRender();
+    }
+  }
+
   handleInput(data: string): void {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape)) {
-      if (this.detail) {
+      if (this.detail && !this.busy) {
         this.detail = false;
         this.requestRender();
         return;
@@ -236,12 +275,17 @@ export class CareerOverlay implements Component {
       this.close();
       return;
     }
+    if (this.busy) return;
     const index = Number.parseInt(data, 10);
     const next = CAREER_OVERLAY_VIEWS[index - 1];
     if (next !== undefined) {
       this.current = next;
       this.detail = false;
       this.requestRender();
+      return;
+    }
+    if ((data === "a" || data === "A") && this.currentItem?.pointer !== undefined && this.actions.attach !== undefined) {
+      void this.attachSelected();
       return;
     }
     if (this.detail) return;
@@ -276,8 +320,8 @@ export class CareerOverlay implements Component {
         ...pane.items.map((entry, index) => index === this.cursor ? `> ${entry.label}` : `  ${entry.label}`),
       ];
     const footer = this.detail
-      ? "Esc back • 1-8 view • no model or Core call"
-      : "↑↓ move • Enter open • Esc close • 1-8 view • no model or Core call";
+      ? "Esc back • a attach • 1-8 view • no model or Core call"
+      : "↑↓ move • Enter open • a attach • Esc close • 1-8 view • no model or Core call";
     return [
       this.theme.fg("accent", this.theme.bold(`Career • ${VIEW_LABELS[this.current]}`)),
       nav,
@@ -293,9 +337,11 @@ export async function openCareerOverlay(
   ctx: ExtensionCommandContext,
   view: CareerOverlayView,
   agentDir: string,
+  actions: CareerOverlayActions = {},
 ): Promise<void> {
   if (ctx.mode !== "tui") return;
-  const model = await buildCareerOverlayModel(agentDir, ctx);
+  const reload = () => buildCareerOverlayModel(agentDir, ctx);
+  const model = await reload();
   await ctx.ui.custom<void>((tui, theme, keybindings, done) => new CareerOverlay(
     view,
     model,
@@ -303,6 +349,8 @@ export async function openCareerOverlay(
     keybindings,
     () => tui.requestRender(),
     () => done(undefined),
+    actions,
+    reload,
   ), {
     overlay: true,
     overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 },

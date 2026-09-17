@@ -4551,6 +4551,39 @@ function sameCatalogEvidence(left, right) {
   const fileFingerprints = (evidence) => evidence.files.map((file) => `${file.path}:${file.sha256}:${statsFingerprint(file.metadata)}`).sort();
   return JSON.stringify(directoryFingerprints(left)) === JSON.stringify(directoryFingerprints(right)) && JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
 }
+async function listCatalogApplications(agentDir) {
+  try {
+    const snapshot = await loadConfigSnapshot(agentDir);
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) return [];
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    if (!sameCatalogEvidence(initial, current)) return [];
+    const items = [];
+    for (const { record, inspected } of initial.validatedApplications) {
+      if (record.classification !== "valid" || record.identity === void 0) continue;
+      items.push({
+        option: `${record.identity.company_label} — ${record.identity.role_label} — ${record.status}`,
+        pointer: {
+          applicationId: inspected.manifest.application_id,
+          rootId: inspected.manifest.root_id,
+          rootCreatedAt: initial.root.marker.created_at,
+          applicationCreatedAt: inspected.manifest.application_created_at,
+          workspaceCreatedAt: inspected.manifest.workspace_created_at
+        }
+      });
+    }
+    const counts = /* @__PURE__ */ new Map();
+    for (const item2 of items) counts.set(item2.option, (counts.get(item2.option) ?? 0) + 1);
+    return items.map((item2) => counts.get(item2.option) === 1 ? item2 : {
+      ...item2,
+      option: `${item2.option} — ${item2.pointer.applicationId}`
+    });
+  } catch {
+    return [];
+  }
+}
 async function readApplicationCatalog(rootPath, expectedRootId) {
   const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
   let current;
@@ -5487,37 +5520,15 @@ var ApplicationWorkspaceWorkflow = class {
     };
   }
   async listAttachable() {
-    try {
-      const snapshot = await loadConfigSnapshot(this.options.agentDir);
-      const configured = snapshot.config.application_workspace;
-      if (configured === null) return [];
-      await assertApplicationWorkspaceDisjoint(snapshot.config);
-      const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
-      const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
-      if (!sameCatalogEvidence(initial, current)) return [];
-      const items = [];
-      for (const { record, inspected } of initial.validatedApplications) {
-        if (record.classification !== "valid" || record.identity === void 0) continue;
-        items.push({
-          option: `${record.identity.company_label} — ${record.identity.role_label} — ${record.status}`,
-          pointer: {
-            applicationId: inspected.manifest.application_id,
-            rootId: inspected.manifest.root_id,
-            rootCreatedAt: initial.root.marker.created_at,
-            applicationCreatedAt: inspected.manifest.application_created_at,
-            workspaceCreatedAt: inspected.manifest.workspace_created_at
-          }
-        });
-      }
-      const counts = /* @__PURE__ */ new Map();
-      for (const item2 of items) counts.set(item2.option, (counts.get(item2.option) ?? 0) + 1);
-      return items.map((item2) => counts.get(item2.option) === 1 ? item2 : {
-        ...item2,
-        option: `${item2.option} — ${item2.pointer.applicationId}`
-      });
-    } catch {
-      return [];
-    }
+    return listCatalogApplications(this.options.agentDir);
+  }
+  async attachCatalogPointer(ctx, pointer) {
+    return this.commitAttachment(
+      ctx,
+      pointer,
+      "Attach application",
+      "Attach this application to the Pi session? Only identity pointers are stored. Career model tools stay inactive."
+    );
   }
   async selectAttachable(ctx, title) {
     const items = await this.listAttachable();
@@ -8411,8 +8422,8 @@ var VIEW_LABELS = {
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
 }
-function item(id, label, detail) {
-  return { id, label, detail };
+function item(id, label, detail, pointer) {
+  return pointer === void 0 ? { id, label, detail } : { id, label, detail, pointer };
 }
 async function buildCareerOverlayModel(agentDir, ctx) {
   const persisted3 = ctx.sessionManager.getSessionFile() !== void 0;
@@ -8459,9 +8470,13 @@ Overlay browse does not analyze or attach this resume.`
     const workspace = config.application_workspace;
     if (workspace !== null) {
       const catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id);
+      const pointers = new Map(
+        (await listCatalogApplications(agentDir)).map((entry) => [entry.pointer.applicationId, entry.pointer])
+      );
       empty.applications = {
-        intro: catalog.applications.length === 0 ? "No persistent applications. Opening this view does not attach or activate assistance." : "Browse applications without attaching. Enter opens local detail only.",
+        intro: catalog.applications.length === 0 ? "No persistent applications. Opening this view does not attach or activate assistance." : "Browse applications without attaching. Enter opens local detail. a attaches the selected valid application.",
         items: catalog.applications.map((application) => {
+          const pointer = pointers.get(application.application_id);
           const label = application.identity === void 0 ? `Legacy application — ${application.status}` : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
           const detail = application.identity === void 0 ? `Legacy application
 Status: ${application.status}
@@ -8469,8 +8484,8 @@ Classification: ${application.classification}
 Opening does not attach this application.` : `${application.identity.company_label} — ${application.identity.role_label}
 Status: ${application.status}
 Classification: ${application.classification}
-Opening does not attach this application or activate Career assistance.`;
-          return item(application.application_id, label, detail);
+Opening does not attach. Press a to attach this application without activating assistance.`;
+          return item(application.application_id, label, detail, pointer);
         })
       };
     }
@@ -8532,14 +8547,16 @@ Opening this view does not mutate files or attach another application.`)]
   return empty;
 }
 var CareerOverlay = class {
-  constructor(view, model, theme, keybindings, requestRender, close) {
+  constructor(view, model, theme, keybindings, requestRender, close, actions = {}, reload) {
     this.view = view;
-    this.model = model;
     this.theme = theme;
     this.keybindings = keybindings;
     this.requestRender = requestRender;
     this.close = close;
+    this.actions = actions;
+    this.reload = reload;
     this.current = view;
+    this.model = model;
     this.cursors = {
       setup: 0,
       library: 0,
@@ -8552,14 +8569,17 @@ var CareerOverlay = class {
     };
   }
   view;
-  model;
   theme;
   keybindings;
   requestRender;
   close;
+  actions;
+  reload;
   current;
   cursors;
   detail = false;
+  busy = false;
+  model;
   get currentView() {
     return this.current;
   }
@@ -8581,9 +8601,22 @@ var CareerOverlay = class {
     this.cursors[this.current] = (this.cursor + delta + items.length) % items.length;
     this.requestRender();
   }
+  async attachSelected() {
+    const pointer = this.currentItem?.pointer;
+    if (pointer === void 0 || this.actions.attach === void 0 || this.busy) return;
+    this.busy = true;
+    try {
+      const attached = await this.actions.attach(pointer);
+      if (attached === true && this.reload !== void 0) this.model = await this.reload();
+    } catch {
+    } finally {
+      this.busy = false;
+      this.requestRender();
+    }
+  }
   handleInput(data) {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
-      if (this.detail) {
+      if (this.detail && !this.busy) {
         this.detail = false;
         this.requestRender();
         return;
@@ -8591,12 +8624,17 @@ var CareerOverlay = class {
       this.close();
       return;
     }
+    if (this.busy) return;
     const index = Number.parseInt(data, 10);
     const next = CAREER_OVERLAY_VIEWS[index - 1];
     if (next !== void 0) {
       this.current = next;
       this.detail = false;
       this.requestRender();
+      return;
+    }
+    if ((data === "a" || data === "A") && this.currentItem?.pointer !== void 0 && this.actions.attach !== void 0) {
+      void this.attachSelected();
       return;
     }
     if (this.detail) return;
@@ -8627,7 +8665,7 @@ var CareerOverlay = class {
       pane.intro,
       ...pane.items.map((entry, index) => index === this.cursor ? `> ${entry.label}` : `  ${entry.label}`)
     ];
-    const footer = this.detail ? "Esc back • 1-8 view • no model or Core call" : "↑↓ move • Enter open • Esc close • 1-8 view • no model or Core call";
+    const footer = this.detail ? "Esc back • a attach • 1-8 view • no model or Core call" : "↑↓ move • Enter open • a attach • Esc close • 1-8 view • no model or Core call";
     return [
       this.theme.fg("accent", this.theme.bold(`Career • ${VIEW_LABELS[this.current]}`)),
       nav,
@@ -8638,16 +8676,19 @@ var CareerOverlay = class {
   invalidate() {
   }
 };
-async function openCareerOverlay(ctx, view, agentDir) {
+async function openCareerOverlay(ctx, view, agentDir, actions = {}) {
   if (ctx.mode !== "tui") return;
-  const model = await buildCareerOverlayModel(agentDir, ctx);
+  const reload = () => buildCareerOverlayModel(agentDir, ctx);
+  const model = await reload();
   await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
     view,
     model,
     theme,
     keybindings,
     () => tui.requestRender(),
-    () => done(void 0)
+    () => done(void 0),
+    actions,
+    reload
   ), {
     overlay: true,
     overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 }
@@ -9013,7 +9054,9 @@ function registerCareerCommands(pi, options = {}) {
   );
   const openTuiOverlay = async (ctx, view) => {
     if (ctx.mode !== "tui") return false;
-    await openCareerOverlay(ctx, view, dependencies.agentDir);
+    await openCareerOverlay(ctx, view, dependencies.agentDir, {
+      attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer)
+    });
     return true;
   };
   const refreshState = async (ctx) => {

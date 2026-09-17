@@ -215,3 +215,81 @@ test("overlay lists let users move through applications and resumes without atta
     await rm(temp, { recursive: true, force: true });
   }
 });
+
+test("overlay a attaches a selected application only after confirmation", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-attach-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    const root = path.join(temp, "applications");
+    await prepareConfigDirectory(agentDir);
+    await mkdir(root, { mode: 0o700 });
+    await chmod(root, 0o700);
+    const rootId = "00000000-0000-4000-8000-000000000099";
+    await privateJson(path.join(agentDir, "career", "config.v1.json"), {
+      schema_version: "pi.career.config.v2",
+      library_roots: [],
+      generated_variants_root: null,
+      application_workspace: { root_id: rootId, root_path: root },
+    });
+    await privateJson(path.join(root, ".pi-career-applications.json"), {
+      schema_version: "pi.career.application_root.v1",
+      kind: "application_workspace_root",
+      root_id: rootId,
+      created_at: "2026-08-01T00:00:00.000Z",
+    });
+    await writeApplication(root, {
+      applicationId: "00000000-0000-4000-8000-000000000077",
+      company: "Synthetic Company",
+      role: "Synthetic Engineer",
+      status: "preparing",
+      createdAt: "2026-08-02T00:00:00.000Z",
+      workspaceCreatedAt: "2026-08-03T00:00:00.000Z",
+      rootId,
+    });
+    const fake = makeFakePi();
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation);
+        throw new Error("overlay attach must not invoke Career Core");
+      },
+    });
+    const components = [];
+    const cancelled = makeContext(fake, {
+      mode: "tui", persisted: false, components, confirms: [false],
+      keybindings: { matches(data, action) { return action === "tui.select.cancel" && data === "esc"; } },
+    });
+    const pendingCancel = fake.commands.get("career").handler("", cancelled.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    components[0].handleInput("a");
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fake.entries.length, 0);
+    components[0].handleInput("esc");
+    await pendingCancel;
+
+    const attachedComponents = [];
+    const attached = makeContext(fake, {
+      mode: "tui", persisted: false, components: attachedComponents, confirms: [true],
+      keybindings: { matches(data, action) { return action === "tui.select.cancel" && data === "esc"; } },
+    });
+    const pendingAttach = fake.commands.get("career").handler("", attached.ctx);
+    const attachDeadline = Date.now() + 2_000;
+    while (attachedComponents.length === 0 && Date.now() < attachDeadline) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    attachedComponents[0].handleInput("a");
+    const settle = Date.now() + 2_000;
+    while (fake.entries.length === 0 && Date.now() < settle) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fake.entries.length, 1);
+    assert.equal(fake.entries[0].customType, "career.application_attachment");
+    assert.equal(fake.entries[0].data.kind, "application_attachment");
+    assert.doesNotMatch(JSON.stringify(fake.entries[0].data), /Synthetic|applications/);
+    attachedComponents[0].handleInput("esc");
+    await pendingAttach;
+    assert.equal(calls.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
