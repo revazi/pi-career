@@ -291,7 +291,7 @@ test("P3-20/P3-21: a carried exact cover may survive dependency changes for late
   }
 });
 
-test("P3-09: current v1-only writers fail closed on a validated v2 head", async (t) => {
+test("P3-09/P3-18: a v2-head source failure remains mutation-free", async (t) => {
   const value = await materialize(t, buildChain([{ version: 2 }]));
   const agentDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-v2-writer-")));
   t.after(() => rm(agentDir, { recursive: true, force: true }));

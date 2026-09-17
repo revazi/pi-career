@@ -5885,6 +5885,8 @@ async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasen
   const head = revisions.at(-1);
   return {
     ...application,
+    ...identity2 === void 0 ? {} : { identity: identity2 },
+    ...identityFile === void 0 ? {} : { identityFile },
     revisions,
     head: head.state,
     headFile: head.file,
@@ -6016,6 +6018,18 @@ async function attachmentFor(agentDir, identity2) {
     ...application === void 0 ? {} : { application },
     expectedDirectoryPath: target.directoryPath
   };
+}
+function applicationIdentityBytes(identity2, manifest) {
+  const decoded = decodeApplicationIdentity(canonicalJson2({
+    schema_version: IDENTITY_SCHEMA,
+    kind: "application_identity",
+    application_id: identity2.identity.application_id,
+    company_label: identity2.identity.company_label,
+    role_label: identity2.identity.role_label,
+    created_at: identity2.identity.created_at
+  }), manifest);
+  if (decoded === void 0) throw workflowError("workspace_identity_conflict");
+  return canonicalJson2(decoded);
 }
 function vacancyBytes(vacancy, applicationId) {
   if (vacancy === void 0) return void 0;
@@ -6313,10 +6327,67 @@ function vacancyBinding(fileName, bytes, vacancy) {
     source_state_id: vacancy.state_id
   };
 }
-function assertApplicationCapacity(application, additions) {
+function assertApplicationCapacity(application, additions, revisionAdditions = 1) {
   const entryCount = application.entries.length + additions.length;
   const byteCount = application.managedBytes + additions.reduce((total, item) => total + (item.bytes?.length ?? 0), 0);
-  if (entryCount > APPLICATION_MAX_ENTRIES || byteCount > APPLICATION_MAX_MANAGED_BYTES || application.revisions.length >= STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+  if (entryCount > APPLICATION_MAX_ENTRIES || byteCount > APPLICATION_MAX_MANAGED_BYTES || application.revisions.length + revisionAdditions > STATE_MAX_REVISIONS) {
+    throw workflowError("workspace_limit_reached");
+  }
+}
+function transitionTimestamp(headUpdatedAt, finalUpdatedAt) {
+  const value = Date.parse(headUpdatedAt) + 1;
+  if (!Number.isSafeInteger(value) || !validTimestamp(finalUpdatedAt) || value >= Date.parse(finalUpdatedAt)) {
+    throw workflowError("workspace_unavailable");
+  }
+  return new Date(value).toISOString();
+}
+function transitionToStateV2(head, parentSha256, updatedAt) {
+  return {
+    schema_version: STATE_SCHEMA_V2,
+    kind: "application_state_revision",
+    application_id: head.application_id,
+    sequence: head.sequence + 1,
+    parent_sha256: parentSha256,
+    status: head.status,
+    vacancy: head.vacancy,
+    selected_original: head.selected_original,
+    resume_artifact: head.resume_artifact,
+    cover_letter_artifact: null,
+    updated_at: updatedAt
+  };
+}
+function prepareV2Mutation(application, mutationId, createdAt) {
+  if (!validTimestamp(createdAt) || Date.parse(createdAt) <= Date.parse(application.head.updated_at)) {
+    throw workflowError("workspace_unavailable");
+  }
+  if (application.head.schema_version === STATE_SCHEMA_V2) {
+    return {
+      createdAt,
+      sequence: application.head.sequence + 1,
+      parentSha256: application.headFile.sha256,
+      coverLetterArtifact: application.head.cover_letter_artifact,
+      transitionFiles: [],
+      revisionAdditions: 1
+    };
+  }
+  const transition = transitionToStateV2(
+    application.head,
+    application.headFile.sha256,
+    transitionTimestamp(application.head.updated_at, createdAt)
+  );
+  const bytes = stateBytes(transition);
+  return {
+    createdAt,
+    sequence: transition.sequence + 1,
+    parentSha256: hashBytes2(bytes),
+    coverLetterArtifact: null,
+    transitionFiles: [{
+      final: path6.join(application.directoryPath, stateName(transition.sequence)),
+      temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-transition.tmp`),
+      bytes
+    }],
+    revisionAdditions: 2
+  };
 }
 function freshRecord(scan, record) {
   const root = scan.roots.find((item) => item.root_id === record.root_id);
@@ -6352,8 +6423,9 @@ var ApplicationWorkspaceWorkflow = class {
     const action = await ctx.ui.select("Career application workspace", [
       "Status and reconcile",
       ...menuState.canInitialize ? ["Initialize current application"] : [],
+      ...menuState.canMigrate ? ["Finish application migration"] : [],
       ...menuState.canRecord ? ["Record current status and vacancy"] : [],
-      "Select original resume",
+      ...menuState.canSelectOriginal ? ["Select original resume"] : [],
       "Configure application root",
       "Detach application root from config",
       "Close"
@@ -6363,21 +6435,30 @@ var ApplicationWorkspaceWorkflow = class {
     if (action === "Configure application root") return this.configureRoot(ctx);
     if (action === "Detach application root from config") return this.detachRoot(ctx);
     if (action === "Initialize current application") return this.initialize(ctx);
+    if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
   }
   async menuState(identity2) {
-    if (identity2 === void 0) return { canInitialize: false, canRecord: false };
+    const unavailable = { canInitialize: false, canMigrate: false, canRecord: false, canSelectOriginal: false };
+    if (identity2 === void 0) return unavailable;
     try {
       const attachment = await attachmentFor(this.options.agentDir, identity2);
-      if (attachment.snapshot.config.application_workspace === null) return { canInitialize: false, canRecord: false };
-      if (attachment.application === void 0) return { canInitialize: true, canRecord: false };
+      if (attachment.snapshot.config.application_workspace === null) return unavailable;
+      if (attachment.application === void 0) {
+        return { ...unavailable, canInitialize: true };
+      }
+      if (attachment.application.identity === void 0) {
+        return { ...unavailable, canMigrate: true };
+      }
       return {
         canInitialize: false,
-        canRecord: attachment.application.head.status !== identity2.current.status || !sameSessionVacancy(attachment.application.head, identity2.vacancy)
+        canMigrate: false,
+        canRecord: attachment.application.head.status !== identity2.current.status || !sameSessionVacancy(attachment.application.head, identity2.vacancy),
+        canSelectOriginal: attachment.application.head.resume_artifact === null
       };
     } catch {
-      return { canInitialize: false, canRecord: false };
+      return unavailable;
     }
   }
   async status(ctx) {
@@ -6417,7 +6498,15 @@ var ApplicationWorkspaceWorkflow = class {
     }
     const application = attachment.application;
     if (application === void 0) {
-      ctx.ui.notify(`Application workspace root: attached (${privacyDisplayPath(configured.root_path)}). Current application is not initialized.`, "info");
+      ctx.ui.notify(`Application workspace root: attached (${privacyDisplayPath(configured.root_path)}). Current session · Not persisted.`, "info");
+      return;
+    }
+    if (application.identity === void 0) {
+      ctx.ui.notify([
+        `Application workspace: attached • ${privacyDisplayPath(application.directoryPath)}`,
+        "Legacy identity: immutable state is readable, but ordinary mutations are blocked.",
+        "Use Finish application migration for an exact preview and separate confirmation."
+      ].join("\n"), "warning");
       return;
     }
     try {
@@ -6638,6 +6727,110 @@ var ApplicationWorkspaceWorkflow = class {
     });
     ctx.ui.notify("Application workspace root detached from config. No workspace file was changed or deleted.", "info");
   }
+  async finishMigration(ctx) {
+    const identity2 = sessionIdentity(ctx);
+    if (identity2 === void 0) throw workflowError("workspace_unavailable");
+    const attachment = await attachmentFor(this.options.agentDir, identity2);
+    const configured = attachment.snapshot.config.application_workspace;
+    const application = attachment.application;
+    if (configured === null || application === void 0) throw workflowError("workspace_unavailable");
+    if (application.identity !== void 0) {
+      ctx.ui.notify("The application identity migration is already complete and valid.", "info");
+      return;
+    }
+    const bytes = applicationIdentityBytes(identity2, application.manifest);
+    if (application.entries.length + 1 > APPLICATION_MAX_ENTRIES || application.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) {
+      throw workflowError("workspace_limit_reached");
+    }
+    const mutationId = this.options.uuid().toLowerCase();
+    const createdAt = this.options.now().toISOString();
+    const final = path6.join(application.directoryPath, IDENTITY_NAME);
+    const temporary = path6.join(application.directoryPath, `.pi-career-${mutationId}-identity.tmp`);
+    await requireAbsent(final);
+    const transient = ctx.sessionManager.getSessionFile() === void 0;
+    if (transient) {
+      ctx.ui.notify("Transient session warning: the approved identity file outlives this Pi process.", "warning");
+    }
+    const plan = buildPlan(
+      this.options,
+      ctx,
+      "finish_application_migration",
+      identity2.identity.application_id,
+      identity2,
+      attachment.snapshot.sha256,
+      application.headFile.sha256,
+      [createPreview(final, bytes)],
+      [],
+      [workspaceLockPath(configured.root_path), temporary],
+      [
+        "Migration adds only the exact display-identity file; manifest, states, artifacts, and directory names remain unchanged.",
+        ...transient ? ["Transient session: the identity file outlives this process."] : []
+      ],
+      mutationId,
+      createdAt
+    );
+    if (!await approve(plan, ctx)) return;
+    assertSessionPlan(plan, ctx);
+    await withQueues2([final], async () => {
+      const rootLock = await acquireMutationLock(
+        workspaceLockPath(configured.root_path),
+        "workspace_mutation_lock",
+        mutationId,
+        createdAt
+      );
+      let published;
+      const migrationIsComplete = async () => {
+        const stored = await readApplicationIdentity(application.directoryPath, application.manifest);
+        if (stored === void 0 || !canonicalJson2(stored).equals(bytes)) return false;
+        const inspected = await inspectApplicationDirectory(
+          application.directoryPath,
+          configured.root_id,
+          path6.basename(application.directoryPath),
+          stored
+        );
+        return inspected.headFile.sha256 === application.headFile.sha256;
+      };
+      try {
+        const currentIdentity = assertSessionPlan(plan, ctx);
+        if (currentIdentity === void 0 || currentIdentity.identity.application_id !== identity2.identity.application_id) {
+          throw workflowError("workspace_identity_conflict");
+        }
+        await assertConfigSnapshotCurrent(attachment.snapshot);
+        await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
+        const target = currentApplicationTarget(configured.root_path, currentIdentity);
+        if (target === void 0) throw workflowError("workspace_identity_conflict");
+        const currentRoot = await inspectRoot(configured.root_path, {
+          expectedRootId: configured.root_id,
+          ownedLock: rootLock.path,
+          currentApplication: target
+        });
+        assertRootPlanCurrent(attachment.root, currentRoot);
+        const current = currentRoot.currentApplication;
+        if (current === void 0 || current.identity !== void 0 || current.headFile.sha256 !== application.headFile.sha256) throw workflowError("workspace_drift");
+        if (current.entries.length + 1 > APPLICATION_MAX_ENTRIES || current.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) {
+          throw workflowError("workspace_limit_reached");
+        }
+        await requireAbsent(final);
+        if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+        published = await publishFile(final, temporary, bytes);
+        await syncDirectory2(application.directoryPath);
+        await syncDirectory2(configured.root_path);
+        if (!await migrationIsComplete()) throw workflowError("workspace_status_unknown");
+      } catch (error) {
+        if (await migrationIsComplete().catch(() => false)) return;
+        if (published !== void 0) {
+          await unlinkOwned(published);
+          await syncDirectory2(application.directoryPath);
+          await syncDirectory2(configured.root_path);
+        }
+        if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
+        throw workflowError(published === void 0 ? "workspace_verification_failed" : "workspace_status_unknown");
+      } finally {
+        await releaseMutationLock(rootLock);
+      }
+    });
+    ctx.ui.notify("Finished application identity migration. Existing workspace bytes remain unchanged.", "info");
+  }
   async initialize(ctx) {
     const identity2 = sessionIdentity(ctx);
     if (identity2 === void 0) throw workflowError("workspace_unavailable");
@@ -6663,15 +6856,7 @@ var ApplicationWorkspaceWorkflow = class {
       workspace_created_at: createdAt
     };
     const manifestBytes = canonicalJson2(manifest);
-    const displayIdentity = decodeApplicationIdentity(canonicalJson2({
-      schema_version: IDENTITY_SCHEMA,
-      kind: "application_identity",
-      application_id: identity2.identity.application_id,
-      company_label: identity2.identity.company_label,
-      role_label: identity2.identity.role_label,
-      created_at: identity2.identity.created_at
-    }), manifest);
-    const identityBytes = canonicalJson2(displayIdentity);
+    const identityBytes = applicationIdentityBytes(identity2, manifest);
     const currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id);
     const vacancyName = "vacancy.md";
     const state = {
@@ -6798,7 +6983,7 @@ var ApplicationWorkspaceWorkflow = class {
     const attachment = await attachmentFor(this.options.agentDir, identity2);
     const application = attachment.application;
     const configured = attachment.snapshot.config.application_workspace;
-    if (configured === null || application === void 0 || application.head.schema_version !== STATE_SCHEMA_V1) {
+    if (configured === null || application === void 0 || application.identity === void 0) {
       throw workflowError("workspace_unavailable");
     }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
@@ -6806,36 +6991,40 @@ var ApplicationWorkspaceWorkflow = class {
       ctx.ui.notify("Workspace status and vacancy already match this session; no revision was added.", "info");
       return;
     }
-    const sequence = application.head.sequence + 1;
+    const mutationId = this.options.uuid().toLowerCase();
+    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     const currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id);
     const vacancyChanged = !sameSessionVacancy(application.head, identity2.vacancy);
     const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
     const vacancyFile = path6.join(application.directoryPath, vacancyName);
     const nextVacancy = identity2.vacancy === void 0 ? null : vacancyChanged && currentVacancyBytes !== void 0 ? vacancyBinding(vacancyName, currentVacancyBytes, identity2.vacancy) : application.head.vacancy;
-    const createdAt = this.options.now().toISOString();
-    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
     const state = {
-      schema_version: STATE_SCHEMA_V1,
+      schema_version: STATE_SCHEMA_V2,
       kind: "application_state_revision",
       application_id: identity2.identity.application_id,
       sequence,
-      parent_sha256: application.headFile.sha256,
+      parent_sha256: prepared.parentSha256,
       status: identity2.current.status,
       vacancy: nextVacancy,
       selected_original: application.head.selected_original,
       resume_artifact: application.head.resume_artifact,
+      cover_letter_artifact: prepared.coverLetterArtifact,
       updated_at: createdAt
     };
     const stateBuffer = stateBytes(state);
-    const mutationId = this.options.uuid().toLowerCase();
-    const stateFile = path6.join(application.directoryPath, stateName(sequence));
     const files = [
+      ...prepared.transitionFiles,
       ...vacancyChanged && currentVacancyBytes !== void 0 ? [{ final: vacancyFile, temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }] : [],
-      { final: stateFile, temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`), bytes: stateBuffer }
+      {
+        final: path6.join(application.directoryPath, stateName(sequence)),
+        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer
+      }
     ];
     for (const file of files) await requireAbsent(file.final);
-    assertApplicationCapacity(application, files);
+    assertApplicationCapacity(application, files, prepared.revisionAdditions);
     if (ctx.sessionManager.getSessionFile() === void 0) {
       ctx.ui.notify("Transient session warning: this approved revision outlives the current Pi process.", "warning");
     }
@@ -6869,7 +7058,7 @@ var ApplicationWorkspaceWorkflow = class {
     const attachment = await attachmentFor(this.options.agentDir, identity2);
     const application = attachment.application;
     const configured = attachment.snapshot.config.application_workspace;
-    if (configured === null || application === void 0 || application.head.schema_version !== STATE_SCHEMA_V1 || application.head.resume_artifact !== null) {
+    if (configured === null || application === void 0 || application.identity === void 0 || application.head.resume_artifact !== null) {
       throw workflowError("workspace_unavailable");
     }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
@@ -6892,28 +7081,34 @@ var ApplicationWorkspaceWorkflow = class {
       ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
       return;
     }
-    const sequence = application.head.sequence + 1;
+    const mutationId = this.options.uuid().toLowerCase();
+    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
-    const createdAt = this.options.now().toISOString();
-    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
     const state = {
-      schema_version: STATE_SCHEMA_V1,
+      schema_version: STATE_SCHEMA_V2,
       kind: "application_state_revision",
       application_id: identity2.identity.application_id,
       sequence,
-      parent_sha256: application.headFile.sha256,
+      parent_sha256: prepared.parentSha256,
       status: application.head.status,
       vacancy: application.head.vacancy,
       selected_original: binding,
       resume_artifact: null,
+      cover_letter_artifact: prepared.coverLetterArtifact,
       updated_at: createdAt
     };
     const bytes = stateBytes(state);
-    const mutationId = this.options.uuid().toLowerCase();
-    const final = path6.join(application.directoryPath, stateName(sequence));
-    const temporary = path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`);
-    await requireAbsent(final);
-    assertApplicationCapacity(application, [{ bytes }]);
+    const files = [
+      ...prepared.transitionFiles,
+      {
+        final: path6.join(application.directoryPath, stateName(sequence)),
+        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes
+      }
+    ];
+    for (const file of files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, files, prepared.revisionAdditions);
     const plan = buildPlan(
       this.options,
       ctx,
@@ -6922,15 +7117,15 @@ var ApplicationWorkspaceWorkflow = class {
       identity2,
       attachment.snapshot.sha256,
       application.headFile.sha256,
-      [createPreview(final, bytes)],
+      files.map((file) => createPreview(file.final, file.bytes)),
       [],
-      [workspaceLockPath(configured.root_path), temporary],
+      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
       [],
       mutationId,
       createdAt
     );
     if (!await approve(plan, ctx)) return;
-    await this.commitRevision(plan, ctx, attachment, identity2, [{ final, temp: temporary, bytes }], bytes, async () => {
+    await this.commitRevision(plan, ctx, attachment, identity2, files, bytes, async () => {
       const freshScan = await scanLibrary(attachment.snapshot.config);
       freshRecord(freshScan, selected);
     });
@@ -6982,7 +7177,8 @@ var ApplicationWorkspaceWorkflow = class {
         }
         await sourceValidation(current);
         for (const file of files) await requireAbsent(file.final);
-        assertApplicationCapacity(currentApplication, files);
+        const revisionAdditions = files.filter((file) => STATE_BASENAME.test(path6.basename(file.final))).length;
+        assertApplicationCapacity(currentApplication, files, revisionAdditions);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
         const verified = await inspectCommitted();
