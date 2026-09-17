@@ -41,6 +41,7 @@ import {
 import { privacyDisplayPath } from "./renderers.ts";
 import { eligibleOriginals, scanLibrary } from "./scan.ts";
 import { parseStrictJson } from "./strict-json.ts";
+export { deriveApplicationReadiness } from "./application-readiness.ts";
 import {
   boundedLabel,
   workspaceApplicationIdentity,
