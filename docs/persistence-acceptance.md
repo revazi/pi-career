@@ -77,6 +77,16 @@ The Given/When/Then rows below preserve Spec 3 numbering. These are specificatio
 | P3-46 | Valid session-only application | Open Applications | Distinguish Not persisted from persistent catalog | #63/#55 |
 | P3-47 | Existing v1 files and approved migration | Commit migration | Every existing v1 file stays byte-identical | #63 |
 | P3-48 | Assisted artifact linked to application | Analyze/match originals | Assisted artifact never becomes eligible original | #64/#56 |
+| P3-49 | Valid catalog with no attachment | Browse/open/filter applications | No custom entry, Career Skill metadata, Career tool schema, Core call, or provider call | #64/#55 |
+| P3-50 | Valid attachment without activation | Run ordinary model turn | No Career Skill metadata/content or Career tool schema | #64 |
+| P3-51 | Valid attached application | Explicitly activate assistance | Append one bounded activation, prepare visible editor handoff, reload resources, and do not submit | #64 |
+| P3-52 | Valid persisted activation | Restart/resume | Revalidate exact pointer, then restore only compact managed Skill/tool surface | #64 |
+| P3-53 | Activated branch | Navigate before activation or detach | Clear handles/tools and reload without provider/Core use | #64 |
+| P3-54 | Session used by one application on any branch | Attach another UUID | Reject and offer explicit replacement-session path | #64 |
+| P3-55 | Valid selected application | Open in new Pi session | Seed attachment only through replacement setup; no copied activation/conversation or automatic message | #64/#55 |
+| P3-56 | Invalid attachment/activation transition or identity drift | Restore or act | Fail closed with payload-free unavailable/conflict state; append and mutate nothing | #64/#65 |
+| P3-57 | No valid activation | Request raw tools | Reject; all four Career tool schemas remain absent from model context | #64 |
+| P3-58 | Transient attachment and activation | Reload, then shut down | Work from in-memory entries during process; lose entries and handles at shutdown | #64 |
 
 Some scenarios need later overlay/artifact slices. Foundation issue #65 must verify its own applicable subset and report later scenarios as pending rather than pretending #60 or #65 completes all end-to-end coverage.
 
@@ -328,21 +338,22 @@ The #60 fixture slice may encode these approved bytes and corruption cases witho
 
 Use fixed synthetic UUIDs/timestamps and generated temp-root paths. Hash expected bytes directly; do not import production parsers to manufacture the sole expected test oracle. Full fixtures for new schemas wait for their exact contract approval.
 
-## Proposed command-authority matrix — approval required
+## Approved #64 command-authority matrix — implementation pending
 
-| Interface | No persistent attachment | Valid persistent attachment |
-|---|---|---|
-| `/career-application` | Preserve current session-only behavior; offer explicit workspace creation | Show/update workspace lifecycle through a separately previewed file mutation |
-| `/career-application clear` | Preserve legacy clear boundary | Explicitly detach; retain used-application session boundary and all files |
-| `/career-vacancy` | Preserve current session vacancy behavior | Validate candidate through Core, then explicit workspace preview/confirm; cancelled save leaves both authorities unchanged |
-| `/career-workspace` | Configure, initialize, migrate, reconcile as explicitly available | Administer/reconcile attached application; no silent synchronization |
-| `/career-match`, `/career-analyze` | Existing source/consent behavior | Read current validated application bindings for match; analyze only originals |
-| `/career-workbench` | Existing visible editor handoff | Read current attached application; no automatic provider submission |
-| `career_run context` | Existing legacy context | Expose ephemeral handles resolved from validated workspace sources; no mutation |
-| `/career-save` | Existing independent variant-save contract | Still independent; does not attach artifact to application implicitly |
-| Future `/career` | Browse without attachment | Open attached detail, but browsing another application never replaces attachment |
+| Interface | No attachment | Valid attachment, no activation | Valid activated attachment |
+|---|---|---|---|
+| `/career-application` | Preserve legacy session-only behavior and explicit workspace creation | Show/update workspace lifecycle only through a previewed file mutation; never append competing session status | Same workspace authority; model activation grants no mutation |
+| `/career-application clear` | Preserve legacy clear boundary | Explicit Detach appends only the exact detachment; retain used-application claim and all files | Detach also clears ephemeral handles and reloads away Career model resources |
+| `/career-vacancy` | Preserve legacy session vacancy behavior | Validate through Core, then preview/confirm workspace revision; cancellation changes neither workspace nor session | Same workspace transaction; no provider call and no session-only vacancy mirror |
+| `/career-workspace` | Configure, initialize, migrate, and reconcile as explicitly available | Administer/reconcile exact attached workspace; no silent synchronization | Same local authority |
+| `/career-match`, `/career-analyze` | Existing explicit deterministic source/consent behavior | Read fresh validated workspace bindings; match uses the effective Resume, analyze uses only the selected original | Same deterministic behavior; activation does not route commands through a model |
+| `/career-workbench` and overlay assistance | Require explicit attachment first; never combine decisions | Explicit action appends activation, prepares `/skill:career-core …`, and reloads; no submission | Reuse activation and stable editor/tool surface; append nothing |
+| `career_run` | Inactive and absent from model context | Inactive and absent from model context | Resolve ephemeral handles from fresh validated workspace sources; no implicit mutation |
+| `/career-tools raw` | Reject | Reject | Explicitly add exact raw compatibility tools for this runtime only; managed/reset removes them |
+| `/career-save` | Existing independent variant-save contract when a legacy ephemeral handle exists | No handle until assistance runs | Independent preview/confirmation; never attaches artifact to application implicitly |
+| Future `/career` | Browse without attachment | Open attached detail; browsing another application never replaces attachment | Same local browsing behavior; no automatic model message |
 
-No proposal above changes the current command contracts until explicitly reviewed and implemented. In particular, workspace-backed model-readable content still requires the existing session/provider privacy decisions; opening the overlay is not consent.
+This contract change does not itself change command behavior. Each command-convergence implementation must add behavioral tests and preserve the existing privacy, preview, consent, cancellation, and race gates. Opening the overlay is never consent.
 
 ## Capacity findings and remaining decisions
 
@@ -364,13 +375,12 @@ Including the immutable identity, the maximal v1 shape is 132 files before unkno
 
 Retain limits by default; reject over-capacity plans before preview and under lock. Preview size must be checked using actual canonical encoded preview bytes: JSON escaping means a 2-MiB managed-byte budget does not prove that a complete preview fits 5 MiB. No truncation, compaction, deletion, or larger bounds without separate approval.
 
-The state-v2 schema, cover-letter reference, digest domains, mixed-chain validation, historical-reference behavior, component classes, and readiness table are fixed above. Remaining decisions are outside this #60/#62 read-contract slice:
+The state-v2 schema, cover-letter reference, digest domains, mixed-chain validation, historical-reference behavior, component classes, readiness table, and #64 attachment/activation contract are fixed above and in `application-workspaces.md`. Remaining decisions are:
 
-1. Exact session attachment schema, consent, branch/clear semantics, command matrix above, and safe explicit session replacement remain #64 decisions.
-2. #63 must define the exact user-visible lazy-migration plan/confirmation flow and transaction settlement. A requested non-cover mutation requires the dedicated transition revision above before its own changed snapshot; #63 must decide how those separately committed bytes are previewed and authorized without weakening consent or combining forbidden fields.
-3. #57 must define cover-letter authoring/rebind preview, confirmation, publication, crash settlement, and user-visible draft behavior. No draft is persisted by the state-v2 reference contract.
-4. Later overlay issues must decide presentation copy and local detail navigation without changing classification/readiness semantics or exposing invalid-entry detail.
-5. #65's integration checks remain scoped: explicit consented attachment entries are permitted by #64; blanket “no session append anywhere” would contradict attachment persistence.
+1. #64 behavior slices must implement strict entry replay, pointer revalidation, command convergence, safe explicit session replacement, and context-on-demand activation without combining them into an unreviewable UI change.
+2. #57 must define cover-letter authoring/rebind preview, confirmation, publication, crash settlement, and user-visible draft behavior. No draft is persisted by the state-v2 reference contract.
+3. Later overlay issues must decide presentation copy and local detail navigation without changing classification/readiness semantics or exposing invalid-entry detail.
+4. #65's integration checks remain scoped: explicit consented attachment/activation entries are permitted by #64; blanket “no session append anywhere” would contradict reviewed session persistence.
 
 ## Small PR sequence
 
@@ -396,4 +406,4 @@ Keep each PR independently testable. Add failing behavioral tests and the minima
 
 ## Next gate
 
-The exact state-v2/readiness contract and #60/#62 foundations are implemented. Review #63's identity-only migration and lazy v2 transition before wiring catalog/detail presentation. Next resolve #64 attachment bytes, branch/restart/detach lifecycle, command authority, and context-on-demand activation; #57 retains cover-letter writes. Keep #60 open until the remaining filesystem-race/integration rows are exercised or explicitly deferred in review.
+The exact state-v2/readiness contract and #60/#62 foundations are implemented. Review #63's identity-only migration and lazy v2 transition before wiring catalog/detail presentation. The #64 attachment bytes, branch/restart/detach lifecycle, command authority, and context-on-demand mechanism are now fixed; implement them as separately reviewable behavior slices before overlay wiring. #57 retains cover-letter writes. Keep #60 open until remaining filesystem-race/integration rows are exercised or explicitly deferred in review.
