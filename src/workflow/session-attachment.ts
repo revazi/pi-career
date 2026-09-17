@@ -7,6 +7,8 @@ import { WORKFLOW_CUSTOM_TYPE } from "./types.ts";
 
 export const APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
 export const APPLICATION_ASSISTANCE_CUSTOM_TYPE = "career.application_assistance";
+export const CAREER_ASSISTANCE_HANDOFF =
+  "/skill:career-core Use career_run for the attached application. Start with {\"command\":\"context\"}.";
 const APPLICATION_ATTACHMENT_SCHEMA = "pi.career.application_attachment.v1";
 const APPLICATION_ASSISTANCE_SCHEMA = "pi.career.application_assistance.v1";
 

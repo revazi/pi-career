@@ -388,6 +388,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     agentDir: dependencies.agentDir,
     now: dependencies.now,
     uuid: dependencies.uuid,
+    appendEntry: (customType, data) => pi.appendEntry(customType, data),
   });
   let transientNoticeSession: string | undefined;
   const renderedData = new Map<string, WorkflowEntryData>();

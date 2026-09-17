@@ -234,6 +234,7 @@ export function makeContext(fake, options = {}) {
     getSystemPrompt: () => "",
     getSystemPromptOptions: () => ({}),
     waitForIdle: async () => {},
+    reload: async () => { await options.reload?.(); },
   };
   return { ctx, notifications, widgets, get customCalls() { return customCalls; } };
 }
