@@ -29,7 +29,7 @@ The approved product roadmap makes `/career` a modal application inside Pi, not 
 
 Model assistance will begin only after the user selects an explicit assistance action—for example, resume regeneration, cover-letter suggestions, or a match explanation—reviews the visible editor handoff, and submits it through normal Pi interaction. Persistent application attachment, Career-specific model-context activation, provider submission, and file mutation remain separate decisions. The approved #64 session contract uses path-free custom-entry pointers plus conditional Pi resource discovery: ordinary Pi sessions not explicitly activated for Career assistance carry no Career-specific Skill metadata or tool schema, while an explicitly activated one-application assistance session keeps the compact `career_run` surface stable for prompt-cache reuse.
 
-This is a roadmap contract, not current behavior. Today’s command-oriented implementation and its normally active compact `career_run` surface remain documented below until the separately reviewed overlay/session work lands. See [`docs/product-flow.md`](docs/product-flow.md) for the delivery order and acceptance boundaries.
+Context-on-demand model discovery is implemented: ordinary sessions expose no Career Skill path or Career tool schema until a valid assistance-activation record is present and its attachment pointer revalidates. Overlay attach/activation commands are still pending, so current slash commands remain the local workflow. See [`docs/product-flow.md`](docs/product-flow.md) for the delivery order and acceptance boundaries.
 
 ## Requirements
 
