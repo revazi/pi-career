@@ -4551,6 +4551,17 @@ function sameCatalogEvidence(left, right) {
   const fileFingerprints = (evidence) => evidence.files.map((file) => `${file.path}:${file.sha256}:${statsFingerprint(file.metadata)}`).sort();
   return JSON.stringify(directoryFingerprints(left)) === JSON.stringify(directoryFingerprints(right)) && JSON.stringify(fileFingerprints(left)) === JSON.stringify(fileFingerprints(right));
 }
+async function readApplicationCatalog(rootPath, expectedRootId) {
+  const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  let current;
+  try {
+    current = await deriveApplicationCatalog(rootPath, expectedRootId);
+  } catch {
+    throw workflowError("workspace_drift");
+  }
+  if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
+  return initial.projection;
+}
 function attachmentValidationError(error) {
   if (error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict") throw error;
   throw workflowError("attachment_unavailable");
@@ -8375,6 +8386,161 @@ import {
   getAgentDir as getAgentDir2
 } from "@earendil-works/pi-coding-agent";
 
+// src/workflow/overlay.ts
+import { Key as Key2, matchesKey as matchesKey2, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
+var CAREER_OVERLAY_VIEWS = [
+  "setup",
+  "library",
+  "applications",
+  "vacancy",
+  "match",
+  "analyze",
+  "workbench",
+  "workspace"
+];
+var VIEW_LABELS = {
+  setup: "Setup",
+  library: "Library",
+  applications: "Applications",
+  vacancy: "Job description",
+  match: "Match",
+  analyze: "Analyze",
+  workbench: "Workbench",
+  workspace: "Workspace"
+};
+function localLine(_error) {
+  return "Local career data is unavailable.";
+}
+async function buildCareerOverlayPages(agentDir, ctx) {
+  const persisted3 = ctx.sessionManager.getSessionFile() !== void 0;
+  let setup = "pi-career is not configured.";
+  let library = "No resume library is configured.";
+  try {
+    const config = await loadConfig(agentDir);
+    const scan = await scanLibrary(config);
+    setup = setupSummary(config, scan, persisted3);
+    library = [librarySummary(config, scan, persisted3), libraryIndexPreview(config, scan, 20)].filter(Boolean).join("\n");
+  } catch (error) {
+    setup = localLine(error);
+    library = localLine(error);
+  }
+  let applications = "Application workspace is not configured.";
+  try {
+    const config = await loadConfig(agentDir);
+    const workspace2 = config.application_workspace;
+    if (workspace2 !== null) {
+      const catalog = await readApplicationCatalog(workspace2.root_path, workspace2.root_id);
+      const rows = catalog.applications.map((application) => {
+        const label = application.identity === void 0 ? "Legacy application" : `${application.identity.company_label} — ${application.identity.role_label}`;
+        return `- ${label} — ${application.status}`;
+      });
+      applications = [
+        rows.length === 0 ? "No persistent applications." : rows.join("\n"),
+        "Opening this view does not attach an application or activate Career assistance."
+      ].join("\n");
+    }
+  } catch (error) {
+    applications = localLine(error);
+  }
+  let vacancy = "No persistent application is attached.";
+  let match = vacancy;
+  let analyze = vacancy;
+  let workbench = "Workbench/assistance is never submitted from overlay navigation.";
+  let workspace = "Workspace administration stays local. Opening this view does not mutate files.";
+  try {
+    const attached = await attachedApplicationSourcesForSession(
+      agentDir,
+      ctx.sessionManager.getBranch(),
+      ctx.sessionManager.getEntries()
+    );
+    if (attached !== void 0) {
+      const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+      vacancy = attached.vacancy === void 0 ? `${heading}
+No current job description in the workspace.` : `${heading}
+Current job description: ${attached.vacancy.vacancy_label}`;
+      match = attached.effective_resume === void 0 ? `${heading}
+No effective Resume is available.` : `${heading}
+Effective Resume: ${attached.effective_resume.label}`;
+      analyze = attached.selected_original === void 0 ? `${heading}
+No selected original Resume is available.` : `${heading}
+Selected original: ${attached.selected_original.label}`;
+      workbench = `${heading}
+Assistance is not submitted from this overlay. Explicit activation remains a separate action.`;
+      workspace = `${heading}
+Workspace files are the current application authority.`;
+    }
+  } catch (error) {
+    vacancy = localLine(error);
+    match = vacancy;
+    analyze = vacancy;
+  }
+  return { setup, library, applications, vacancy, match, analyze, workbench, workspace };
+}
+var CareerOverlay = class {
+  constructor(view, pages, theme, keybindings, requestRender, close, current = view) {
+    this.view = view;
+    this.pages = pages;
+    this.theme = theme;
+    this.keybindings = keybindings;
+    this.requestRender = requestRender;
+    this.close = close;
+    this.current = current;
+  }
+  view;
+  pages;
+  theme;
+  keybindings;
+  requestRender;
+  close;
+  current;
+  get currentView() {
+    return this.current;
+  }
+  handleInput(data) {
+    if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
+      this.close();
+      return;
+    }
+    const index = Number.parseInt(data, 10);
+    const next = CAREER_OVERLAY_VIEWS[index - 1];
+    if (next !== void 0 && next !== this.current) {
+      this.current = next;
+      this.requestRender();
+    }
+  }
+  render(width) {
+    const renderWidth = Math.max(1, width);
+    const nav = CAREER_OVERLAY_VIEWS.map((view, index) => {
+      const label = `${index + 1}:${VIEW_LABELS[view]}`;
+      return view === this.current ? this.theme.bold(this.theme.fg("accent", label)) : this.theme.fg("dim", label);
+    }).join("  ");
+    const body = this.pages[this.current].split("\n");
+    return [
+      this.theme.fg("accent", this.theme.bold(`Career • ${VIEW_LABELS[this.current]}`)),
+      nav,
+      ...body,
+      this.theme.fg("dim", "1-8 view • Esc close • no model or Core call")
+    ].map((line) => truncateToWidth2(line, renderWidth));
+  }
+  invalidate() {
+  }
+};
+async function openCareerOverlay(ctx, view, agentDir) {
+  if (ctx.mode !== "tui") return;
+  const pages = await buildCareerOverlayPages(agentDir, ctx);
+  await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
+    view,
+    pages,
+    theme,
+    keybindings,
+    () => tui.requestRender(),
+    () => done(void 0)
+  ), {
+    overlay: true,
+    overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 }
+  });
+}
+
 // src/workflow/workbench.ts
 var WORKBENCH_MAX_SOURCE_CHARACTERS = 8e4;
 var WORKBENCH_MAX_PROMPT_BYTES = 262144;
@@ -8732,6 +8898,11 @@ function registerCareerCommands(pi, options = {}) {
     ctx.sessionManager.getBranch(),
     ctx.sessionManager.getEntries()
   );
+  const openTuiOverlay = async (ctx, view) => {
+    if (ctx.mode !== "tui") return false;
+    await openCareerOverlay(ctx, view, dependencies.agentDir);
+    return true;
+  };
   const refreshState = async (ctx) => {
     const library = await loadLibrary(dependencies);
     const branch = ctx.sessionManager.getBranch();
@@ -8849,9 +9020,21 @@ function registerCareerCommands(pi, options = {}) {
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
     }
   };
+  pi.registerCommand("career", {
+    description: "Open the Career overlay",
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() !== "") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
+      if (await openTuiOverlay(ctx, "applications")) return;
+      ctx.ui.notify("Career overlay requires TUI mode.", "warning");
+    })
+  });
   pi.registerCommand("career-workspace", {
     description: "Inspect and explicitly mutate the current application workspace",
-    handler: async (args, ctx) => handle(ctx, () => applicationWorkspace.run(args, ctx))
+    handler: async (args, ctx) => handle(ctx, async () => {
+      if (args.trim() === "" && await openTuiOverlay(ctx, "workspace")) return;
+      await applicationWorkspace.run(args, ctx);
+    })
   });
   pi.registerCommand("career-setup", {
     description: "Configure deterministic resume-library roots",
@@ -8859,6 +9042,7 @@ function registerCareerCommands(pi, options = {}) {
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "setup")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -8934,6 +9118,7 @@ function registerCareerCommands(pi, options = {}) {
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const mode = parseStatusArgument(args);
+      if (mode === "default" && await openTuiOverlay(ctx, "library")) return;
       const run = owner.start(ctx);
       const { config, scan } = await refreshState(ctx);
       owner.assert(run, ctx);
@@ -9010,6 +9195,7 @@ function registerCareerCommands(pi, options = {}) {
       if (argument !== "" && argument !== "status" && argument !== "clear") {
         throw workflowError("invalid_command_arguments");
       }
+      if (argument === "" && await openTuiOverlay(ctx, "applications")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9152,6 +9338,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      if (argument === "" && await openTuiOverlay(ctx, "vacancy")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9262,6 +9449,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "workbench")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9284,6 +9472,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "analyze")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
@@ -9361,6 +9550,7 @@ Application context is session-scoped; no workspace files were created.${state.v
     handler: async (args, ctx) => handle(ctx, async () => {
       requireInteractive(ctx);
       const filter = parseFilter(args);
+      if (await openTuiOverlay(ctx, "match")) return;
       const run = owner.start(ctx);
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);

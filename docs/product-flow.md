@@ -47,7 +47,7 @@ Every overlay slice must prove with synthetic scenarios that:
 9. no persisted index, watcher, prompt/result cache, document duplication, telemetry, or background work is introduced; and
 10. benchmarks report ordinary model turns outside activated Career assistance sessions as zero Career-specific context tokens, separately from activated workflows, and preserve stable activated-session surfaces for prompt caching.
 
-This section is an acceptance contract and delivery order, not implementation approval. It does not claim that `/career` or context-on-demand activation exists in the current source.
+TUI overlay navigation exists for `/career` and the listed slash-command views. RPC keeps the previous hierarchical dialogs. Overlay open/browse still does not call a provider/model, submit a message, or activate Career assistance.
 
 ## Implemented current phase: managed agent tool and deterministic slash commands
 

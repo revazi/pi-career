@@ -44,7 +44,7 @@ test("registers the approved deterministic commands and reviewable workbench han
   const fake = makeFakePi();
   registerCareerCommands(fake.api, { agentDir: "/synthetic/agent" });
   assert.deepEqual([...fake.commands.keys()].sort(), [
-    "career-analyze", "career-application", "career-library", "career-match", "career-setup", "career-vacancy", "career-workbench", "career-workspace",
+    "career", "career-analyze", "career-application", "career-library", "career-match", "career-setup", "career-vacancy", "career-workbench", "career-workspace",
   ]);
 });
 

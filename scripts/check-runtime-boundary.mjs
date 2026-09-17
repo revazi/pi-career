@@ -111,6 +111,7 @@ assert.doesNotMatch(releaseWorkflow, /secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)|--o
 assert.match(indexSource, /assertSupportedPlatform\(\);\s*registerCareerCommands\(pi\)/);
 assert.match(indexSource, /registerCareerRun\(pi\)/);
 assert.match(workflowSource, /invokeCareerCli/);
+assert.match(workflowSource, /registerCommand\("career"/);
 assert.match(workflowSource, /registerCommand\("career-setup"/);
 assert.match(workflowSource, /registerCommand\("career-library"/);
 assert.match(workflowSource, /registerCommand\("career-application"/);

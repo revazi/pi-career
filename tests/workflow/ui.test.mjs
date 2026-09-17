@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { BorderedLoader, initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 
 import { adapterError } from "../../src/errors.ts";
@@ -40,26 +40,32 @@ async function fixture() {
   return { temp, agentDir, option };
 }
 
-test("TUI analyze uses BorderedLoader and stores a bounded transcript card", async () => {
-  const { temp, agentDir, option } = await fixture();
+test("TUI analyze opens the Career overlay analyze view without running Core", async () => {
+  const { temp, agentDir } = await fixture();
   try {
     const fake = makeFakePi();
+    let calls = 0;
     registerCareerCommands(fake.api, {
       agentDir, uuid: uuidSequence(), now,
-      invoke: async () => ({ operation: "resume.analyze", json: JSON.stringify(resumeResult()) }),
+      invoke: async () => {
+        calls += 1;
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
     });
     const components = [];
     const tui = makeContext(fake, {
-      mode: "tui", persisted: false, selects: [option, "Close"], components,
+      mode: "tui", persisted: false, components,
+      keybindings: { matches(_data, action) { return action === "tui.select.cancel"; } },
     });
-    await fake.commands.get("career-analyze").handler("", tui.ctx);
+    const pending = fake.commands.get("career-analyze").handler("", tui.ctx);
+    const deadline = Date.now() + 2_000;
+    while (tui.customCalls === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(tui.customCalls, 1);
-    assert.equal(components[0]?.constructor?.name, BorderedLoader.name);
-    components[0]?.dispose?.();
-    const cards = fake.entries.filter((entry) => entry.data.kind === "result_card");
-    assert.equal(cards.length, 1);
-    assert.equal(JSON.stringify(cards[0]).includes("Synthetic deterministic explanation"), false);
-    assert.ok(tui.notifications.some(({ message }) => message.includes("Career analyze")));
+    assert.equal(components[0]?.currentView, "analyze");
+    components[0].handleInput("esc");
+    await pending;
+    assert.equal(calls, 0);
+    assert.equal(fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
