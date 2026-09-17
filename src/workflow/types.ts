@@ -204,7 +204,8 @@ export type WorkflowErrorCode =
   | "workspace_drift"
   | "workspace_preview_changed"
   | "workspace_verification_failed"
-  | "workspace_status_unknown";
+  | "workspace_status_unknown"
+  | "attachment_unavailable";
 
 const WORKFLOW_ERROR_MESSAGES: Readonly<Record<WorkflowErrorCode, string>> = {
   interactive_mode_required: "This career command requires TUI or RPC mode.",
@@ -231,6 +232,7 @@ const WORKFLOW_ERROR_MESSAGES: Readonly<Record<WorkflowErrorCode, string>> = {
   workspace_preview_changed: "The exact workspace preview changed; no mutation was performed.",
   workspace_verification_failed: "The workspace mutation could not be safely verified.",
   workspace_status_unknown: "The workspace reached an indeterminate filesystem state; reconcile before retrying.",
+  attachment_unavailable: "The attached career application is unavailable.",
 };
 
 export class CareerWorkflowError extends Error {
