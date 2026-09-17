@@ -66,6 +66,14 @@ export const CAREER_UI_RPC_ACTIONS = {
   back: "Back",
   attach: "Attach",
   addRoot: "Add root",
+  removeRoot: "Remove root",
+  rescan: "Rescan",
+  create: "Create application",
+  analyze: "Run analyze",
+  match: "Run match",
+  editVacancy: "Edit job description",
+  updateStatus: "Update status",
+  workspace: "Manage workspace",
 } as const;
 
 export interface CareerUiItem {
@@ -85,6 +93,14 @@ export type CareerUiModel = Record<CareerUiView, CareerUiPane>;
 export interface CareerUiActions {
   attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
   addRoot?: () => Promise<boolean>;
+  removeRoot?: (rootId: string) => Promise<boolean>;
+  rescan?: () => Promise<boolean>;
+  createApplication?: () => Promise<boolean>;
+  analyze?: () => Promise<boolean>;
+  match?: () => Promise<boolean>;
+  editVacancy?: () => Promise<boolean>;
+  updateStatus?: () => Promise<boolean>;
+  workspace?: () => Promise<boolean>;
 }
 
 function unavailablePane(): CareerUiPane {
@@ -279,6 +295,53 @@ export class CareerUiSession {
     return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== undefined && !this.busyFlag;
   }
 
+  get canRemoveRoot(): boolean {
+    return this.current === "setup" && this.selected !== undefined && this.actions.removeRoot !== undefined && !this.busyFlag;
+  }
+
+  get canRescan(): boolean {
+    return (this.current === "setup" || this.current === "library") && this.actions.rescan !== undefined && !this.busyFlag;
+  }
+
+  get canCreate(): boolean {
+    return this.current === "applications" && this.actions.createApplication !== undefined && !this.busyFlag;
+  }
+
+  get canAnalyze(): boolean {
+    return this.current === "analyze" && this.actions.analyze !== undefined && !this.busyFlag;
+  }
+
+  get canMatch(): boolean {
+    return this.current === "match" && this.actions.match !== undefined && !this.busyFlag;
+  }
+
+  get canEditVacancy(): boolean {
+    return this.current === "vacancy" && this.actions.editVacancy !== undefined && !this.busyFlag;
+  }
+
+  get canUpdateStatus(): boolean {
+    return this.current === "applications" && this.actions.updateStatus !== undefined && !this.busyFlag;
+  }
+
+  get canWorkspace(): boolean {
+    return this.current === "workspace" && this.actions.workspace !== undefined && !this.busyFlag;
+  }
+
+  rpcActions(): string[] {
+    return [
+      ...(this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : []),
+      ...(this.canCreate ? [CAREER_UI_RPC_ACTIONS.create] : []),
+      ...(this.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : []),
+      ...(this.canRemoveRoot ? [CAREER_UI_RPC_ACTIONS.removeRoot] : []),
+      ...(this.canRescan ? [CAREER_UI_RPC_ACTIONS.rescan] : []),
+      ...(this.canAnalyze ? [CAREER_UI_RPC_ACTIONS.analyze] : []),
+      ...(this.canMatch ? [CAREER_UI_RPC_ACTIONS.match] : []),
+      ...(this.canEditVacancy ? [CAREER_UI_RPC_ACTIONS.editVacancy] : []),
+      ...(this.canUpdateStatus ? [CAREER_UI_RPC_ACTIONS.updateStatus] : []),
+      ...(this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : []),
+    ];
+  }
+
   switchView(view: CareerUiView): void {
     this.current = view;
     this.detail = false;
@@ -316,14 +379,13 @@ export class CareerUiSession {
     return "close";
   }
 
-  async attach(): Promise<boolean> {
-    const pointer = this.selected?.pointer;
-    if (pointer === undefined || this.actions.attach === undefined || this.busyFlag) return false;
+  private async runBound(enabled: boolean, operation: () => Promise<boolean>): Promise<boolean> {
+    if (!enabled || this.busyFlag) return false;
     this.busyFlag = true;
     try {
-      const attached = await this.actions.attach(pointer);
-      if (attached === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
-      return attached === true;
+      const ok = await operation();
+      if (ok === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
+      return ok === true;
     } catch {
       return false;
     } finally {
@@ -331,18 +393,80 @@ export class CareerUiSession {
     }
   }
 
+  async attach(): Promise<boolean> {
+    const pointer = this.selected?.pointer;
+    const action = this.actions.attach;
+    if (pointer === undefined || action === undefined) return false;
+    return this.runBound(true, () => action(pointer));
+  }
+
   async addRoot(): Promise<boolean> {
-    if (!this.canAddRoot || this.actions.addRoot === undefined) return false;
-    this.busyFlag = true;
-    try {
-      const added = await this.actions.addRoot();
-      if (added === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
-      return added === true;
-    } catch {
-      return false;
-    } finally {
-      this.busyFlag = false;
-    }
+    const action = this.actions.addRoot;
+    if (action === undefined) return false;
+    return this.runBound(this.canAddRoot, action);
+  }
+
+  async removeRoot(): Promise<boolean> {
+    const action = this.actions.removeRoot;
+    const id = this.selected?.id;
+    if (action === undefined || id === undefined) return false;
+    return this.runBound(this.canRemoveRoot, () => action(id));
+  }
+
+  async rescan(): Promise<boolean> {
+    const action = this.actions.rescan;
+    if (action === undefined) return false;
+    return this.runBound(this.canRescan, action);
+  }
+
+  async createApplication(): Promise<boolean> {
+    const action = this.actions.createApplication;
+    if (action === undefined) return false;
+    return this.runBound(this.canCreate, action);
+  }
+
+  async analyze(): Promise<boolean> {
+    const action = this.actions.analyze;
+    if (action === undefined) return false;
+    return this.runBound(this.canAnalyze, action);
+  }
+
+  async match(): Promise<boolean> {
+    const action = this.actions.match;
+    if (action === undefined) return false;
+    return this.runBound(this.canMatch, action);
+  }
+
+  async editVacancy(): Promise<boolean> {
+    const action = this.actions.editVacancy;
+    if (action === undefined) return false;
+    return this.runBound(this.canEditVacancy, action);
+  }
+
+  async updateStatus(): Promise<boolean> {
+    const action = this.actions.updateStatus;
+    if (action === undefined) return false;
+    return this.runBound(this.canUpdateStatus, action);
+  }
+
+  async workspace(): Promise<boolean> {
+    const action = this.actions.workspace;
+    if (action === undefined) return false;
+    return this.runBound(this.canWorkspace, action);
+  }
+
+  async runRpcAction(choice: string): Promise<boolean> {
+    if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
+    if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
+    if (choice === CAREER_UI_RPC_ACTIONS.removeRoot) return this.removeRoot();
+    if (choice === CAREER_UI_RPC_ACTIONS.rescan) return this.rescan();
+    if (choice === CAREER_UI_RPC_ACTIONS.create) return this.createApplication();
+    if (choice === CAREER_UI_RPC_ACTIONS.analyze) return this.analyze();
+    if (choice === CAREER_UI_RPC_ACTIONS.match) return this.match();
+    if (choice === CAREER_UI_RPC_ACTIONS.editVacancy) return this.editVacancy();
+    if (choice === CAREER_UI_RPC_ACTIONS.updateStatus) return this.updateStatus();
+    if (choice === CAREER_UI_RPC_ACTIONS.workspace) return this.workspace();
+    return false;
   }
 }
 
@@ -379,18 +503,18 @@ export async function runCareerUiRpc(
         `${viewTitle(session.view)}\n${session.pane.intro}`,
         [
           ...options.keys(),
-          ...(session.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : []),
+          ...session.rpcActions(),
           CAREER_UI_RPC_ACTIONS.switchView,
           CAREER_UI_RPC_ACTIONS.close,
         ],
       );
       if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) return;
-      if (choice === CAREER_UI_RPC_ACTIONS.addRoot) {
-        await session.addRoot();
-        continue;
-      }
       if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
+        continue;
+      }
+      if (session.rpcActions().includes(choice)) {
+        await session.runRpcAction(choice);
         continue;
       }
       const entry = options.get(choice);
@@ -401,7 +525,7 @@ export async function runCareerUiRpc(
     const selected = session.selected;
     const choice = await ctx.ui.select(selected?.detail ?? session.pane.intro, [
       CAREER_UI_RPC_ACTIONS.back,
-      ...(session.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : []),
+      ...session.rpcActions(),
       CAREER_UI_RPC_ACTIONS.switchView,
       CAREER_UI_RPC_ACTIONS.close,
     ]);
@@ -410,11 +534,11 @@ export async function runCareerUiRpc(
       session.back();
       continue;
     }
-    if (choice === CAREER_UI_RPC_ACTIONS.attach) {
-      await session.attach();
+    if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
+      await switchViewRpc(ctx, session);
       continue;
     }
-    if (choice === CAREER_UI_RPC_ACTIONS.switchView) await switchViewRpc(ctx, session);
+    if (session.rpcActions().includes(choice)) await session.runRpcAction(choice);
   }
 }
 
@@ -493,12 +617,21 @@ export class CareerOverlay implements Component {
       this.requestRender();
       return;
     }
-    if ((data === "a" || data === "A") && this.session.canAttach) {
-      void this.session.attach().finally(() => this.requestRender());
-      return;
-    }
-    if ((data === "n" || data === "N") && this.session.canAddRoot) {
-      void this.session.addRoot().finally(() => this.requestRender());
+    const key = data.length === 1 ? data.toLowerCase() : data;
+    const keyed =
+      key === "a" && this.session.canAttach ? this.session.attach() :
+      key === "n" && this.session.canAddRoot ? this.session.addRoot() :
+      key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() :
+      key === "r" && this.session.canRescan ? this.session.rescan() :
+      key === "c" && this.session.canCreate ? this.session.createApplication() :
+      key === "g" && this.session.canAnalyze ? this.session.analyze() :
+      key === "g" && this.session.canMatch ? this.session.match() :
+      key === "e" && this.session.canEditVacancy ? this.session.editVacancy() :
+      key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() :
+      key === "m" && this.session.canWorkspace ? this.session.workspace() :
+      undefined;
+    if (keyed !== undefined) {
+      void keyed.finally(() => this.requestRender());
       return;
     }
     if (this.session.showingDetail) return;
@@ -534,10 +667,21 @@ export class CareerOverlay implements Component {
     });
     const fullNav = packChips(fullChips, renderWidth);
     const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
-    const addRootHint = this.session.canAddRoot ? "   n add root" : "";
-    const footer = this.session.showingDetail
-      ? `esc back   a attach${addRootHint}   1-8 view   no model or Core call`
-      : `↑↓ move   enter open   a attach${addRootHint}   esc close   1-8 view   no model or Core call`;
+    const hints = [
+      ...(this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"]),
+      ...(this.session.canAttach ? ["a attach"] : []),
+      ...(this.session.canCreate ? ["c create"] : []),
+      ...(this.session.canAddRoot ? ["n add root"] : []),
+      ...(this.session.canRemoveRoot ? ["x remove"] : []),
+      ...(this.session.canRescan ? ["r rescan"] : []),
+      ...(this.session.canAnalyze ? ["g analyze"] : []),
+      ...(this.session.canMatch ? ["g match"] : []),
+      ...(this.session.canEditVacancy ? ["e edit"] : []),
+      ...(this.session.canUpdateStatus ? ["s status"] : []),
+      ...(this.session.canWorkspace ? ["m workspace"] : []),
+      "1-8 view",
+    ];
+    const footer = hints.join("   ");
     const body = this.session.showingDetail && selected !== undefined
       ? [
         "",
