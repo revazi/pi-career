@@ -15,7 +15,7 @@ import {
   attachedApplicationSourcesForSession,
 } from "./application-workspace.ts";
 import { openCareerUi, type CareerUiView } from "./career-ui.ts";
-import { loadConfig } from "./config.ts";
+import { addLibraryRoot, loadConfig, writeConfig } from "./config.ts";
 import {
   deriveMatchTieStateIds,
   librarySummary,
@@ -160,6 +160,20 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
   const openUi = async (ctx: ExtensionCommandContext, view: CareerUiView): Promise<void> => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
+      addRoot: async () => {
+        const rootPath = await ctx.ui.input("Resume root", "Absolute path");
+        if (rootPath === undefined) return false;
+        const confirmed = await ctx.ui.confirm(
+          "Add resume root",
+          "Add this resume library root to config? Indexed resumes stay local. No directory is created and Core is not called.",
+        );
+        if (confirmed !== true) return false;
+        const config = await loadConfig(dependencies.agentDir);
+        const updated = await addLibraryRoot(config, rootPath);
+        await writeConfig(dependencies.agentDir, updated, dependencies.uuid);
+        ctx.ui.notify("Resume root added. No files were created.", "info");
+        return true;
+      },
     });
   };
 

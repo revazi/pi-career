@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { loadConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   CAREER_UI_COMMAND_VIEWS,
@@ -408,5 +409,89 @@ test("RPC attach uses the same confirmation-gated action as the overlay", async 
     assert.equal(attached.customCalls, 0);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("overlay n adds a library root only after confirmation", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-add-root-")));
+  try {
+    const rootDir = path.join(temp, "resumes");
+    await mkdir(rootDir);
+    await writeFile(path.join(rootDir, "alpha.md"), "# Synthetic Alpha\n");
+    const { fake, calls } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    const cancelled = [];
+    const cancelCtx = makeContext(fake, {
+      mode: "tui", persisted: false, components: cancelled, inputs: [rootDir], confirms: [false],
+      keybindings: { matches(data, action) { return action === "tui.select.cancel" && data === "esc"; } },
+    });
+    const pendingCancel = fake.commands.get("career-setup").handler("", cancelCtx.ctx);
+    const deadline = Date.now() + 2_000;
+    while (cancelled.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    cancelled[0].handleInput("n");
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal((await loadConfig(agentDir)).library_roots.length, 0);
+    cancelled[0].handleInput("esc");
+    await pendingCancel;
+
+    const added = [];
+    const addCtx = makeContext(fake, {
+      mode: "tui", persisted: false, components: added, inputs: [rootDir], confirms: [true],
+      keybindings: { matches(data, action) { return action === "tui.select.cancel" && data === "esc"; } },
+    });
+    const pendingAdd = fake.commands.get("career-setup").handler("", addCtx.ctx);
+    const addDeadline = Date.now() + 2_000;
+    while (added.length === 0 && Date.now() < addDeadline) await new Promise((resolve) => setImmediate(resolve));
+    added[0].handleInput("n");
+    const settle = Date.now() + 2_000;
+    let rendered = "";
+    while (Date.now() < settle) {
+      rendered = added[0].render(80).join("\n");
+      if (/\b1 root/.test(rendered)) break;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.match(rendered, /\b1 root/);
+    assert.equal((await loadConfig(agentDir)).library_roots.length, 1);
+    assert.doesNotMatch(JSON.stringify(addCtx.notifications), /alpha\.md/);
+    added[0].handleInput("esc");
+    await pendingAdd;
+    assert.equal(calls.length, 0);
+    assert.equal(fake.entries.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC add root uses the same confirmation-gated action as the overlay", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-rpc-add-root-")));
+  try {
+    const rootDir = path.join(temp, "resumes");
+    await mkdir(rootDir);
+    await writeFile(path.join(rootDir, "alpha.md"), "# Synthetic Alpha\n");
+    const { fake, calls } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    const cancelled = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [rootDir], confirms: [false],
+    });
+    await fake.commands.get("career-library").handler("", cancelled.ctx);
+    assert.equal((await loadConfig(agentDir)).library_roots.length, 0);
+    assert.equal(cancelled.customCalls, 0);
+
+    const added = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [rootDir], confirms: [true],
+    });
+    await fake.commands.get("career-setup").handler("", added.ctx);
+    assert.equal((await loadConfig(agentDir)).library_roots.length, 1);
+    assert.ok(added.notifications.some(({ message }) => message.includes("Resume root added")));
+    assert.doesNotMatch(JSON.stringify(added.notifications), /alpha\.md/);
+    assert.equal(added.customCalls, 0);
+    assert.equal(calls.length, 0);
+    assert.equal(fake.entries.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
   }
 });
