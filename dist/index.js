@@ -8213,7 +8213,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 // src/workflow/career-ui.ts
-import { Key as Key2, matchesKey as matchesKey2, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
+import { Key as Key2, matchesKey as matchesKey2, truncateToWidth as truncateToWidth2, visibleWidth, wrapTextWithAnsi as wrapTextWithAnsi2 } from "@earendil-works/pi-tui";
 var CAREER_UI_VIEWS = [
   "setup",
   "library",
@@ -8233,6 +8233,16 @@ var CAREER_UI_VIEW_LABELS = {
   analyze: "Analyze",
   workbench: "Workbench",
   workspace: "Workspace"
+};
+var VIEW_MARKS = {
+  setup: "◆",
+  library: "▤",
+  applications: "●",
+  vacancy: "✎",
+  match: "◎",
+  analyze: "▦",
+  workbench: "✦",
+  workspace: "▣"
 };
 var CAREER_UI_RPC_ACTIONS = {
   switchView: "Switch view",
@@ -8548,6 +8558,34 @@ ${session.pane.intro}`,
     if (choice === CAREER_UI_RPC_ACTIONS.switchView) await switchViewRpc(ctx, session);
   }
 }
+function rule(theme, width) {
+  return theme.fg("border", "─".repeat(Math.max(1, width)));
+}
+function styledLines(text, width, style) {
+  if (text.length === 0) return [];
+  return wrapTextWithAnsi2(style(text), Math.max(1, width)).map((line) => truncateToWidth2(line, width));
+}
+function packChips(chips, width) {
+  const lines = [];
+  let current = "";
+  for (const chip of chips) {
+    const next = current.length === 0 ? chip : `${current}  ${chip}`;
+    if (current.length > 0 && visibleWidth(next) > width) {
+      lines.push(current);
+      current = chip;
+    } else {
+      current = next;
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines.length === 0 ? [""] : lines;
+}
+function itemMark(view, entry) {
+  if (entry.pointer !== void 0) return "◎";
+  if (view === "library") return "▤";
+  if (view === "setup") return "◆";
+  return "·";
+}
 var CareerOverlay = class {
   constructor(session, theme, keybindings, requestRender, close) {
     this.session = session;
@@ -8616,24 +8654,50 @@ var CareerOverlay = class {
   }
   render(width) {
     const renderWidth = Math.max(1, width);
-    const nav = CAREER_UI_VIEWS.map((view, index) => {
-      const label = `${index + 1}:${CAREER_UI_VIEW_LABELS[view]}`;
-      return view === this.session.view ? this.theme.bold(this.theme.fg("accent", label)) : this.theme.fg("dim", label);
-    }).join("  ");
+    const theme = this.theme;
+    const view = this.session.view;
     const pane = this.session.pane;
     const selected = this.session.selected;
-    const body = this.session.showingDetail && selected !== void 0 ? selected.detail.split("\n") : [
-      pane.intro,
-      ...pane.items.map((entry, index) => index === this.session.cursor ? `> ${entry.label}` : `  ${entry.label}`)
+    const header = `${theme.bold(theme.fg("accent", "◆  Career"))}${theme.fg("dim", "  ·  ")}${theme.bold(theme.fg("accent", CAREER_UI_VIEW_LABELS[view]))}${theme.fg("dim", `  ${VIEW_MARKS[view]}`)}`;
+    const fullChips = CAREER_UI_VIEWS.map((name, index) => {
+      const chip = `${index + 1} ${VIEW_MARKS[name]} ${CAREER_UI_VIEW_LABELS[name]}`;
+      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    });
+    const compactChips = CAREER_UI_VIEWS.map((name, index) => {
+      const chip = `${index + 1}${VIEW_MARKS[name]}`;
+      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    });
+    const fullNav = packChips(fullChips, renderWidth);
+    const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
+    const addRootHint = this.session.canAddRoot ? "   n add root" : "";
+    const footer = this.session.showingDetail ? `esc back   a attach${addRootHint}   1-8 view   no model or Core call` : `↑↓ move   enter open   a attach${addRootHint}   esc close   1-8 view   no model or Core call`;
+    const body = this.session.showingDetail && selected !== void 0 ? [
+      "",
+      ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
+      ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text)))
+    ] : [
+      "",
+      ...pane.intro.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
+      "",
+      ...pane.items.length === 0 ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text)) : pane.items.map((entry, index) => {
+        const mark = itemMark(view, entry);
+        const line = index === this.session.cursor ? `▸ ${mark}  ${entry.label}` : `  ${mark}  ${entry.label}`;
+        return truncateToWidth2(
+          index === this.session.cursor ? theme.bold(theme.fg("accent", line)) : theme.fg("text", line),
+          renderWidth
+        );
+      })
     ];
-    const addRootHint = this.session.canAddRoot ? " • n add root" : "";
-    const footer = this.session.showingDetail ? `Esc back • a attach${addRootHint} • 1-8 view • no model or Core call` : `↑↓ move • Enter open • a attach${addRootHint} • Esc close • 1-8 view • no model or Core call`;
     return [
-      this.theme.fg("accent", this.theme.bold(viewTitle(this.session.view))),
-      nav,
+      truncateToWidth2(header, renderWidth),
+      truncateToWidth2(rule(theme, renderWidth), renderWidth),
+      ...navLines.map((line) => truncateToWidth2(line, renderWidth)),
+      truncateToWidth2(rule(theme, renderWidth), renderWidth),
       ...body,
-      this.theme.fg("dim", footer)
-    ].map((line) => truncateToWidth2(line, renderWidth));
+      "",
+      truncateToWidth2(rule(theme, renderWidth), renderWidth),
+      ...styledLines(footer, renderWidth, (text) => theme.fg("dim", text))
+    ];
   }
   invalidate() {
   }

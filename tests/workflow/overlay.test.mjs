@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
@@ -47,7 +48,10 @@ async function openAndClose(fake, command, view) {
   assert.equal(components.length, 1);
   assert.equal(components[0].constructor.name, CareerOverlay.name);
   assert.equal(components[0].currentView, view);
-  const rendered = components[0].render(80).join("\n");
+  const lines = components[0].render(80);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 80));
+  const rendered = lines.join("\n");
+  assert.match(rendered, /◆  Career/);
   assert.doesNotMatch(rendered, /agent|applications[/\\]|resume\.md|Built reliable/);
   components[0].handleInput("esc");
   await pending;
@@ -493,5 +497,33 @@ test("RPC add root uses the same confirmation-gated action as the overlay", asyn
     assert.equal(fake.entries.length, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("TUI overlay stays within width and keeps selected/attachable marks without private paths", async () => {
+  const value = await catalogFixture("pi-career-overlay-visual-");
+  try {
+    const components = [];
+    const context = makeContext(value.fake, {
+      mode: "tui", persisted: false, components,
+      keybindings: { matches(data, action) { return action === "tui.select.cancel" && data === "esc"; } },
+    });
+    const pending = value.fake.commands.get("career").handler("", context.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    const overlay = components[0];
+    for (const width of [32, 48, 80]) {
+      const lines = overlay.render(width);
+      assert.ok(lines.every((line) => visibleWidth(line) <= width));
+      const rendered = lines.join("\n");
+      assert.match(rendered, /◆  Career/);
+      assert.match(rendered, /▸ ◎/);
+      assert.doesNotMatch(rendered, /agent|applications[/\\]|resume\.md/);
+    }
+    overlay.handleInput("esc");
+    await pending;
+    assert.equal(value.calls.length, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
   }
 });
