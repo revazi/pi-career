@@ -2,12 +2,13 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
@@ -16,6 +17,7 @@ import {
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
 } from "../../src/workflow/career-ui.ts";
+import { scanLibrary } from "../../src/workflow/scan.ts";
 import { reconstructWorkflowState } from "../../src/workflow/session-state.ts";
 import {
   makeContext, makeFakePi, matchResult, normalizationResult, prepareConfigDirectory, resumeResult, uuidSequence,
@@ -356,7 +358,7 @@ async function catalogFixture(prefix) {
       throw new Error("Career UI must not invoke Career Core");
     },
   });
-  return { temp, fake, calls };
+  return { temp, agentDir, library, root, fake, calls };
 }
 
 test("RPC hierarchical dialogs browse, switch views, and open detail without attaching", async () => {
@@ -526,6 +528,73 @@ test("TUI overlay stays within width and keeps selected/attachable marks without
     overlay.handleInput("esc");
     await pending;
     assert.equal(value.calls.length, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC overlay binds an attached selected original without calling Core", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-original-");
+  try {
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [
+        "Synthetic Company — Synthetic Engineer — preparing",
+        CAREER_UI_RPC_ACTIONS.attach,
+        CAREER_UI_RPC_ACTIONS.close,
+      ],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+
+    for (const command of ["career-library", "career-analyze", "career-match"]) {
+      let firstOptions;
+      const opened = makeContext(value.fake, { mode: "rpc", persisted: false });
+      opened.ctx.ui.select = async (_title, options) => {
+        firstOptions ??= options;
+        return CAREER_UI_RPC_ACTIONS.close;
+      };
+      await value.fake.commands.get(command).handler("", opened.ctx);
+      assert.ok(firstOptions.includes(CAREER_UI_RPC_ACTIONS.selectOriginal));
+    }
+
+    for (const [command, action] of [
+      ["career-analyze", CAREER_UI_RPC_ACTIONS.analyze],
+      ["career-match", CAREER_UI_RPC_ACTIONS.match],
+    ]) {
+      const blocked = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        selects: [action, CAREER_UI_RPC_ACTIONS.close],
+      });
+      await value.fake.commands.get(command).handler("", blocked.ctx);
+      assert.ok(blocked.notifications.some(({ message }) => message.includes("Select an original resume with o")));
+    }
+    assert.equal(value.calls.length, 0);
+
+    const config = await loadConfig(value.agentDir);
+    const original = (await scanLibrary(config)).records[0];
+    assert.ok(original);
+    const option = selectedOriginalOptions([original])[0].option;
+    const bound = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career-analyze").handler("", bound.ctx);
+
+    const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
+    assert.ok(applicationName);
+    const selectedState = JSON.parse(await readFile(
+      path.join(value.root, applicationName, ".pi-career-state-000003.json"),
+      "utf8",
+    ));
+    assert.equal(selectedState.selected_original.document_id, original.id);
+    assert.equal(selectedState.selected_original.library_root_id, original.root_id);
+    assert.equal(selectedState.selected_original.text_sha256, original.text_sha256);
+    assert.equal(selectedState.selected_original.format, "markdown");
+    assert.equal(value.calls.length, 0);
+    assert.ok(bound.notifications.some(({ message }) => message.includes("no original bytes were copied or changed")));
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
