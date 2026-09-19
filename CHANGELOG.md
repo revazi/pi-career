@@ -18,6 +18,7 @@
 - Setup and library views can add a resume root after confirmation (`n` in TUI, Add root in RPC). The action writes config only, reloads the shared model, and does not attach, call Core, or create files.
 - TUI Career overlay uses a clearer visual hierarchy, view marks, selected/attachable symbols, wrapping, and width-bounded rules without changing actions or adding private content.
 - Overlay/RPC Career UI can create an application, rescan or remove a library root, run analyze/match, edit a vacancy, update status, and open Gate 1 workspace management from the shared view model. Opening and browsing still never attach or call Core; those actions stay confirmation-gated.
+- Overlay empty states, session-created applications, analyze/match result rows, Ask Pi, detach, and vacancy clear stay on the shared view model so `/career` can run as an in-Pi application without leftover command menus.
 
 ## 0.3.0 - 2026-08-14
 

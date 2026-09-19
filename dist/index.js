@@ -8375,7 +8375,10 @@ var CAREER_UI_RPC_ACTIONS = {
   match: "Run match",
   editVacancy: "Edit job description",
   updateStatus: "Update status",
-  workspace: "Manage workspace"
+  workspace: "Manage workspace",
+  askPi: "Ask Pi",
+  detach: "Detach",
+  clearVacancy: "Clear job description"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
@@ -8401,14 +8404,14 @@ function viewTitle(view) {
 async function buildCareerUiModel(agentDir, ctx) {
   const persisted3 = ctx.sessionManager.getSessionFile() !== void 0;
   const empty = {
-    setup: { intro: "pi-career is not configured.", items: [] },
-    library: { intro: "No resume library is configured.", items: [] },
-    applications: { intro: "Application workspace is not configured.", items: [] },
-    vacancy: { intro: "No persistent application is attached.", items: [] },
-    match: { intro: "No persistent application is attached.", items: [] },
-    analyze: { intro: "No persistent application is attached.", items: [] },
-    workbench: { intro: "Workbench/assistance is never submitted from overlay navigation.", items: [] },
-    workspace: { intro: "Workspace administration stays local. Opening this view does not mutate files.", items: [] }
+    setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
+    library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
+    applications: { intro: "Application workspace is not configured. Open Workspace and press m to configure, then c to create.", items: [] },
+    vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
+    match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
+    analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
+    workbench: { intro: "Press p to prepare Ask Pi. Nothing is submitted from this view.", items: [] },
+    workspace: { intro: "Press m to manage the application workspace. Opening this view does not mutate files.", items: [] }
   };
   try {
     const config = await loadConfig(agentDir);
@@ -8424,7 +8427,7 @@ Indexed resumes stay local. Opening a root does not call Core.`
       ))
     };
     empty.library = {
-      intro: scan.records.length === 0 ? "No indexed resumes." : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
+      intro: scan.records.length === 0 ? "No indexed resumes. Press n to add a root, r to rescan." : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
       items: scan.records.map((record) => {
         const badges2 = [
           record.format,
@@ -8447,7 +8450,7 @@ Overlay browse does not analyze or attach this resume.`
         (await listCatalogApplications(agentDir)).map((entry) => [entry.pointer.applicationId, entry.pointer])
       );
       empty.applications = {
-        intro: catalog.applications.length === 0 ? "No persistent applications. Opening this view does not attach or activate assistance." : "Browse applications without attaching. Enter opens local detail. a attaches the selected valid application.",
+        intro: catalog.applications.length === 0 ? "No persistent applications. Press c to create one. Creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
         items: catalog.applications.map((application) => {
           const pointer = pointers.get(application.application_id);
           const label = application.identity === void 0 ? `Legacy application — ${application.status}` : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
@@ -8475,33 +8478,41 @@ Opening does not attach. Press a to attach this application without activating a
     );
     if (attached !== void 0) {
       const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
+      const pack = `Job description: ${attached.vacancy === void 0 ? "missing" : "ready"} · Selected original: ${attached.selected_original === void 0 ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === void 0 ? "missing" : "ready"}`;
       empty.vacancy = {
-        intro: heading,
+        intro: `${heading}
+${pack}`,
         items: attached.vacancy === void 0 ? [] : [item("vacancy", attached.vacancy.vacancy_label, `${heading}
 Current job description: ${attached.vacancy.vacancy_label}
 Browse does not replace workspace files.`)]
       };
       if (attached.vacancy === void 0) empty.vacancy.intro = `${heading}
-No current job description in the workspace.`;
+${pack}
+No current job description. Press e to paste one.`;
       empty.match = {
-        intro: heading,
+        intro: `${heading}
+${pack}`,
         items: attached.effective_resume === void 0 ? [] : [item("effective", attached.effective_resume.label, `${heading}
 Effective Resume: ${attached.effective_resume.label}
 Match is not run by opening this view.`)]
       };
       if (attached.effective_resume === void 0) empty.match.intro = `${heading}
+${pack}
 No effective Resume is available.`;
       empty.analyze = {
-        intro: heading,
+        intro: `${heading}
+${pack}`,
         items: attached.selected_original === void 0 ? [] : [item("original", attached.selected_original.label, `${heading}
 Selected original: ${attached.selected_original.label}
 Analyze is not run by opening this view.`)]
       };
       if (attached.selected_original === void 0) empty.analyze.intro = `${heading}
+${pack}
 No selected original Resume is available.`;
       empty.workbench = {
         intro: `${heading}
-Assistance is not submitted from this overlay.`,
+${pack}
+Press p to prepare Ask Pi. Nothing is submitted.`,
         items: [item("workbench", "Career assistance", `${heading}
 Explicit activation remains a separate action. Overlay browse does not submit a message.`)]
       };
@@ -8516,6 +8527,33 @@ Opening this view does not mutate files or attach another application.`)]
     empty.vacancy = unavailablePane();
     empty.match = unavailablePane();
     empty.analyze = unavailablePane();
+  }
+  const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+  if (empty.applications.items.length === 0 && state.application !== void 0) {
+    empty.applications = {
+      intro: "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.",
+      items: [item(
+        state.application.application_id,
+        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status}`,
+        `${state.application.company_label} — ${state.application.role_label}
+Status: ${state.application.status}
+Session-scoped. Opening does not attach this application.`
+      )]
+    };
+  }
+  const analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5);
+  const matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
+  if (analyzeCards.length > 0) {
+    empty.analyze.items = [
+      ...empty.analyze.items,
+      ...analyzeCards.map((card) => item(`analyze:${card.state_id}`, plainResultCard(card).split("\n")[0] ?? card.resume_label, plainResultCard(card)))
+    ];
+  }
+  if (matchCards.length > 0) {
+    empty.match.items = [
+      ...empty.match.items,
+      ...matchCards.map((card) => item(`match:${card.state_id}`, plainResultCard(card).split("\n")[0] ?? card.resume_label, plainResultCard(card)))
+    ];
   }
   return empty;
 }
@@ -8582,6 +8620,15 @@ var CareerUiSession = class {
   get canWorkspace() {
     return this.current === "workspace" && this.actions.workspace !== void 0 && !this.busyFlag;
   }
+  get canAskPi() {
+    return this.current === "workbench" && this.actions.askPi !== void 0 && !this.busyFlag;
+  }
+  get canDetach() {
+    return this.current === "applications" && this.actions.detach !== void 0 && !this.busyFlag;
+  }
+  get canClearVacancy() {
+    return this.current === "vacancy" && this.actions.clearVacancy !== void 0 && !this.busyFlag;
+  }
   rpcActions() {
     return [
       ...this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : [],
@@ -8593,7 +8640,10 @@ var CareerUiSession = class {
       ...this.canMatch ? [CAREER_UI_RPC_ACTIONS.match] : [],
       ...this.canEditVacancy ? [CAREER_UI_RPC_ACTIONS.editVacancy] : [],
       ...this.canUpdateStatus ? [CAREER_UI_RPC_ACTIONS.updateStatus] : [],
-      ...this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : []
+      ...this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : [],
+      ...this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : [],
+      ...this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : [],
+      ...this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : []
     ];
   }
   switchView(view) {
@@ -8692,6 +8742,21 @@ var CareerUiSession = class {
     if (action === void 0) return false;
     return this.runBound(this.canWorkspace, action);
   }
+  async askPi() {
+    const action = this.actions.askPi;
+    if (action === void 0) return false;
+    return this.runBound(this.canAskPi, action);
+  }
+  async detach() {
+    const action = this.actions.detach;
+    if (action === void 0) return false;
+    return this.runBound(this.canDetach, action);
+  }
+  async clearVacancy() {
+    const action = this.actions.clearVacancy;
+    if (action === void 0) return false;
+    return this.runBound(this.canClearVacancy, action);
+  }
   async runRpcAction(choice) {
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
@@ -8703,6 +8768,9 @@ var CareerUiSession = class {
     if (choice === CAREER_UI_RPC_ACTIONS.editVacancy) return this.editVacancy();
     if (choice === CAREER_UI_RPC_ACTIONS.updateStatus) return this.updateStatus();
     if (choice === CAREER_UI_RPC_ACTIONS.workspace) return this.workspace();
+    if (choice === CAREER_UI_RPC_ACTIONS.askPi) return this.askPi();
+    if (choice === CAREER_UI_RPC_ACTIONS.detach) return this.detach();
+    if (choice === CAREER_UI_RPC_ACTIONS.clearVacancy) return this.clearVacancy();
     return false;
   }
 };
@@ -8845,7 +8913,7 @@ var CareerOverlay = class {
       return;
     }
     const key = data.length === 1 ? data.toLowerCase() : data;
-    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : void 0;
+    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : void 0;
     if (keyed !== void 0) {
       void keyed.finally(() => this.requestRender());
       return;
@@ -8894,6 +8962,9 @@ var CareerOverlay = class {
       ...this.session.canEditVacancy ? ["e edit"] : [],
       ...this.session.canUpdateStatus ? ["s status"] : [],
       ...this.session.canWorkspace ? ["m workspace"] : [],
+      ...this.session.canAskPi ? ["p ask Pi"] : [],
+      ...this.session.canDetach ? ["d detach"] : [],
+      ...this.session.canClearVacancy ? ["k clear"] : [],
       "1-8 view"
     ];
     const footer = hints.join("   ");
@@ -9281,7 +9352,14 @@ Application context is session-scoped; no workspace files were created.`,
         if (resume === void 0) {
           const originals = eligibleOriginals(scan);
           if (originals.length === 0) throw workflowError("library_empty");
-          resume = originals[0];
+          if (originals.length === 1) {
+            resume = originals[0];
+          } else {
+            const byLabel = new Map(originals.map((record) => [record.label, record]));
+            const chosen = await ctx.ui.select("Choose an original resume", [...byLabel.keys()]);
+            resume = chosen === void 0 ? void 0 : byLabel.get(chosen);
+            if (resume === void 0) return false;
+          }
         }
         if (resume === void 0) throw workflowError("library_empty");
         await ensureConsent(ctx, run);
@@ -9371,6 +9449,37 @@ Application context is session-scoped; no workspace files were created.`,
       },
       workspace: async () => {
         await applicationWorkspace.run("", ctx);
+        return true;
+      },
+      askPi: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached === void 0) {
+          ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning");
+          return false;
+        }
+        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        return true;
+      },
+      detach: async () => {
+        const outcome = await applicationWorkspace.detachAttachedApplication(ctx);
+        if (outcome === "cancelled") {
+          ctx.ui.notify("Detach cancelled; workspace and session application files were not changed.", "info");
+          return false;
+        }
+        return outcome === "detached";
+      },
+      clearVacancy: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== void 0) {
+          if (attached.vacancy === void 0) return false;
+          const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
+          return outcome === "written";
+        }
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        if (state.vacancy === void 0) return false;
+        const run = owner.start(ctx);
+        appendData(pi, owner, run, ctx, createVacancyClearEntry(state.vacancy, dependencies));
+        ctx.ui.notify("Current career vacancy cleared.", "info");
         return true;
       }
     });
