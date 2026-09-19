@@ -257,6 +257,7 @@ export interface AttachedApplicationSources {
   company_label: string;
   role_label: string;
   status: ApplicationStatus;
+  can_select_original: boolean;
   vacancy?: VacancyEntry;
   selected_original?: ResumeRecord;
   effective_resume?: ResumeRecord;
@@ -1687,6 +1688,7 @@ export async function loadAttachedApplicationSources(
     company_label: loaded.identity.company_label,
     role_label: loaded.identity.role_label,
     status: application.head.status,
+    can_select_original: application.head.resume_artifact === null,
     ...(vacancy === undefined ? {} : { vacancy }),
     ...(selectedOriginal === undefined ? {} : { selected_original: selectedOriginal }),
     ...(effective === undefined ? {} : { effective_resume: effective }),
@@ -2278,6 +2280,77 @@ export function selectedOriginalOptions(
   return options;
 }
 
+async function chooseSelectedOriginal(
+  config: CareerConfig,
+  ctx: ExtensionCommandContext,
+): Promise<ResumeRecord | undefined> {
+  const scan = await scanLibrary(config);
+  if (scan.total_capped) throw workflowError("workspace_limit_reached");
+  const eligibleRootIds = new Set(scan.roots.filter((root) => !root.capped && !root.stale).map((root) => root.root_id));
+  const originals = eligibleOriginals(scan).filter((record) => eligibleRootIds.has(record.root_id));
+  if (originals.length === 0) throw workflowError("workspace_unavailable");
+  const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+  const selectedOption = await ctx.ui.select("Select original resume binding", [...byOption.keys()]);
+  return selectedOption === undefined ? undefined : byOption.get(selectedOption);
+}
+
+function selectedOriginalBinding(record: ResumeRecord): SelectedOriginalBinding {
+  return {
+    document_id: record.id,
+    library_root_id: record.root_id,
+    text_sha256: record.text_sha256,
+    format: record.format,
+  };
+}
+
+function prepareSelectedOriginalRevision(
+  options: WorkspaceOptions,
+  application: InspectedApplication,
+  applicationId: string,
+  binding: SelectedOriginalBinding,
+): {
+  mutationId: string;
+  createdAt: string;
+  sequence: number;
+  stateBuffer: Buffer;
+  files: Array<{ final: string; temp: string; bytes: Buffer }>;
+  revisionAdditions: 1 | 2;
+} {
+  const mutationId = options.uuid().toLowerCase();
+  const prepared = prepareV2Mutation(application, mutationId, options.now().toISOString());
+  const { createdAt, sequence } = prepared;
+  if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+  const state: ApplicationStateRevisionV2 = {
+    schema_version: STATE_SCHEMA_V2,
+    kind: "application_state_revision",
+    application_id: applicationId,
+    sequence,
+    parent_sha256: prepared.parentSha256,
+    status: application.head.status,
+    vacancy: application.head.vacancy,
+    selected_original: binding,
+    resume_artifact: null,
+    cover_letter_artifact: prepared.coverLetterArtifact,
+    updated_at: createdAt,
+  };
+  const stateBuffer = stateBytes(state);
+  return {
+    mutationId,
+    createdAt,
+    sequence,
+    stateBuffer,
+    files: [
+      ...prepared.transitionFiles,
+      {
+        final: path.join(application.directoryPath, stateName(sequence)),
+        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer,
+      },
+    ],
+    revisionAdditions: prepared.revisionAdditions,
+  };
+}
+
 export class ApplicationWorkspaceWorkflow {
   constructor(private readonly options: WorkspaceOptions) {}
 
@@ -2369,6 +2442,7 @@ export class ApplicationWorkspaceWorkflow {
     stateBuffer: Buffer,
     revisionAdditions: 1 | 2,
     successMessage: string,
+    sourceValidation?: () => Promise<void>,
   ): Promise<"written" | "cancelled"> {
     const configured = mutation.loaded.snapshot.config.application_workspace;
     if (configured === null) throw workflowError("attachment_unavailable");
@@ -2394,6 +2468,7 @@ export class ApplicationWorkspaceWorkflow {
       plan, ctx, { snapshot: mutation.loaded.snapshot, root, application: mutation.application },
       mutation.identity, files, stateBuffer, async () => {
         await validateSelectedBinding(mutation.loaded.snapshot.config, mutation.application.head.selected_original);
+        await sourceValidation?.();
       }, mutation.target,
     );
     ctx.ui.notify(successMessage, "info");
@@ -2459,6 +2534,30 @@ export class ApplicationWorkspaceWorkflow {
       ],
       stateBuffer, prepared.revisionAdditions,
       `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`,
+    );
+  }
+
+  async selectAttachedOriginal(
+    ctx: ExtensionCommandContext,
+  ): Promise<"written" | "unchanged" | "cancelled"> {
+    const mutation = await this.attachedMutation(ctx);
+    const { application } = mutation;
+    if (application.head.resume_artifact !== null) throw workflowError("workspace_unavailable");
+    const selected = await chooseSelectedOriginal(mutation.loaded.snapshot.config, ctx);
+    if (selected === undefined) return "cancelled";
+    const binding = selectedOriginalBinding(selected);
+    if (JSON.stringify(binding) === JSON.stringify(application.head.selected_original)) {
+      ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
+      return "unchanged";
+    }
+    const revision = prepareSelectedOriginalRevision(
+      this.options, application, application.manifest.application_id, binding,
+    );
+    return this.publishAttachedRevision(
+      ctx, mutation, "select_original", revision.mutationId, revision.createdAt,
+      revision.files, revision.stateBuffer, revision.revisionAdditions,
+      `Recorded selected-original binding in immutable revision ${revision.sequence}; no original bytes were copied or changed.`,
+      async () => { freshRecord(await scanLibrary(mutation.loaded.snapshot.config), selected); },
     );
   }
 
@@ -3347,61 +3446,27 @@ export class ApplicationWorkspaceWorkflow {
       throw workflowError("workspace_unavailable");
     }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
-    const scan = await scanLibrary(attachment.snapshot.config);
-    if (scan.total_capped) throw workflowError("workspace_limit_reached");
-    const eligibleRootIds = new Set(scan.roots.filter((root) => !root.capped && !root.stale).map((root) => root.root_id));
-    const originals = eligibleOriginals(scan).filter((record) => eligibleRootIds.has(record.root_id));
-    if (originals.length === 0) throw workflowError("workspace_unavailable");
-    const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
-    const selectedOption = await ctx.ui.select("Select original resume binding", [...byOption.keys()]);
-    const selected = selectedOption === undefined ? undefined : byOption.get(selectedOption);
+    const selected = await chooseSelectedOriginal(attachment.snapshot.config, ctx);
     if (selected === undefined) return;
-    const binding: SelectedOriginalBinding = {
-      document_id: selected.id,
-      library_root_id: selected.root_id,
-      text_sha256: selected.text_sha256,
-      format: selected.format,
-    };
+    const binding = selectedOriginalBinding(selected);
     if (JSON.stringify(binding) === JSON.stringify(application.head.selected_original)) {
       ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
       return;
     }
-    const mutationId = this.options.uuid().toLowerCase();
-    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
-    const { createdAt, sequence } = prepared;
-    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
-    const state: ApplicationStateRevisionV2 = {
-      schema_version: STATE_SCHEMA_V2,
-      kind: "application_state_revision",
-      application_id: identity.identity.application_id,
-      sequence,
-      parent_sha256: prepared.parentSha256,
-      status: application.head.status,
-      vacancy: application.head.vacancy,
-      selected_original: binding,
-      resume_artifact: null,
-      cover_letter_artifact: prepared.coverLetterArtifact,
-      updated_at: createdAt,
-    };
-    const bytes = stateBytes(state);
-    const files = [
-      ...prepared.transitionFiles,
-      {
-        final: path.join(application.directoryPath, stateName(sequence)),
-        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
-        bytes,
-      },
-    ];
-    for (const file of files) await requireAbsent(file.final);
-    assertApplicationCapacity(application, files, prepared.revisionAdditions);
+    const revision = prepareSelectedOriginalRevision(
+      this.options, application, identity.identity.application_id, binding,
+    );
+    for (const file of revision.files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, revision.files, revision.revisionAdditions);
     const plan = buildPlan(
       this.options, ctx, "select_original", identity.identity.application_id, identity,
       attachment.snapshot.sha256, application.headFile.sha256,
-      files.map((file) => createPreview(file.final, file.bytes)), [],
-      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)], [], mutationId, createdAt,
+      revision.files.map((file) => createPreview(file.final, file.bytes)), [],
+      [workspaceLockPath(configured.root_path), ...revision.files.map((file) => file.temp)], [],
+      revision.mutationId, revision.createdAt,
     );
     if (!(await approve(plan, ctx))) return;
-    await this.commitRevision(plan, ctx, attachment, identity, files, bytes, async () => {
+    await this.commitRevision(plan, ctx, attachment, identity, revision.files, revision.stateBuffer, async () => {
       const freshScan = await scanLibrary(attachment.snapshot.config);
       freshRecord(freshScan, selected);
     }, {
@@ -3411,7 +3476,7 @@ export class ApplicationWorkspaceWorkflow {
       companyLabel: identity.identity.company_label,
       roleLabel: identity.identity.role_label,
     });
-    ctx.ui.notify(`Recorded selected-original binding in immutable revision ${sequence}; no original bytes were copied or changed.`, "info");
+    ctx.ui.notify(`Recorded selected-original binding in immutable revision ${revision.sequence}; no original bytes were copied or changed.`, "info");
   }
 
   private async commitRevision(
