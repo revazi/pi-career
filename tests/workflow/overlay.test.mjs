@@ -547,6 +547,30 @@ test("RPC overlay binds an attached selected original without calling Core", asy
     });
     await value.fake.commands.get("career").handler("", attached.ctx);
 
+    for (const command of ["career-library", "career-analyze", "career-match"]) {
+      let firstOptions;
+      const opened = makeContext(value.fake, { mode: "rpc", persisted: false });
+      opened.ctx.ui.select = async (_title, options) => {
+        firstOptions ??= options;
+        return CAREER_UI_RPC_ACTIONS.close;
+      };
+      await value.fake.commands.get(command).handler("", opened.ctx);
+      assert.ok(firstOptions.includes(CAREER_UI_RPC_ACTIONS.selectOriginal));
+    }
+
+    for (const [command, action] of [
+      ["career-analyze", CAREER_UI_RPC_ACTIONS.analyze],
+      ["career-match", CAREER_UI_RPC_ACTIONS.match],
+    ]) {
+      const blocked = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        selects: [action, CAREER_UI_RPC_ACTIONS.close],
+      });
+      await value.fake.commands.get(command).handler("", blocked.ctx);
+      assert.ok(blocked.notifications.some(({ message }) => message.includes("Select an original resume with o")));
+    }
+    assert.equal(value.calls.length, 0);
+
     const config = await loadConfig(value.agentDir);
     const original = (await scanLibrary(config)).records[0];
     assert.ok(original);
