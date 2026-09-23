@@ -21,6 +21,97 @@ test("persistence acceptance ledger preserves all 58 scenarios and explicit owne
   });
 });
 
+// An evidence pointer is a behavioral test title, not a fixture assertion. Keep
+// deferred reasons explicit: finding a public API later does not silently promote
+// a scenario to passing acceptance coverage.
+const behavioral = {
+  1: ["application-catalog", "catalog reads an empty marked root"],
+  2: ["application-catalog", "catalog sorts valid and legacy applications"],
+  3: ["application-catalog", "catalog classifies a mixed root"],
+  4: ["application-state-v2-reader", "complete-chain validation rejects downgrade"],
+  5: ["application-catalog", "catalog classifies a mixed root"],
+  8: ["application-state-v2-reader", "catalog reads all-v1"],
+  10: ["application-state-v2-reader", "complete-chain validation rejects downgrade"],
+  17: ["application-readiness", "pure readiness implements every reachable availability row"],
+  18: ["application-readiness", "pure readiness implements every reachable availability row"],
+  19: ["application-readiness", "pure readiness implements every reachable availability row"],
+  20: ["application-readiness", "a locally valid cover resolves unavailable before stale"],
+  21: ["application-readiness", "an artifact without a selected original"],
+  22: ["application-readiness", "selected originals require one eligible record"],
+  23: ["application-readiness", "exact tailored evidence selects tailored"],
+  25: ["application-readiness", "pure readiness implements every reachable availability row"],
+  28: ["session-attachment-commands", "attach appends only the identity pointer"],
+  29: ["session-catalog-attach", "a used session opens another application only in a replacement session"],
+  30: ["session-attachment-commands", "detach clears activation with reload"],
+  31: ["session-attachment-validation", "missing configuration or a legacy identity is unavailable"],
+  45: ["application-status-authority", "attached application status is workspace-only"],
+  50: ["session-model-surface", "inactive surface without activation"],
+  51: ["session-attachment-commands", "activation prepares a document-free handoff"],
+  52: ["session-model-surface", "activated session discovers Skill path"],
+  53: ["session-attachment-commands", "detach clears activation with reload"],
+  54: ["session-attachment", "all session branches retain one application claim"],
+  55: ["session-catalog-attach", "a used session opens another application only in a replacement session"],
+  56: ["session-attachment-validation", "root, manifest, and expected-name identity drift fails closed"],
+  57: ["session-model-surface", "session start keeps Career tools and Skill discovery inactive"],
+};
+
+const deferred = {
+  6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
+  7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
+  9: "Reading a v1-to-v2 chain does not test an approved append transition.",
+  11: "Opening a legacy application through the overlay needs a no-write integration test.",
+  12: "Migration preview cancellation and changed-byte race need a workflow test.",
+  13: "Migration confirmation needs a no-clobber identity and byte-preservation test.",
+  14: "Legacy overlay and migration without matching session need end-to-end evidence.",
+  15: "Concurrent migration plans need a fault-injected no-clobber test.",
+  16: "Pure 0/3 derivation does not test creation or absence of automatic attachment.",
+  24: "Pure readiness omits lifecycle; applied/closed incomplete state needs a validated state-to-readiness integration test.",
+  26: "Catalog read alone does not exercise unattached overlay browsing.",
+  27: "An unattached overlay highlight/open needs session append and authority spies.",
+  32: "Local browse/mutation paths need provider/model boundary spies.",
+  33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
+  34: "Catalog projection alone does not prove rendered list path/body privacy.",
+  35: "Authorized bounded local detail/preview requires a dedicated UI integration test.",
+  36: "Print/JSON mode needs an early-failure test spying on all private reads.",
+  37: "Adapter errors need injected sentinel failures and logging spies.",
+  38: "Two concurrent creators need a deterministic no-clobber race test.",
+  39: "Two concurrent revision plans need a deterministic no-fork race test.",
+  40: "An orphan fixture is not a reconciliation/fault-settlement test.",
+  41: "Exact committed-state settlement after ambiguous failure needs a fault-injected test.",
+  42: "Crash-left lock needs an attempted mutation with no polling/removal assertion.",
+  43: "Catalog drift detection alone does not test a mutation against edited referenced bytes.",
+  44: "Read-time state/cover bounds alone do not cover each plan/commit bound or preview race.",
+  46: "Session-only Not persisted overlay distinction needs a rendered UI test.",
+  47: "Read-time v1 byte preservation is not a migration commit test.",
+  48: "Ineligible assisted scan evidence does not test Analyze/Match original selection.",
+  49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
+  58: "Transient replay does not prove reload and process-shutdown handle loss.",
+};
+
+test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
+  const markdown = await readFile(contractUrl, "utf8");
+  const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
+  assert.equal(rows.length, 58);
+  for (const [index, row] of rows.entries()) {
+    const number = index + 1;
+    const id = `P3-${String(number).padStart(2, "0")}`;
+    const witness = behavioral[number];
+    const reason = deferred[number];
+    assert.equal(Number(Boolean(witness)) + Number(Boolean(reason)), 1, `${id} needs exactly one disposition`);
+    const owner = row.split("|").at(-2).trim();
+    assert.match(owner, /^#\d+(?:\/#\d+)*$/, `${id} needs an owning issue`);
+    if (reason) {
+      assert.ok(reason.length >= 40, `${id} needs substantive deferred rationale (${owner})`);
+      continue;
+    }
+    const [name, title] = witness;
+    const source = await readFile(new URL(`./${name}.test.mjs`, import.meta.url), "utf8");
+    assert.ok(source.split("\n").some((line) => line.startsWith('test("') &&
+      line.includes(title)), `${id} witness must point to an existing behavioral test`);
+  }
+  assert.equal(Object.keys(behavioral).length + Object.keys(deferred).length, 58);
+});
+
 // Contract bookkeeping only: this fixes the reviewed byte shape and fixture map
 // without claiming that v2 parsing or readiness derivation is implemented.
 test("state-v2 contract fixes canonical field order and #60 fixture ownership", async () => {
