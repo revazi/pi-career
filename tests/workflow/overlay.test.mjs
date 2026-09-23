@@ -705,6 +705,54 @@ test("RPC overlay analyze and match stay confirmation-gated and local", async ()
   }
 });
 
+test("RPC overlay refuses unattached assistance and clears only the current vacancy", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-vacancy-clear-")));
+  try {
+    const { fake } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation.operation);
+        return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      },
+    });
+    const blocked = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-workbench").handler("", blocked.ctx);
+    assert.equal(fake.entries.length, 0);
+    assert.equal(calls.length, 0);
+    assert.ok(blocked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(fake.activeTools.length, 0);
+
+    const vacancyText = "Synthetic vacancy: Backend Engineer.\nSynthetic requirements only.";
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [vacancyText],
+    }).ctx);
+    assert.deepEqual(calls, ["normalize"]);
+    assert.equal(reconstructWorkflowState(fake.entries).vacancy?.vacancy_text, vacancyText);
+    const beforeClear = fake.entries.length;
+    const clear = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.clearVacancy, CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-vacancy").handler("", clear.ctx);
+    assert.equal(fake.entries.length, beforeClear + 1);
+    assert.equal(reconstructWorkflowState(fake.entries).vacancy, undefined);
+    assert.deepEqual(calls, ["normalize"]);
+    assert.equal(clear.customCalls, 0);
+    assert.equal(fake.activeTools.length, 0);
+    assert.doesNotMatch(JSON.stringify(clear.notifications), /Synthetic requirements only|pi-career-overlay-vacancy-clear-/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC overlay can update status and open Gate 1 workspace management", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-status-")));
   try {
