@@ -10,6 +10,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { publicAdapterMessage } from "../errors.ts";
 import { CareerInvocationError, invokeCareerCli } from "../process.ts";
 import {
   ApplicationWorkspaceWorkflow,
@@ -719,7 +720,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         return;
       }
       if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(`${error.payload.code}: ${error.payload.message}`, "error");
+        ctx.ui.notify(publicAdapterMessage(error), "error");
         return;
       }
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");

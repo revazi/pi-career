@@ -51,6 +51,11 @@ function adapterError(code, careerError) {
     ...careerError === void 0 ? {} : { career_error: careerError }
   });
 }
+function publicAdapterMessage(error) {
+  const code = error.payload?.code;
+  const safeCode = typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code) ? code : "internal_error";
+  return `${safeCode}: ${ERROR_MESSAGES[safeCode]}`;
+}
 function publicAdapterError(error) {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
@@ -9864,7 +9869,7 @@ Application context is session-scoped; no workspace files were created.`,
         return;
       }
       if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(`${error.payload.code}: ${error.payload.message}`, "error");
+        ctx.ui.notify(publicAdapterMessage(error), "error");
         return;
       }
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");

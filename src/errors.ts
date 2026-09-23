@@ -89,6 +89,15 @@ export function adapterError(
   });
 }
 
+// UI surfaces never trust an injected/foreign error's mutable payload or stack.
+export function publicAdapterMessage(error: CareerInvocationError): string {
+  const code = error.payload?.code;
+  const safeCode = typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code)
+    ? code as AdapterErrorCode
+    : "internal_error";
+  return `${safeCode}: ${ERROR_MESSAGES[safeCode]}`;
+}
+
 export function publicAdapterError(error: unknown): CareerInvocationError {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
