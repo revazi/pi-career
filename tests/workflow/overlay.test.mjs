@@ -414,7 +414,7 @@ test("P3-26/P3-27/P3-34 unattached browse and open retain authority and hide pri
   }
 });
 
-test("P3-46 session-only application renders Not persisted unlike persistent catalog without creating files", async () => {
+test("session-only RPC detail is session-scoped and navigation preserves files and entries (P3-46 partial)", async () => {
   const persistent = await catalogFixture("pi-career-ui-persistent-46-");
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-session-46-")));
   try {
@@ -444,11 +444,11 @@ test("P3-46 session-only application renders Not persisted unlike persistent cat
     sessionDialog.ctx.ui.select = async (title, options) => {
       sessionTitles.push([title, ...options]);
       return sessionTitles.length === 1
-        ? "Session Company — Session Engineer — preparing — Not persisted"
+        ? "Session Company — Session Engineer — preparing"
         : CAREER_UI_RPC_ACTIONS.close;
     };
     await fake.commands.get("career").handler("", sessionDialog.ctx);
-    assert.match(JSON.stringify(sessionTitles), /Session Company.*Session Engineer.*Not persisted.*Session-scoped/);
+    assert.match(JSON.stringify(sessionTitles), /Session Company.*Session Engineer.*Session-scoped/);
     assert.doesNotMatch(JSON.stringify(sessionTitles), /Classification:/);
     assert.deepEqual(fake.entries, entries);
     assert.deepEqual(await treeBytes(temp), before);
