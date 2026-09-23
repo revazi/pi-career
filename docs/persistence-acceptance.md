@@ -1,6 +1,6 @@
 # Persistence acceptance preparation — issue #60
 
-Status: **approved scenario contract with partial executable coverage; no new persistence approval**. The machine-checked disposition in `tests/workflow/persistence-acceptance.test.mjs` identifies behavioral witnesses and explicit deferred rationales. Passing that bookkeeping test alone is not behavioral evidence.
+Status: **approved scenario contract with partial executable coverage; no new persistence approval**. The machine-checked disposition in `tests/workflow/persistence-acceptance.test.mjs` identifies behavioral witnesses and explicit deferred rationales. `tests/workflow/persistence-acceptance-behavior.test.mjs` exercises additional catalog boundaries using independent canonical synthetic bytes; these narrower reads do not satisfy the deferred overlay, mutation, or process-shutdown scenarios. Passing that bookkeeping test alone is not behavioral evidence.
 
 Approved product specifications: [#51](https://github.com/revazi/pi-career/issues/51), [#52](https://github.com/revazi/pi-career/issues/52), [#53](https://github.com/revazi/pi-career/issues/53).
 Work item: [#60](https://github.com/revazi/pi-career/issues/60).
@@ -88,7 +88,7 @@ The Given/When/Then rows below preserve Spec 3 numbering. These are specificatio
 | P3-57 | No valid activation | Request raw tools | Reject; all four Career tool schemas remain absent from model context | #64 |
 | P3-58 | Transient attachment and activation | Reload, then shut down | Work from in-memory entries during process; lose entries and handles at shutdown | #64 |
 
-The ledger preserves all **58** approved Spec 3 IDs (P3-01–P3-58); the first 48 are not the entire current approved map. The #60 disposition test assigns each row exactly once to a behavioral witness or a scenario-specific deferred rationale; the Owner column supplies its owning issue. A witness represents the stated public boundary only, not blanket end-to-end assurance. Foundation issue #65 must verify its own applicable subset and report later scenarios as pending rather than pretending #60 or #65 completes all end-to-end coverage.
+The ledger preserves all **58** approved Spec 3 IDs (P3-01–P3-58); the first 48 are not the entire current approved map. The #60 disposition test assigns each row exactly once to a behavioral witness or a scenario-specific deferred rationale; the Owner column supplies its owning issue. Currently 26 have scoped witnesses and 32 remain deferred, including P3-21 (effective-resume change) and P3-30 (process shutdown), which are not established by an absent-original readiness test or explicit detach. A witness represents the stated public boundary only, not blanket end-to-end assurance. Foundation issue #65 must verify its own applicable subset and report later scenarios as pending rather than pretending #60 or #65 completes all end-to-end coverage.
 
 ## Exact read-only catalog classification contract
 
