@@ -157,12 +157,16 @@ test("applyCareerToolSurface preserves unrelated tools and never enables raw by 
   assert.deepEqual(active, ["read", "career_run"]);
 });
 
-test("P3-49/P3-57 session start keeps Career tools and Skill discovery inactive", async () => {
+test("P3-57 raw tool request without activation rejects all four Career schemas", async () => {
   const fake = makeFakePi();
+  const submitted = [];
+  fake.api.sendMessage = (...args) => submitted.push(args);
+  fake.api.sendUserMessage = (...args) => submitted.push(args);
   for (const name of ["read", "career_core_discover", "career_core_resume", "career_core_job"]) {
     fake.api.registerTool({ name, description: name, parameters: {}, execute() {} });
   }
-  registerCareerRun(fake.api, { invoke: async () => ({ json: "{}" }), uuid: uuidSequence() });
+  let coreCalls = 0;
+  registerCareerRun(fake.api, { invoke: async () => { coreCalls += 1; return { json: "{}" }; }, uuid: uuidSequence() });
   const rpc = makeContext(fake, { persisted: false });
   for (const handler of fake.events.get("session_start") ?? []) await handler({}, rpc.ctx);
   assert.deepEqual(fake.activeTools, ["read"]);
@@ -171,8 +175,13 @@ test("P3-49/P3-57 session start keeps Career tools and Skill discovery inactive"
   await fake.commands.get("career-tools").handler("raw", rpc.ctx);
   assert.ok(rpc.notifications.some(({ message }) => message.includes("inactive")));
   assert.deepEqual(fake.activeTools, ["read"]);
+  assert.equal(fake.activeTools.filter((name) => name.startsWith("career")).length, 0);
+  assert.deepEqual(await (fake.events.get("resources_discover") ?? [])[0]({}), {});
   const input = await (fake.events.get("input") ?? [])[0]({ text: "/skill:career-core" }, rpc.ctx);
   assert.deepEqual(input, { action: "handled" });
+  assert.equal(coreCalls, 0);
+  assert.deepEqual(submitted, []);
+  assert.deepEqual(fake.entries, []);
 });
 
 test("P3-51/P3-52 activated session discovers Skill path and managed tool only", async (t) => {
