@@ -4695,6 +4695,7 @@ async function loadAttachedApplicationSources(agentDir, attachment) {
     company_label: loaded.identity.company_label,
     role_label: loaded.identity.role_label,
     status: application.head.status,
+    readiness,
     can_select_original: application.head.resume_artifact === null,
     ...vacancy === void 0 ? {} : { vacancy },
     ...selectedOriginal === void 0 ? {} : { selected_original: selectedOriginal },

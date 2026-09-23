@@ -173,11 +173,29 @@ test("P3-21/P3-23: exact tailored evidence selects tailored and package drift ne
   assert.equal(drifted.effective_resume, null);
 });
 
-test("P3-20: a locally valid cover resolves unavailable before stale, then exact dependency equality", () => {
-  const unavailable = derive({ job: false, resume: true, cover: true }, ({ snapshot }) => {
+test("P3-20/P3-21: a locally valid cover resolves unavailable before stale, then exact dependency equality", () => {
+  const missingJob = derive({ job: false, resume: true, cover: true }, ({ snapshot }) => {
     snapshot.cover_letter_artifact.job_description_sha256 = "0".repeat(64);
   });
-  assert.equal(unavailable.components.cover_letter, "Unavailable");
+  assert.equal(missingJob.components.cover_letter, "Unavailable");
+
+  // State metadata alone cannot prove staleness when current dependency bytes
+  // are drifted or unavailable and therefore have no validated current digest.
+  const driftedChangedJob = derive({ job: true, resume: true, cover: true }, ({ snapshot, evidence }) => {
+    snapshot.vacancy.content_sha256 = "0".repeat(64);
+    evidence.vacancy = "drifted";
+  });
+  assert.deepEqual(driftedChangedJob.components, {
+    job_description: "Drifted", resume: "Available", cover_letter: "Unavailable",
+  });
+
+  const unavailableChangedResume = derive({ job: true, resume: true, cover: true }, ({ snapshot, evidence }) => {
+    snapshot.selected_original.text_sha256 = "0".repeat(64);
+    evidence.library_scan.records = [];
+  });
+  assert.deepEqual(unavailableChangedResume.components, {
+    job_description: "Available", resume: "Unavailable", cover_letter: "Unavailable",
+  });
 
   const stale = derive({ job: true, resume: true, cover: true }, ({ snapshot }) => {
     snapshot.cover_letter_artifact.effective_resume_sha256 = "0".repeat(64);
