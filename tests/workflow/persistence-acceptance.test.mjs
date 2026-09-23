@@ -25,35 +25,35 @@ test("persistence acceptance ledger preserves all 58 scenarios and explicit owne
 // deferred reasons explicit: finding a public API later does not silently promote
 // a scenario to passing acceptance coverage.
 const behavioral = {
-  1: ["application-catalog", "catalog reads an empty marked root"],
-  2: ["application-catalog", "catalog sorts valid and legacy applications"],
-  3: ["application-catalog", "catalog classifies a mixed root"],
-  4: ["application-state-v2-reader", "complete-chain validation rejects downgrade"],
-  5: ["application-catalog", "catalog classifies a mixed root"],
-  8: ["application-state-v2-reader", "catalog reads all-v1"],
-  10: ["application-state-v2-reader", "complete-chain validation rejects downgrade"],
-  17: ["application-readiness", "pure readiness implements every reachable availability row"],
-  18: ["application-readiness", "pure readiness implements every reachable availability row"],
-  19: ["application-readiness", "pure readiness implements every reachable availability row"],
-  20: ["application-readiness", "a locally valid cover resolves unavailable before stale"],
-  22: ["application-readiness", "selected originals require one eligible record"],
-  23: ["application-readiness", "exact tailored evidence selects tailored"],
-  25: ["application-readiness", "pure readiness implements every reachable availability row"],
-  28: ["session-attachment-commands", "attach appends only the identity pointer"],
-  29: ["session-catalog-attach", "a used session opens another application only in a replacement session"],
-  31: ["session-attachment-validation", "missing configuration or a legacy identity is unavailable"],
-  45: ["application-status-authority", "attached application status is workspace-only"],
-  50: ["session-model-surface", "inactive surface without activation"],
-  51: ["session-attachment-commands", "activation prepares a document-free handoff"],
-  52: ["session-model-surface", "activated session discovers Skill path"],
-  53: ["session-attachment-commands", "detach clears activation with reload"],
-  54: ["session-attachment", "all session branches retain one application claim"],
-  55: ["session-catalog-attach", "a used session opens another application only in a replacement session"],
-  56: ["session-attachment-validation", "root, manifest, and expected-name identity drift fails closed"],
-  57: ["session-model-surface", "session start keeps Career tools and Skill discovery inactive"],
+  1: ["application-catalog", "catalog reads an empty marked root without creating an index"],
+  2: ["application-catalog", "catalog sorts valid and legacy applications and marks slug presentation non-authoritative"],
+  3: ["application-catalog", "catalog classifies a mixed root exactly once per child without exposing invalid details"],
+  4: ["persistence-acceptance-behavior", "P3-04 corrupt manifest identity and chain are never exposed as valid"],
+  8: ["application-state-v2-reader", "P3-08/P3-09: catalog reads all-v1, all-v2, and one v1-to-v2 transition without mutation"],
+  10: ["application-state-v2-reader", "P3-04/P3-10: complete-chain validation rejects downgrade, gap, mismatch, fork, and future schema"],
+  17: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
+  18: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
+  19: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
+  22: ["application-readiness", "P3-18/P3-22/P3-48: selected originals require one eligible record from a complete current scan"],
+  25: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
+  28: ["session-attachment-commands", "P3-27/P3-28 attach appends only the identity pointer after confirmation"],
+  29: ["session-catalog-attach", "P3-29/P3-55 a used session opens another application only in a replacement session"],
+  31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
+  45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
+  50: ["session-model-surface", "P3-49/P3-50 inactive surface without activation or when validation fails"],
+  51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
+  53: ["session-attachment-commands", "P3-30/P3-53 detach clears activation with reload and leaves workspace bytes"],
+  54: ["session-attachment", "P3-29/P3-54 all session branches retain one application claim"],
+  55: ["session-catalog-attach", "P3-29/P3-55 a used session opens another application only in a replacement session"],
 };
 
 const deferred = {
+  5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
+  20: "Changing the job description of a ready bound application is not tested by a synthetic digest mismatch in pure derivation.",
+  23: "Drifted artifact evidence does not establish rejection of a valid artifact bound to a different original.",
+  52: "An activated in-memory session is not a restarted saved activation with revalidated exact pointer.",
+  56: "Pointer validation failures alone do not establish that invalid transitions append and mutate nothing.",
+  57: "Inactive initial model surface does not test a raw tool request being rejected without exposing four schemas.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   21: "Artifact absence without a selected original does not test a bound cover letter becoming stale after changing the effective resume.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
@@ -106,8 +106,12 @@ test("#60 evidence map assigns every P3 row exactly one behavioral witness or ow
     }
     const [name, title] = witness;
     const source = await readFile(new URL(`./${name}.test.mjs`, import.meta.url), "utf8");
-    assert.ok(source.split("\n").some((line) => line.startsWith('test("') &&
-      line.includes(title)), `${id} witness must point to an existing behavioral test`);
+    // Require the whole literal test title, not a substring of a misleading
+    // title or a fixture-only assertion. The assertion body still needs review.
+    assert.ok(!name.includes("fixture") && name !== "persistence-acceptance");
+    const titles = [...source.matchAll(/^test\("([^"\n]+)",/gm)].map((match) => match[1]);
+    assert.equal(titles.filter((candidate) => candidate === title).length, 1,
+      `${id} witness must point to one exact behavioral test title`);
   }
   assert.equal(Object.keys(behavioral).length + Object.keys(deferred).length, 58);
 });

@@ -47,7 +47,13 @@ for (const [id, company, role] of [
     assert.deepEqual(first, {
       schema_version: "pi.career.application_catalog.v1",
       applications: [{
-        application_id: SYNTHETIC.applicationId, classification: "valid", identity,
+        application_id: SYNTHETIC.applicationId, classification: "valid",
+        identity: {
+          schema_version: "pi.career.application_identity.v1", kind: "application_identity",
+          application_id: "00000000-0000-4000-8000-000000000001",
+          company_label: company, role_label: role,
+          created_at: "2026-08-12T00:00:00.000Z",
+        },
         status: "preparing", updated_at: "2026-08-12T00:00:01.000Z",
       }],
       reconciliation: clean,
@@ -57,7 +63,7 @@ for (const [id, company, role] of [
   });
 }
 
-test("P3-07 byte-distinct Unicode-equivalent labels retain separate application identities", async (t) => {
+test("catalog retains byte-distinct Unicode-equivalent labels on separate UUIDs", async (t) => {
   const first = completeApplicationFixture();
   first.files.set(".pi-career-identity.json", canonicalJson({
     ...first.identity, company_label: "Synthétic",
@@ -87,7 +93,7 @@ test("P3-07 byte-distinct Unicode-equivalent labels retain separate application 
   assert.deepEqual(await bytesAndNames(root), before);
 });
 
-test("P3-04/P3-10 independent mixed-chain classifications preserve bytes and expose no partial head", async (t) => {
+test("mixed-chain catalog classifications preserve bytes and expose no partial head", async (t) => {
   for (const fixture of mixedChainFixtures()) {
     const { root } = await rootFor(t, completeApplicationFixture(fixture.chain));
     const before = await bytesAndNames(root);
@@ -103,7 +109,26 @@ test("P3-04/P3-10 independent mixed-chain classifications preserve bytes and exp
   }
 });
 
-test("P3-04 crash-left root lock fails closed without cleanup or read repair", async (t) => {
+test("P3-04 corrupt manifest identity and chain are never exposed as valid", async (t) => {
+  for (const [name, file, bytes] of [
+    ["manifest", "application.json", Buffer.from("Synthetic malformed manifest")],
+    ["identity", ".pi-career-identity.json", Buffer.from("Synthetic malformed identity")],
+    ["chain", ".pi-career-state-000001.json", Buffer.from("Synthetic malformed state")],
+  ]) {
+    const { root, directory } = await rootFor(t);
+    await writeFile(path.join(directory, file), bytes, { mode: 0o600 });
+    const before = await bytesAndNames(root);
+    const result = await readApplicationCatalog(root, SYNTHETIC.rootId);
+    assert.deepEqual(result, {
+      schema_version: "pi.career.application_catalog.v1",
+      applications: [], reconciliation: { ...clean, drifted: 1 },
+    }, name);
+    assert.doesNotMatch(JSON.stringify(result), /Synthetic|00000000-0000-4000-8000-000000000001/);
+    assert.deepEqual(await bytesAndNames(root), before, name);
+  }
+});
+
+test("crash-left root lock blocks catalog reads without cleanup or read repair", async (t) => {
   const { root } = await rootFor(t, completeApplicationFixture(buildChain([{ version: 1 }, { version: 2 }])));
   const lock = path.join(root, ".pi-career-workspace.lock");
   await writeFile(lock, Buffer.from("Synthetic crash-left lock"), { mode: 0o600 });
