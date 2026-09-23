@@ -115,6 +115,9 @@ export function deriveApplicationReadiness(
     cover = "Missing";
   } else if (evidence.cover_letter_artifact === "drifted") {
     cover = "Drifted";
+  // A dependency without a validated current digest is Unavailable even when the
+  // stored binding differs from state metadata; only two available dependencies
+  // make that difference a provable Stale classification.
   } else if (job !== "Available" || resume.classification !== "Available") {
     cover = "Unavailable";
   } else if (
