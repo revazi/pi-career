@@ -157,11 +157,36 @@ test("P3-51 activation prepares a document-free handoff and does not submit", as
     assert.equal(value.fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
     assert.ok(cancelled.notifications.every(({ message }) => !message.includes("prepared")));
     const editorText = [];
+    const beforeEntries = structuredClone(value.fake.entries);
+    const beforeRoot = await snapshot(value.root);
+    const attachment = beforeEntries.at(-1).data;
     let reloads = 0;
-    await runWorkspace(value, {
+    let submissions = 0;
+    const submitted = () => { submissions += 1; throw new Error("automatic submission forbidden"); };
+    value.fake.api.sendMessage = submitted;
+    value.fake.api.sendUserMessage = submitted;
+    const context = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
       selects: ["Activate Career assistance"], confirms: [true],
       editorText, reload: async () => { reloads += 1; },
     });
+    context.ctx.sendMessage = submitted;
+    context.ctx.sendUserMessage = submitted;
+    await value.workspace.run("", context.ctx);
+    assert.equal(value.fake.entries.length, beforeEntries.length + 1);
+    assert.deepEqual(value.fake.entries.slice(0, -1), beforeEntries);
+    const activation = value.fake.entries.at(-1);
+    assert.equal(activation.customType, "career.application_assistance");
+    assert.deepEqual(Object.keys(activation.data), [
+      "schema_version", "kind", "activation_id", "attachment_id", "application_id",
+    ]);
+    assert.equal(activation.data.schema_version, "pi.career.application_assistance.v1");
+    assert.equal(activation.data.kind, "application_assistance_activation");
+    assert.equal(activation.data.attachment_id, attachment.attachment_id);
+    assert.equal(activation.data.application_id, value.identity.application_id);
+    assert.match(activation.data.activation_id, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(await snapshot(value.root), beforeRoot);
+    assert.equal(submissions, 0);
     assert.equal(reloads, 1);
     assert.deepEqual(editorText, [CAREER_ASSISTANCE_HANDOFF]);
     assert.doesNotMatch(CAREER_ASSISTANCE_HANDOFF, /Synthetic|resume\.md|vacancy/);
