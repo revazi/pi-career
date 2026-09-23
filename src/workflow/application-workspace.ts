@@ -41,6 +41,7 @@ import {
 } from "./config.ts";
 import { privacyDisplayPath } from "./renderers.ts";
 import { deriveApplicationReadiness } from "./application-readiness.ts";
+import type { ApplicationReadinessProjection } from "./application-readiness.ts";
 export { deriveApplicationReadiness } from "./application-readiness.ts";
 import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
 import { parseStrictJson } from "./strict-json.ts";
@@ -257,6 +258,7 @@ export interface AttachedApplicationSources {
   company_label: string;
   role_label: string;
   status: ApplicationStatus;
+  readiness: ApplicationReadinessProjection;
   can_select_original: boolean;
   vacancy?: VacancyEntry;
   selected_original?: ResumeRecord;
@@ -1694,6 +1696,7 @@ export async function loadAttachedApplicationSources(
     company_label: loaded.identity.company_label,
     role_label: loaded.identity.role_label,
     status: application.head.status,
+    readiness,
     can_select_original: application.head.resume_artifact === null,
     ...(vacancy === undefined ? {} : { vacancy }),
     ...(selectedOriginal === undefined ? {} : { selected_original: selectedOriginal }),
