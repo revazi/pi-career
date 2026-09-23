@@ -361,6 +361,58 @@ async function catalogFixture(prefix) {
   return { temp, agentDir, library, root, fake, calls };
 }
 
+// Snapshot the disposable private tree, including file contents and names, so
+// read-only navigation cannot pass merely by leaving the session untouched.
+async function treeBytes(directory) {
+  const result = [];
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    const location = path.join(directory, entry.name);
+    result.push([entry.name, entry.isDirectory() ? await treeBytes(location) : (await readFile(location)).toString("base64")]);
+  }
+  return result;
+}
+
+test("P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes", async () => {
+  const value = await catalogFixture("pi-career-ui-private-browse-");
+  try {
+    const privateBody = "SYNTHETIC_PRIVATE_DOCUMENT_BODY_26_27_34";
+    await writeFile(path.join(value.library, "alpha.md"), `# Synthetic Alpha\n${privateBody}\n`);
+    const before = await treeBytes(value.temp);
+    const authority = reconstructWorkflowState(value.fake.entries);
+    const sent = [];
+    let appends = 0;
+    const appendEntry = value.fake.api.appendEntry;
+    value.fake.api.appendEntry = (...args) => { appends += 1; return appendEntry(...args); };
+    value.fake.api.sendMessage = (...args) => sent.push(args);
+    value.fake.api.sendUserMessage = (...args) => sent.push(args);
+    const rpc = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+    });
+    const lists = [];
+    // Record the actual dialog titles as well as selectable list rows.
+    const choices = ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.back,
+      CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_VIEW_LABELS.library, CAREER_UI_RPC_ACTIONS.close];
+    rpc.ctx.ui.select = async (title, options) => { lists.push([title, ...options]); return choices.shift(); };
+    await value.fake.commands.get("career").handler("", rpc.ctx);
+    assert.ok(lists.some((options) => options.some((option) => option.includes("Synthetic Company"))));
+    assert.ok(lists.some((options) => options[0].includes("Opening does not attach")));
+    assert.ok(lists.some((options) => options.some((option) => option.includes("Synthetic Alpha"))));
+    for (const projection of [lists, rpc.notifications]) {
+      const text = JSON.stringify(projection);
+      assert.ok(!text.includes(value.temp));
+      assert.ok(!text.includes(privateBody));
+    }
+    assert.equal(appends, 0);
+    assert.deepEqual(value.fake.entries, []);
+    assert.deepEqual(reconstructWorkflowState(value.fake.entries), authority);
+    assert.deepEqual(await treeBytes(value.temp), before);
+    assert.deepEqual(sent, []);
+    assert.deepEqual(value.calls, []);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC hierarchical dialogs browse, switch views, and open detail without attaching", async () => {
   const value = await catalogFixture("pi-career-ui-rpc-nav-");
   try {
