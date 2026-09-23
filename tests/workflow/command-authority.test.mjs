@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
-import { ApplicationWorkspaceWorkflow, loadAttachedApplicationSources } from "../../src/workflow/application-workspace.ts";
+import { ApplicationWorkspaceWorkflow, loadAttachedApplicationSources, readApplicationCatalog } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
@@ -87,6 +87,10 @@ async function materializePackage({ tailored = false } = {}) {
   const other = eligibleOriginals(scan).find((record) => record.relative_path === "other.md");
   assert.ok(original);
   assert.ok(other);
+  // Independent byte/path oracles: scanning must not manufacture the binding being tested.
+  assert.equal(original.id, hash(Buffer.from(await realpath(path.join(library, "original.md")))));
+  assert.equal(original.text_sha256, hash(Buffer.from(ORIGINAL_TEXT)));
+  assert.equal(other.id, hash(Buffer.from(await realpath(path.join(library, "other.md")))));
   await privateJson(path.join(root, ".pi-career-applications.json"), {
     schema_version: "pi.career.application_root.v1",
     kind: "application_workspace_root",
@@ -119,10 +123,10 @@ async function materializePackage({ tailored = false } = {}) {
   await writeFile(path.join(directory, "vacancy.md"), vacancyBytes, { mode: 0o600 });
   await chmod(path.join(directory, "vacancy.md"), 0o600);
   const selectedOriginal = {
-    document_id: original.id,
-    library_root_id: original.root_id,
-    text_sha256: original.text_sha256,
-    format: original.format,
+    document_id: hash(Buffer.from(await realpath(path.join(library, "original.md")))),
+    library_root_id: libraryRootId,
+    text_sha256: hash(Buffer.from(ORIGINAL_TEXT)),
+    format: "markdown",
   };
   const resumeBytes = Buffer.from(TAILORED_TEXT);
   const sidecar = {
@@ -146,8 +150,19 @@ async function materializePackage({ tailored = false } = {}) {
     await chmod(path.join(directory, "resume.md"), 0o600);
     await writeFile(path.join(directory, "resume.pi-career.json"), sidecarBytes, { mode: 0o600 });
     await chmod(path.join(directory, "resume.pi-career.json"), 0o600);
+    // A library-visible copy of the same linked artifact challenges the original picker.
+    const variants = path.join(library, "variants");
+    await mkdir(variants, { mode: 0o700 });
+    await privateJson(path.join(variants, ".pi-career-variants.json"), {
+      schema_version: "pi.career.variants_directory.v1",
+      kind: "managed_variants_directory",
+      library_root_id: libraryRootId,
+      created_at: WORKSPACE_CREATED_AT,
+    });
+    await writeFile(path.join(variants, "linked.md"), resumeBytes, { mode: 0o600 });
+    await writeFile(path.join(variants, "linked.pi-career.json"), sidecarBytes, { mode: 0o600 });
   }
-  await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
+  const state = {
     schema_version: "pi.career.application_state.v2",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
@@ -164,8 +179,22 @@ async function materializePackage({ tailored = false } = {}) {
     resume_artifact: tailored ? resumeArtifact : null,
     cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
-  });
-  return { temp, agentDir, root, directory, original, other, tailored: resumeArtifact };
+  };
+  if (tailored) {
+    // Existing v1 head followed by the exact null-cover v2 transition that links the artifact.
+    const legacy = { ...state, schema_version: "pi.career.application_state.v1", resume_artifact: null };
+    delete legacy.cover_letter_artifact;
+    const legacyBytes = canonical(legacy);
+    await writeFile(path.join(directory, ".pi-career-state-000001.json"), legacyBytes, { mode: 0o600 });
+    const transition = { ...state, sequence: 2, parent_sha256: hash(legacyBytes), resume_artifact: null,
+      updated_at: "2026-08-03T00:00:01.000Z" };
+    await privateJson(path.join(directory, ".pi-career-state-000002.json"), transition);
+    await privateJson(path.join(directory, ".pi-career-state-000003.json"), {
+      ...state, sequence: 3, parent_sha256: hash(canonical(transition)),
+      updated_at: "2026-08-03T00:00:02.000Z",
+    });
+  } else await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
+  return { temp, agentDir, library, root, directory, original, other, tailored: resumeArtifact };
 }
 
 function attach(fake, { activate = false } = {}) {
@@ -311,6 +340,146 @@ test("P3-48 attached match command opens the shared UI without running Core", as
     assert.deepEqual(payloads, []);
     assert.equal(rpc.customCalls, 0);
     assert.equal(fake.entries.some((entry) => entry.data?.kind === "vacancy"), false);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume", async () => {
+  const value = await materializePackage({ tailored: true });
+  try {
+    const fake = makeFakePi();
+    const attachment = attach(fake);
+    const calls = [];
+    const workspace = registerCommands(fake, value.agentDir, async (invocation) => {
+      calls.push({ operation: invocation.operation, input: JSON.parse(invocation.inputJson) });
+      if (invocation.operation === "analyze") return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      if (invocation.operation === "normalize") return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      return { operation: "job.match", json: JSON.stringify(matchResult()) };
+    });
+    const config = await loadConfig(value.agentDir);
+    const scan = await scanLibrary(config);
+    const variant = scan.records.find((record) => record.relative_path === "variants/linked.md");
+    assert.equal(variant?.kind, "assisted_variant");
+    assert.equal(variant.text, TAILORED_TEXT);
+    assert.deepEqual(eligibleOriginals(scan).map((record) => record.id).sort(),
+      [value.original.id, value.other.id].sort());
+    const unattached = makeFakePi();
+    const unattachedCalls = [];
+    registerCommands(unattached, value.agentDir, async (invocation) => {
+      unattachedCalls.push(invocation);
+      if (invocation.operation === "analyze") return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      if (invocation.operation === "normalize") return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      return { operation: "job.match", json: JSON.stringify(matchResult()) };
+    });
+    await unattached.commands.get("career-vacancy").handler("", makeContext(unattached, {
+      mode: "rpc", persisted: false, selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [VACANCY_TEXT],
+    }).ctx);
+    for (const [command, action] of [["career-analyze", CAREER_UI_RPC_ACTIONS.analyze],
+      ["career-match", CAREER_UI_RPC_ACTIONS.match]]) {
+      const picker = makeContext(unattached, { mode: "rpc", persisted: false, confirms: [true] });
+      let selected = false;
+      picker.ctx.ui.select = async (title, choices) => {
+        if (title === "Choose an original resume") {
+          selected = true;
+          assert.equal(choices.length, 2);
+          assert.doesNotMatch(JSON.stringify(choices), /linked\.md|Synthetic Tailored|resume\.md/);
+          return choices.find((choice) => choice.includes("original.md"));
+        }
+        return selected ? CAREER_UI_RPC_ACTIONS.close : action;
+      };
+      await unattached.commands.get(command).handler("", picker.ctx);
+      assert.equal(selected, true);
+    }
+    assert.ok(unattachedCalls.every((invocation) => !invocation.inputJson.includes("Synthetic Tailored")));
+    const sources = await loadAttachedApplicationSources(value.agentDir, attachment);
+    assert.equal(sources.selected_original?.text, ORIGINAL_TEXT);
+    assert.equal(sources.effective_resume?.text, TAILORED_TEXT);
+    const before = { library: await snapshot(value.library), root: await snapshot(value.root), entries: structuredClone(fake.entries) };
+    const options = [];
+    const bound = makeContext(fake, { mode: "rpc", persisted: false });
+    bound.ctx.ui.select = async (title, choices) => {
+      options.push([title, ...choices]);
+      if (title === "Select original resume") return undefined;
+      return options.length === 1 ? CAREER_UI_RPC_ACTIONS.selectOriginal : CAREER_UI_RPC_ACTIONS.close;
+    };
+    await fake.commands.get("career-analyze").handler("", bound.ctx);
+    // Once an artifact is bound, no original rebinding action or picker is offered.
+    assert.equal(options.some(([title]) => title === "Select original resume"), false);
+    await assert.rejects(workspace.selectAttachedOriginal(bound.ctx), /workspace_unavailable/);
+    assert.doesNotMatch(JSON.stringify(bound.notifications), /linked\.md|Synthetic Tailored|resume\.md/);
+    assert.deepEqual(await snapshot(value.root), before.root);
+    const components = [];
+    const tui = makeContext(fake, { mode: "tui", persisted: false, components,
+      keybindings: { matches(_data, action) { return action === "tui.select.cancel"; } } });
+    const pending = fake.commands.get("career-analyze").handler("", tui.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(components.length, 1);
+    assert.doesNotMatch(components[0].render(80).join("\n"), /linked\.md|Synthetic Tailored|resume\.md/);
+    components[0].handleInput("esc");
+    await pending;
+
+    const analyze = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+    await fake.commands.get("career-analyze").handler("", analyze.ctx);
+    assert.deepEqual(calls.filter((call) => call.operation === "analyze").map((call) => call.input.text), [ORIGINAL_TEXT]);
+    assert.doesNotMatch(JSON.stringify(calls), /Synthetic Tailored/);
+
+    const match = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+    await fake.commands.get("career-match").handler("", match.ctx);
+    assert.ok(calls.some((call) => call.operation === "match" && JSON.stringify(call.input).includes("Synthetic Tailored")));
+    assert.equal(calls.filter((call) => call.operation === "match").length, 1);
+    assert.deepEqual(await snapshot(value.library), before.library);
+    assert.deepEqual(await snapshot(value.root), before.root);
+    assert.deepEqual(fake.entries.filter((entry) => entry.customType === "career.application_attachment"),
+      before.entries.filter((entry) => entry.customType === "career.application_attachment"));
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card").length, 2);
+    assert.doesNotMatch(JSON.stringify([analyze.notifications, match.notifications]), /Synthetic Tailored|Built reliable APIs/);
+
+    // Changed artifact bytes cannot be silently adopted or replaced by the original.
+    await writeFile(path.join(value.directory, "resume.md"), `${TAILORED_TEXT}DRIFT_SENTINEL_48\n`);
+    const driftBytes = await snapshot(value.root);
+    const previousCalls = calls.length;
+    const failed = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+    await fake.commands.get("career-match").handler("", failed.ctx);
+    assert.equal(calls.length, previousCalls);
+    assert.deepEqual(await snapshot(value.root), driftBytes);
+    assert.deepEqual((await readApplicationCatalog(value.root, ROOT_ID)).reconciliation,
+      { interrupted: 0, drifted: 1, duplicate_id: 0, unsupported: 0, over_limit: 0 });
+    await assert.rejects(loadAttachedApplicationSources(value.agentDir, attachment),
+      (error) => error.code === "attachment_unavailable" && !/DRIFT_SENTINEL_48|Synthetic Tailored|resume\.md/.test(error.message));
+    assert.doesNotMatch(JSON.stringify(failed.notifications), /DRIFT_SENTINEL_48|Synthetic Tailored|resume\.md/);
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card").length, 2);
+
+    // A self-consistent artifact reference with a sidecar bound to another original
+    // is still invalid; it must not silently fall back to the selected original.
+    await writeFile(path.join(value.directory, "resume.md"), TAILORED_TEXT);
+    const sidecarPath = path.join(value.directory, "resume.pi-career.json");
+    const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
+    sidecar.base_document_id = value.other.id;
+    sidecar.base_text_sha256 = value.other.text_sha256;
+    const mismatchedBytes = canonical(sidecar);
+    await writeFile(sidecarPath, mismatchedBytes);
+    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const head = JSON.parse(await readFile(headPath, "utf8"));
+    head.resume_artifact.sidecar_sha256 = hash(mismatchedBytes);
+    await writeFile(headPath, canonical(head));
+    const mismatchBytes = await snapshot(value.root);
+    const mismatch = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+    await fake.commands.get("career-match").handler("", mismatch.ctx);
+    assert.equal(calls.length, previousCalls);
+    assert.deepEqual(await snapshot(value.root), mismatchBytes);
+    assert.deepEqual((await readApplicationCatalog(value.root, ROOT_ID)).reconciliation,
+      { interrupted: 0, drifted: 1, duplicate_id: 0, unsupported: 0, over_limit: 0 });
+    await assert.rejects(loadAttachedApplicationSources(value.agentDir, attachment),
+      (error) => error.code === "attachment_unavailable" && !/Synthetic Tailored|resume\.md/.test(error.message));
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card").length, 2);
+    assert.doesNotMatch(JSON.stringify(mismatch.notifications), /Synthetic Tailored|Built reliable APIs|resume\.md/);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }

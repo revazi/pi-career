@@ -41,6 +41,7 @@ const behavioral = {
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
+  48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
 };
@@ -82,7 +83,6 @@ const deferred = {
   43: "Catalog drift detection alone does not test a mutation against edited referenced bytes.",
   44: "Read-time state/cover bounds alone do not cover each plan/commit bound or preview race.",
   47: "Read-time v1 byte preservation is not a migration commit test.",
-  48: "Analyze/Match selection and Core input exclude a sidecar-classified artifact, but no application state binds that artifact to the selected original.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
   58: "Transient replay does not prove reload and process-shutdown handle loss.",
