@@ -4830,11 +4830,11 @@ function buildPlan(options, ctx, operation, applicationId, identity2, expectedCo
     temporary_paths: temporaryPaths,
     warnings: warnings2
   };
-  const previewText = canonicalJson(envelope).toString("utf8");
-  if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES) throw workflowError("workspace_limit_reached");
+  const previewText2 = canonicalJson(envelope).toString("utf8");
+  if (Buffer.byteLength(previewText2, "utf8") > PREVIEW_MAX_BYTES) throw workflowError("workspace_limit_reached");
   return {
     envelope,
-    previewText,
+    previewText: previewText2,
     sessionId: ctx.sessionManager.getSessionId(),
     identityStateId: identity2?.identity.state_id ?? null,
     currentStateId: identity2?.current.state_id ?? null,
@@ -7963,8 +7963,8 @@ var VariantSaveWorkflow = class {
         text: sidecarBytes.toString("utf8")
       }
     };
-    const previewText = canonicalJson2(preview);
-    if (Buffer.byteLength(previewText, "utf8") > PREVIEW_MAX_BYTES2) {
+    const previewText2 = canonicalJson2(preview);
+    if (Buffer.byteLength(previewText2, "utf8") > PREVIEW_MAX_BYTES2) {
       throw careerRunError("variant_save_unavailable");
     }
     return {
@@ -7980,7 +7980,7 @@ var VariantSaveWorkflow = class {
       sidecarBytes,
       ...markerBytes === void 0 ? {} : { markerBytes },
       initialDestinationKind: prepared.destination.kind,
-      previewText
+      previewText: previewText2
     };
   }
   async revalidatePlan(plan) {
@@ -8437,13 +8437,53 @@ var CAREER_UI_RPC_ACTIONS = {
   askPi: "Ask Pi",
   detach: "Detach",
   clearVacancy: "Clear job description",
-  selectOriginal: "Select original resume"
+  selectOriginal: "Select original resume",
+  preview: "Preview document (local only)"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
 }
 function item(id, label, detail, pointer) {
   return pointer === void 0 ? { id, label, detail } : { id, label, detail, pointer };
+}
+function resumePreview(source, record) {
+  return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
+}
+var PREVIEW_MAX_BYTES3 = 12e3;
+function previewText(text) {
+  return Buffer.byteLength(text, "utf8") <= PREVIEW_MAX_BYTES3 && !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(text);
+}
+function careerPreviewLoader(agentDir, ctx) {
+  return async (view, reference) => {
+    try {
+      let text;
+      if (view === "library" && reference.source === "library") {
+        const scan = await scanLibrary(await loadConfig(agentDir));
+        const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+        if (scan.total_capped || root === void 0 || root.capped || root.stale) return void 0;
+        const matches = scan.records.filter((record) => record.kind === "original" && record.id === reference.id && record.root_id === reference.rootId && record.format === reference.format && record.text_sha256 === reference.digest && record.too_large_for_core_input !== true);
+        if (matches.length !== 1) return void 0;
+        text = matches[0]?.text;
+      } else if (view === "vacancy" && reference.source === "vacancy" || view === "analyze" && reference.source === "original" || view === "match" && reference.source === "effective") {
+        const attached = await attachedApplicationSourcesForSession(
+          agentDir,
+          ctx.sessionManager.getBranch(),
+          ctx.sessionManager.getEntries()
+        );
+        const record = reference.source === "original" ? attached?.selected_original : attached?.effective_resume;
+        if (reference.source === "vacancy") {
+          if (attached?.vacancy?.vacancy_text_sha256 !== reference.digest || attached.application_id !== reference.id) return void 0;
+          text = attached.vacancy.vacancy_text;
+        } else {
+          if (record === void 0 || record.id !== reference.id || record.root_id !== reference.rootId || record.format !== reference.format || record.text_sha256 !== reference.digest || record.too_large_for_core_input === true || reference.source === "original" && record.kind !== "original" || reference.source === "effective" && record.kind !== "original" && record.kind !== "assisted_variant") return void 0;
+          text = record.text;
+        }
+      }
+      return text !== void 0 && previewText(text) ? text : void 0;
+    } catch {
+      return void 0;
+    }
+  };
 }
 function emptyCursors() {
   return {
@@ -8493,13 +8533,15 @@ Indexed resumes stay local. Opening a root does not call Core.`
           ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
           ...record.too_large_for_core_input === true ? ["too large"] : []
         ].join(" • ");
-        return item(
+        const row = item(
           record.id,
           `${record.label} — ${badges2}`,
           `${record.label}
 ${badges2}
 Overlay browse does not analyze or attach this resume.`
         );
+        if (record.kind === "original" && record.too_large_for_core_input !== true) row.preview = resumePreview("library", record);
+        return row;
       })
     };
     const workspace = config.application_workspace;
@@ -8542,9 +8584,11 @@ Opening does not attach. Press a to attach this application without activating a
       empty.vacancy = {
         intro: `${heading}
 ${pack}`,
-        items: attached.vacancy === void 0 ? [] : [item("vacancy", attached.vacancy.vacancy_label, `${heading}
-Current job description: ${attached.vacancy.vacancy_label}
-Browse does not replace workspace files.`)]
+        items: attached.vacancy === void 0 ? [] : [{
+          ...item("vacancy", "Current job description", `${heading}
+Current job description is ready. Browse does not replace workspace files.`),
+          preview: { source: "vacancy", id: attached.application_id, digest: attached.vacancy.vacancy_text_sha256 }
+        }]
       };
       if (attached.vacancy === void 0) empty.vacancy.intro = `${heading}
 ${pack}
@@ -8553,9 +8597,12 @@ No current job description. Press e to paste one.`;
         intro: `${heading}
 ${pack}`,
         canSelectOriginal: attached.can_select_original,
-        items: attached.effective_resume === void 0 ? [] : [item("effective", attached.effective_resume.label, `${heading}
-Effective Resume: ${attached.effective_resume.label}
-Match is not run by opening this view.`)]
+        items: attached.effective_resume === void 0 ? [] : [{
+          ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}
+Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}
+Match is not run by opening this view.`),
+          preview: resumePreview("effective", attached.effective_resume)
+        }]
       };
       if (attached.effective_resume === void 0) empty.match.intro = `${heading}
 ${pack}
@@ -8564,9 +8611,12 @@ No effective Resume is available.`;
         intro: `${heading}
 ${pack}`,
         canSelectOriginal: attached.can_select_original,
-        items: attached.selected_original === void 0 ? [] : [item("original", attached.selected_original.label, `${heading}
+        items: attached.selected_original === void 0 ? [] : [{
+          ...item("original", attached.selected_original.label, `${heading}
 Selected original: ${attached.selected_original.label}
-Analyze is not run by opening this view.`)]
+Analyze is not run by opening this view.`),
+          preview: resumePreview("original", attached.selected_original)
+        }]
       };
       if (attached.selected_original === void 0) empty.analyze.intro = `${heading}
 ${pack}
@@ -8629,18 +8679,23 @@ Current session · Not persisted. Opening does not attach this application.`
   return empty;
 }
 var CareerUiSession = class {
-  constructor(view, model, actions = {}, reloadModel) {
+  constructor(view, model, actions = {}, reloadModel, loadPreview) {
     this.actions = actions;
     this.reloadModel = reloadModel;
+    this.loadPreview = loadPreview;
     this.current = view;
     this.model = model;
     this.cursors = emptyCursors();
   }
   actions;
   reloadModel;
+  loadPreview;
   current;
   cursors;
   detail = false;
+  previewBody;
+  previewFailed = false;
+  previewGeneration = 0;
   busyFlag = false;
   model;
   get view() {
@@ -8648,6 +8703,20 @@ var CareerUiSession = class {
   }
   get showingDetail() {
     return this.detail;
+  }
+  get preview() {
+    return this.previewBody;
+  }
+  get previewError() {
+    return this.previewFailed ? "Document preview unavailable or changed. Refresh and try again." : void 0;
+  }
+  cancelPreview() {
+    this.previewGeneration++;
+    this.previewBody = void 0;
+    this.previewFailed = false;
+  }
+  get canPreview() {
+    return this.detail && this.previewBody === void 0 && this.selected?.preview !== void 0 && this.loadPreview !== void 0 && !this.busyFlag;
   }
   get cursor() {
     return this.cursors[this.current];
@@ -8718,12 +8787,15 @@ var CareerUiSession = class {
       ...this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : [],
       ...this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : [],
       ...this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : [],
-      ...this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : []
+      ...this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : [],
+      ...this.canPreview ? [CAREER_UI_RPC_ACTIONS.preview] : []
     ];
   }
   switchView(view) {
+    if (this.busyFlag) return;
     this.current = view;
     this.detail = false;
+    this.cancelPreview();
   }
   move(delta) {
     const items = this.pane.items;
@@ -8737,6 +8809,7 @@ var CareerUiSession = class {
   open() {
     if (this.busyFlag || this.detail || this.selected === void 0) return false;
     this.detail = true;
+    this.cancelPreview();
     return true;
   }
   openItem(entry) {
@@ -8746,8 +8819,13 @@ var CareerUiSession = class {
     return this.open();
   }
   back() {
+    if (this.previewBody !== void 0) {
+      this.cancelPreview();
+      return "list";
+    }
     if (this.detail) {
       this.detail = false;
+      this.cancelPreview();
       return "list";
     }
     return "close";
@@ -8760,6 +8838,30 @@ var CareerUiSession = class {
       if (ok === true && this.reloadModel !== void 0) this.model = await this.reloadModel();
       return ok === true;
     } catch {
+      return false;
+    } finally {
+      this.busyFlag = false;
+    }
+  }
+  async openPreview() {
+    if (!this.canPreview || this.loadPreview === void 0) return false;
+    const reference = this.selected?.preview;
+    if (reference === void 0) return false;
+    const view = this.current;
+    const generation = ++this.previewGeneration;
+    this.previewFailed = false;
+    this.busyFlag = true;
+    try {
+      const text = await this.loadPreview(view, reference);
+      if (generation !== this.previewGeneration) return false;
+      if (text === void 0 || !previewText(text) || this.current !== view || this.selected?.preview !== reference || !this.detail) {
+        this.previewFailed = true;
+        return false;
+      }
+      this.previewBody = text;
+      return true;
+    } catch {
+      if (generation === this.previewGeneration) this.previewFailed = true;
       return false;
     } finally {
       this.busyFlag = false;
@@ -8838,6 +8940,7 @@ var CareerUiSession = class {
     return this.runBound(this.canSelectOriginal, action);
   }
   async runRpcAction(choice) {
+    if (choice === CAREER_UI_RPC_ACTIONS.preview) return this.openPreview();
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
     if (choice === CAREER_UI_RPC_ACTIONS.removeRoot) return this.removeRoot();
@@ -8889,7 +8992,10 @@ ${session.pane.intro}`,
           CAREER_UI_RPC_ACTIONS.close
         ]
       );
-      if (choice2 === void 0 || choice2 === CAREER_UI_RPC_ACTIONS.close) return;
+      if (choice2 === void 0 || choice2 === CAREER_UI_RPC_ACTIONS.close) {
+        session.cancelPreview();
+        return;
+      }
       if (choice2 === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
         continue;
@@ -8904,13 +9010,18 @@ ${session.pane.intro}`,
       continue;
     }
     const selected = session.selected;
-    const choice = await ctx.ui.select(selected?.detail ?? session.pane.intro, [
+    const choice = await ctx.ui.select(session.preview === void 0 ? `${selected?.detail ?? session.pane.intro}${session.previewError === void 0 ? "" : `
+${session.previewError}`}` : `Local document preview (exact text; close with Back)
+${session.preview}`, [
       CAREER_UI_RPC_ACTIONS.back,
-      ...session.rpcActions(),
+      ...session.preview === void 0 ? session.rpcActions() : [],
       CAREER_UI_RPC_ACTIONS.switchView,
       CAREER_UI_RPC_ACTIONS.close
     ]);
-    if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close) return;
+    if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close) {
+      session.cancelPreview();
+      return;
+    }
     if (choice === CAREER_UI_RPC_ACTIONS.back) {
       session.back();
       continue;
@@ -8919,7 +9030,7 @@ ${session.pane.intro}`,
       await switchViewRpc(ctx, session);
       continue;
     }
-    if (session.rpcActions().includes(choice)) await session.runRpcAction(choice);
+    if (session.preview === void 0 && session.rpcActions().includes(choice)) await session.runRpcAction(choice);
   }
 }
 function rule(theme, width) {
@@ -8963,6 +9074,7 @@ var CareerOverlay = class {
   keybindings;
   requestRender;
   close;
+  previewPage = 0;
   get currentView() {
     return this.session.view;
   }
@@ -8979,13 +9091,25 @@ var CareerOverlay = class {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
       if (this.session.showingDetail && !this.session.busy) {
         this.session.back();
+        this.previewPage = 0;
         this.requestRender();
         return;
       }
+      this.session.cancelPreview();
       this.close();
       return;
     }
     if (this.session.busy) return;
+    if (this.session.preview !== void 0) {
+      if (this.keybindings.matches(data, "tui.select.up") || matchesKey2(data, Key2.up)) {
+        this.previewPage = Math.max(0, this.previewPage - 1);
+        this.requestRender();
+      } else if (this.keybindings.matches(data, "tui.select.down") || matchesKey2(data, Key2.down)) {
+        this.previewPage++;
+        this.requestRender();
+      }
+      return;
+    }
     const index = Number.parseInt(data, 10);
     const next = CAREER_UI_VIEWS[index - 1];
     if (next !== void 0) {
@@ -8994,7 +9118,7 @@ var CareerOverlay = class {
       return;
     }
     const key = data.length === 1 ? data.toLowerCase() : data;
-    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : key === "o" && this.session.canSelectOriginal ? this.session.selectOriginal() : void 0;
+    const keyed = key === "v" && this.session.canPreview ? this.session.openPreview() : key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : key === "o" && this.session.canSelectOriginal ? this.session.selectOriginal() : void 0;
     if (keyed !== void 0) {
       void keyed.finally(() => this.requestRender());
       return;
@@ -9033,7 +9157,9 @@ var CareerOverlay = class {
     const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
     const hints = [
       ...this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"],
-      ...this.session.canAttach ? ["a attach"] : [],
+      ...this.session.canPreview ? ["v preview locally"] : [],
+      ...this.session.preview !== void 0 ? ["↑↓ preview pages · soft-wrapped"] : [],
+      ...this.session.preview !== void 0 ? [] : this.session.canAttach ? ["a attach"] : [],
       ...this.session.canCreate ? ["c create"] : [],
       ...this.session.canAddRoot ? ["n add root"] : [],
       ...this.session.canRemoveRoot ? ["x remove"] : [],
@@ -9050,10 +9176,18 @@ var CareerOverlay = class {
       "1-8 view"
     ];
     const footer = hints.join("   ");
-    const body = this.session.showingDetail && selected !== void 0 ? [
+    const previewLines = this.session.preview?.split("\n").flatMap((line) => line.length === 0 ? [""] : styledLines(line, renderWidth, (text) => theme.fg("text", text)));
+    const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
+    this.previewPage = Math.min(this.previewPage, previewPages - 1);
+    const body = previewLines !== void 0 ? [
+      "",
+      theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`),
+      ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)
+    ] : this.session.showingDetail && selected !== void 0 ? [
       "",
       ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
-      ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text)))
+      ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
+      ...this.session.previewError === void 0 ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))
     ] : [
       "",
       ...pane.intro.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
@@ -9083,7 +9217,7 @@ var CareerOverlay = class {
 };
 async function openCareerUi(ctx, view, agentDir, actions = {}) {
   const reload = () => buildCareerUiModel(agentDir, ctx);
-  const session = new CareerUiSession(view, await reload(), actions, reload);
+  const session = new CareerUiSession(view, await reload(), actions, reload, careerPreviewLoader(agentDir, ctx));
   if (ctx.mode === "tui") {
     await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
       session,

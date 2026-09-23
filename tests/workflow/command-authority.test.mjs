@@ -11,7 +11,7 @@ import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
 import { ApplicationWorkspaceWorkflow, loadAttachedApplicationSources, readApplicationCatalog } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
-import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
+import { CAREER_UI_RPC_ACTIONS, CareerUiSession, buildCareerUiModel, careerPreviewLoader } from "../../src/workflow/career-ui.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import {
@@ -224,6 +224,77 @@ function registerCommands(fake, agentDir, invoke) {
     appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
   });
 }
+
+test("tailored effective Resume previews as assisted only and drift fails closed without Core or writes", async () => {
+  const value = await materializePackage({ tailored: true });
+  try {
+    const fake = makeFakePi();
+    attach(fake);
+    const calls = [];
+    registerCommands(fake, value.agentDir, async (invocation) => {
+      calls.push(invocation);
+      throw new Error("preview cannot invoke Core");
+    });
+    const beforeFiles = await snapshot(value.root);
+    const beforeEntries = JSON.stringify(fake.entries);
+    const dialogs = [];
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    rpc.ctx.sendMessage = () => assert.fail("preview cannot send");
+    rpc.ctx.sendUserMessage = () => assert.fail("preview cannot send");
+    const choices = [null, CAREER_UI_RPC_ACTIONS.preview, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.close];
+    rpc.ctx.ui.select = async (title, options) => {
+      dialogs.push([title, options]);
+      const next = choices.shift();
+      return next === null ? options.find((option) => option.includes(value.original.label)) : next;
+    };
+    await fake.commands.get("career-match").handler("", rpc.ctx);
+    assert.equal(dialogs.length, 4);
+    assert.match(dialogs[1][0], /Effective Resume \(tailored assisted\)/);
+    assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
+    assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("Built tailored APIs")));
+    assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), TAILORED_TEXT);
+    const original = makeContext(fake, { mode: "rpc", persisted: false });
+    const originalDialogs = [];
+    const originalChoices = [null, CAREER_UI_RPC_ACTIONS.preview, CAREER_UI_RPC_ACTIONS.close];
+    original.ctx.ui.select = async (title, options) => {
+      originalDialogs.push([title, options]);
+      const next = originalChoices.shift();
+      return next === null ? options.find((option) => option.includes(value.original.label)) : next;
+    };
+    await fake.commands.get("career-analyze").handler("", original.ctx);
+    assert.equal(originalDialogs[2][0].split("\n").slice(1).join("\n"), ORIGINAL_TEXT);
+    const library = makeContext(fake, { mode: "rpc", persisted: false });
+    const rows = [];
+    library.ctx.ui.select = async (title, options) => { rows.push([title, options]); return CAREER_UI_RPC_ACTIONS.close; };
+    await fake.commands.get("career-library").handler("", library.ctx);
+    const assistedOption = rows[0][1].find((option) => option.includes("assisted variant"));
+    assert.ok(assistedOption);
+    assert.ok(!JSON.stringify(rows).includes("Built tailored APIs"));
+    const assisted = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [assistedOption, CAREER_UI_RPC_ACTIONS.close] });
+    const assistedDialogs = [];
+    assisted.ctx.ui.select = async (title, options) => {
+      assistedDialogs.push([title, options]);
+      return assistedDialogs.length === 1 ? assistedOption : CAREER_UI_RPC_ACTIONS.close;
+    };
+    await fake.commands.get("career-library").handler("", assisted.ctx);
+    assert.equal(assistedDialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview), false);
+    assert.deepEqual(await snapshot(value.root), beforeFiles);
+    assert.equal(JSON.stringify(fake.entries), beforeEntries);
+    assert.equal(calls.length, 0);
+    const model = await buildCareerUiModel(value.agentDir, rpc.ctx);
+    const session = new CareerUiSession("match", model, {}, undefined, careerPreviewLoader(value.agentDir, rpc.ctx));
+    assert.equal(session.open(), true);
+    const artifact = path.join(value.directory, "resume.md");
+    await writeFile(artifact, `${TAILORED_TEXT}changed\n`);
+    assert.equal(await session.openPreview(), false);
+    assert.equal(session.preview, undefined);
+    assert.match(session.previewError, /unavailable or changed/);
+    assert.doesNotMatch(session.previewError, /Built tailored APIs/);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
 
 test("P3-45 attached vacancy writes workspace files and cancelled saves change neither authority", async () => {
   const value = await materializePackage();
