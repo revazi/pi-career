@@ -165,6 +165,35 @@ test("TUI exact preview reconstructs source across soft wraps, hard lines, and p
   }
 });
 
+test("too-narrow TUI fails closed for a wide grapheme without a partial preview", async (t) => {
+  const f = await fixture(t);
+  const text = `${"a".repeat(50)}\n界🙂\n`;
+  const session = new CareerUiSession("library", f.model, {}, undefined, async () => text);
+  const overlay = new CareerOverlay(session, { fg: (_type, value) => `\u001b[36m${value}\u001b[0m`, bold: (value) => `\u001b[1m${value}\u001b[0m` },
+    { matches: (data, action) => action === "tui.select.down" && data === "down" ||
+      action === "tui.select.cancel" && data === "esc" }, () => {}, () => {});
+  session.open();
+  assert.equal(await session.openPreview(), true);
+  for (let page = 0; page < 60; page++) {
+    const rendered = overlay.render(1);
+    assert.ok(rendered.every((line) => visibleWidth(line) <= 1));
+    const stripped = rendered.map(stripTerminalSequences);
+    const bodyStart = stripped.indexOf("");
+    assert.ok(bodyStart >= 0);
+    assert.doesNotMatch(stripped[bodyStart + 1], /a|界|🙂|exact text/i);
+    assert.equal(stripped[bodyStart + 2], "");
+    assert.equal(session.preview, text);
+    overlay.handleInput("down");
+  }
+  // A larger terminal can display the same in-memory source without reload.
+  assert.ok(overlay.render(2).map(stripTerminalSequences).join("\n").includes("aa"));
+  overlay.handleInput("esc");
+  assert.equal(session.preview, undefined);
+  assert.equal(f.fake.entries.length, 0);
+  assert.deepEqual(f.rpc.notifications, []);
+  assert.equal(f.rpc.customCalls, 0);
+});
+
 test("cancel while revalidation is pending cannot install a late preview", async (t) => {
   const f = await fixture(t);
   let resolve;

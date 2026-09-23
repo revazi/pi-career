@@ -9042,10 +9042,11 @@ function styledLines(text, width, style) {
 }
 function exactPreviewLines(text, width, style) {
   const segmenter = new Intl.Segmenter(void 0, { granularity: "grapheme" });
-  return text.split("\n").flatMap((sourceLine) => {
-    const lines = [];
+  const lines = [];
+  for (const sourceLine of text.split("\n")) {
     let current = "";
     for (const { segment } of segmenter.segment(sourceLine)) {
+      if (visibleWidth(segment) > width) return void 0;
       if (current && visibleWidth(current + segment) > width) {
         lines.push(style(current));
         current = "";
@@ -9053,8 +9054,8 @@ function exactPreviewLines(text, width, style) {
       current += segment;
     }
     lines.push(current ? style(current) : "");
-    return lines;
-  });
+  }
+  return lines;
 }
 function packChips(chips, width) {
   const lines = [];
@@ -9195,7 +9196,7 @@ var CareerOverlay = class {
     const previewLines = this.session.preview === void 0 ? void 0 : exactPreviewLines(this.session.preview, renderWidth, (text) => theme.fg("text", text));
     const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
     this.previewPage = Math.min(this.previewPage, previewPages - 1);
-    const body = previewLines !== void 0 ? [
+    const body = this.session.preview !== void 0 && previewLines === void 0 ? ["", truncateToWidth2(theme.fg("muted", "Preview unavailable at this width; widen terminal"), renderWidth)] : previewLines !== void 0 ? [
       "",
       truncateToWidth2(theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`), renderWidth),
       ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)

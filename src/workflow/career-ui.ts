@@ -778,23 +778,24 @@ function styledLines(text: string, width: number, style: (value: string) => stri
 
 // Unlike wrapTextWithAnsi, this path must not trim spaces at soft breaks.
 // Style only after wrapping so ANSI codes cannot change source segmentation.
-function exactPreviewLines(text: string, width: number, style: (value: string) => string): string[] {
+function exactPreviewLines(text: string, width: number, style: (value: string) => string): string[] | undefined {
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-  return text.split("\n").flatMap((sourceLine) => {
-    const lines: string[] = [];
+  const lines: string[] = [];
+  for (const sourceLine of text.split("\n")) {
     let current = "";
     for (const { segment } of segmenter.segment(sourceLine)) {
+      // A grapheme wider than the terminal cannot be displayed exactly within
+      // its columns. Do not expose a partial preview or claim exact display.
+      if (visibleWidth(segment) > width) return undefined;
       if (current && visibleWidth(current + segment) > width) {
         lines.push(style(current));
         current = "";
       }
-      // A width-one terminal cannot display a two-cell grapheme. Do not
-      // silently drop it: retain the source rather than claiming truncation.
       current += segment;
     }
     lines.push(current ? style(current) : "");
-    return lines;
-  });
+  }
+  return lines;
 }
 
 function packChips(chips: string[], width: number): string[] {
@@ -957,7 +958,9 @@ export class CareerOverlay implements Component {
       exactPreviewLines(this.session.preview, renderWidth, (text) => theme.fg("text", text));
     const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
     this.previewPage = Math.min(this.previewPage, previewPages - 1);
-    const body = previewLines !== undefined
+    const body = this.session.preview !== undefined && previewLines === undefined
+      ? ["", truncateToWidth(theme.fg("muted", "Preview unavailable at this width; widen terminal"), renderWidth)]
+      : previewLines !== undefined
       ? ["", truncateToWidth(theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`), renderWidth),
         ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)]
       : this.session.showingDetail && selected !== undefined
