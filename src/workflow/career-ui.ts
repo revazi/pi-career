@@ -262,8 +262,8 @@ export async function buildCareerUiModel(
       intro: "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.",
       items: [item(
         state.application.application_id,
-        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status}`,
-        `${state.application.company_label} — ${state.application.role_label}\nStatus: ${state.application.status}\nSession-scoped. Opening does not attach this application.`,
+        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status} — Not persisted`,
+        `${state.application.company_label} — ${state.application.role_label}\nStatus: ${state.application.status}\nNot persisted. Session-scoped. Opening does not attach this application.`,
       )],
     };
   }

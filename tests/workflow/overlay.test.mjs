@@ -17,7 +17,8 @@ import {
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
 } from "../../src/workflow/career-ui.ts";
-import { scanLibrary } from "../../src/workflow/scan.ts";
+import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
+import { encodeAssistedVariantMetadataV2, encodeManagedVariantsMarker } from "../../src/workflow/variant-metadata.ts";
 import { reconstructWorkflowState } from "../../src/workflow/session-state.ts";
 import {
   makeContext, makeFakePi, matchResult, normalizationResult, prepareConfigDirectory, resumeResult, uuidSequence,
@@ -413,6 +414,54 @@ test("P3-26/P3-27/P3-34 unattached browse and open retain authority and hide pri
   }
 });
 
+test("P3-46 session-only application renders Not persisted unlike persistent catalog without creating files", async () => {
+  const persistent = await catalogFixture("pi-career-ui-persistent-46-");
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-session-46-")));
+  try {
+    const persistentBefore = await treeBytes(persistent.temp);
+    const persistentDialog = makeContext(persistent.fake, { mode: "rpc", persisted: false });
+    const persistentTitles = [];
+    persistentDialog.ctx.ui.select = async (title, options) => {
+      persistentTitles.push([title, ...options]);
+      return persistentTitles.length === 1 ? "Synthetic Company — Synthetic Engineer — preparing" : CAREER_UI_RPC_ACTIONS.close;
+    };
+    await persistent.fake.commands.get("career").handler("", persistentDialog.ctx);
+    assert.match(JSON.stringify(persistentTitles), /Synthetic Company.*Synthetic Engineer.*Classification:/);
+    assert.doesNotMatch(JSON.stringify(persistentTitles), /Not persisted/);
+
+    const { fake, calls } = await register(temp);
+    const created = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.create, CAREER_UI_RPC_ACTIONS.close],
+      inputs: ["Session Company", "Session Engineer"], confirms: [true],
+    });
+    await fake.commands.get("career").handler("", created.ctx);
+    assert.equal(reconstructWorkflowState(fake.entries).application?.company_label, "Session Company");
+    const before = await treeBytes(temp);
+    const entries = structuredClone(fake.entries);
+    const sessionDialog = makeContext(fake, { mode: "rpc", persisted: false });
+    const sessionTitles = [];
+    sessionDialog.ctx.ui.select = async (title, options) => {
+      sessionTitles.push([title, ...options]);
+      return sessionTitles.length === 1
+        ? "Session Company — Session Engineer — preparing — Not persisted"
+        : CAREER_UI_RPC_ACTIONS.close;
+    };
+    await fake.commands.get("career").handler("", sessionDialog.ctx);
+    assert.match(JSON.stringify(sessionTitles), /Session Company.*Session Engineer.*Not persisted.*Session-scoped/);
+    assert.doesNotMatch(JSON.stringify(sessionTitles), /Classification:/);
+    assert.deepEqual(fake.entries, entries);
+    assert.deepEqual(await treeBytes(temp), before);
+    assert.deepEqual(await treeBytes(persistent.temp), persistentBefore);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(persistent.calls, []);
+    assert.deepEqual(sessionDialog.notifications, []);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+    await rm(persistent.temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC hierarchical dialogs browse, switch views, and open detail without attaching", async () => {
   const value = await catalogFixture("pi-career-ui-rpc-nav-");
   try {
@@ -779,6 +828,87 @@ test("RPC overlay can create an application, rescan, and remove a root without C
     assert.equal((await loadConfig(agentDir)).library_roots.length, 0);
     assert.equal(calls.length, 0);
     assert.equal(created.customCalls, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("assisted sidecar is excluded from unattached Analyze and Match selectors and Core input (P3-48 partial)", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-assisted-48-")));
+  try {
+    const library = path.join(temp, "library");
+    await mkdir(library);
+    const originalText = "# Synthetic Original 48\nExact original body\n";
+    const assistedText = "# SYNTHETIC_ASSISTED_48\nNever an original\n";
+    await writeFile(path.join(library, "original.md"), originalText);
+    await writeFile(path.join(library, "other.md"), "# Synthetic Other 48\nOther original body\n");
+    const { fake } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    await fake.commands.get("career-setup").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [library], confirms: [true],
+    }).ctx);
+    const config = await loadConfig(agentDir);
+    const original = eligibleOriginals(await scanLibrary(config))[0];
+    assert.ok(original);
+    const variants = path.join(library, "variants");
+    await mkdir(variants, { mode: 0o700 });
+    await writeFile(path.join(variants, ".pi-career-variants.json"),
+      encodeManagedVariantsMarker(original.root_id, "2026-08-12T00:00:00.000Z"), { mode: 0o600 });
+    await writeFile(path.join(variants, "assisted.md"), assistedText, { mode: 0o600 });
+    await writeFile(path.join(variants, "assisted.pi-career.json"), encodeAssistedVariantMetadataV2({
+      base_document_id: original.id,
+      base_text_sha256: original.text_sha256,
+      artifact_sha256: hash(Buffer.from(assistedText)),
+      created_at: "2026-08-12T00:00:00.000Z",
+    }), { mode: 0o600 });
+    const scan = await scanLibrary(config);
+    assert.equal(scan.records.filter((record) => record.kind === "assisted_variant").length, 1);
+    assert.equal(eligibleOriginals(scan).length, 2);
+    assert.ok(eligibleOriginals(scan).some((record) => record.id === original.id));
+    const before = await treeBytes(library);
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation);
+        if (invocation.operation === "analyze") return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+        if (invocation.operation === "normalize") return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+        return { operation: "job.match", json: JSON.stringify(matchResult()) };
+      },
+    });
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: ["Synthetic vacancy 48"],
+    }).ctx);
+    for (const [command, action] of [
+      ["career-analyze", CAREER_UI_RPC_ACTIONS.analyze],
+      ["career-match", CAREER_UI_RPC_ACTIONS.match],
+    ]) {
+      const context = makeContext(fake, { mode: "rpc", persisted: false, confirms: [true] });
+      const dialogs = [];
+      context.ctx.ui.select = async (title, options) => {
+        dialogs.push([title, ...options]);
+        if (title === "Choose an original resume") {
+          return options.find((option) => option.includes("original.md"));
+        }
+        return dialogs.length === 1 ? action : CAREER_UI_RPC_ACTIONS.close;
+      };
+      await fake.commands.get(command).handler("", context.ctx);
+      assert.ok(dialogs.some(([title, ...options]) =>
+        title === "Choose an original resume" && options.some((option) => option.includes("original.md"))));
+      assert.doesNotMatch(JSON.stringify(dialogs), /assisted\.md|SYNTHETIC_ASSISTED_48/);
+      assert.deepEqual(context.notifications.filter(({ type }) => type === "error"), []);
+    }
+    assert.ok(calls.some((call) => call.operation === "analyze"));
+    assert.ok(calls.some((call) => call.operation === "match"));
+    assert.ok(calls.every((call) => !JSON.stringify(call).includes("SYNTHETIC_ASSISTED_48")));
+    assert.ok(calls.every((call) => !JSON.stringify(call).includes("Other original body")));
+    assert.ok(calls.some((call) => JSON.stringify(call).includes("Exact original body")));
+    assert.deepEqual(await treeBytes(library), before);
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card").length, 2);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
