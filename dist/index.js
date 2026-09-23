@@ -59,6 +59,10 @@ function publicAdapterMessage(error) {
 function publicAdapterError(error) {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
+function payloadFreeAdapterError(error) {
+  const code = error.payload?.code;
+  return adapterError(typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code) ? code : "internal_error");
+}
 
 // src/managed/catalog.ts
 var MANAGED_OUTPUT_MAX_BYTES = 33554432;
@@ -9331,7 +9335,7 @@ function persisted2(ctx) {
   return ctx.sessionManager.getSessionFile() !== void 0;
 }
 function requireInteractive(ctx) {
-  if (!ctx.hasUI) throw workflowError("interactive_mode_required");
+  if (ctx.mode !== "tui" && ctx.mode !== "rpc" || !ctx.hasUI) throw workflowError("interactive_mode_required");
 }
 function parseStatusArgument(args) {
   const value = args.trim();
@@ -9828,7 +9832,7 @@ Application context is session-scoped; no workspace files were created.`,
     });
   };
   const refreshState = async (ctx) => {
-    const library = await loadLibrary(dependencies);
+    const library = await (options.loadLibrary ?? loadLibrary)(dependencies);
     const branch = ctx.sessionManager.getBranch();
     const attached = await attachedSources(ctx);
     const state = withCurrentStaleness(
@@ -9862,7 +9866,13 @@ Application context is session-scoped; no workspace files were created.`,
     try {
       await action();
     } catch (error) {
-      if (!ctx.hasUI) throw error;
+      if (!ctx.hasUI || ctx.mode !== "tui" && ctx.mode !== "rpc") {
+        if (error instanceof CareerWorkflowError) throw workflowError(error.code);
+        if (error instanceof CareerInvocationError) {
+          throw payloadFreeAdapterError(error);
+        }
+        throw workflowError("workflow_failed");
+      }
       if (error instanceof CareerWorkflowError) {
         const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
         ctx.ui.notify(workflowErrorMessage(error.code), type);
@@ -10027,6 +10037,7 @@ Application context is session-scoped; no workspace files were created.`,
   });
   pi.on("session_start", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
     try {
       const { config, scan } = await refreshState(ctx);
       if (ctx.hasUI && config.library_roots.length === 0) {
@@ -10042,6 +10053,11 @@ Application context is session-scoped; no workspace files were created.`,
   });
   pi.on("session_tree", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      renderedData.clear();
+      renderedTieStateIds.clear();
+      return;
+    }
     try {
       await refreshState(ctx);
     } catch {

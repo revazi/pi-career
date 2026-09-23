@@ -22,28 +22,60 @@ for (const mode of ["print", "json"]) {
     let invocations = 0;
     let appends = 0;
     let sends = 0;
+    let loads = 0;
     fake.api.appendEntry = () => { appends++; poison(); };
     registerCareerCommands(fake.api, {
       agentDir: `/synthetic/${marker}`,
+      loadLibrary: async () => { loads++; poison(); },
       invoke: async () => { invocations++; poison(); },
     });
     const ctx = {
-      mode, hasUI: false,
+      mode, hasUI: true, // Inconsistent host flags must not bypass the mode guard.
       get sessionManager() { return poison(); },
       get ui() { return poison(); },
       sendUserMessage() { sends++; poison(); },
     };
+    for (const event of ["session_start", "session_tree"]) {
+      for (const handler of fake.events.get(event)) await handler({}, ctx);
+    }
     await assert.rejects(fake.commands.get("career").handler("", ctx), (error) => {
       assert.equal(error.code, "interactive_mode_required");
       assert.doesNotMatch(String(error), /SYNTHETIC_PRIVATE|at .*\.ts/);
       return true;
     });
     assert.equal(invocations, 0);
+    assert.equal(loads, 0);
     assert.equal(appends, 0);
     assert.equal(sends, 0);
     assert.deepEqual(fake.entries, []);
   });
 }
+
+test("P3-37 non-UI public throws replace raw adapter messages and stacks", async () => {
+  const fake = makeFakePi();
+  registerCareerCommands(fake.api, { agentDir: "/synthetic/absent" });
+  const ctx = makeContext(fake, { mode: "rpc", persisted: false });
+  ctx.ctx.hasUI = false;
+  ctx.ctx.sessionManager.getBranch = () => { throw new Error(`${marker} /synthetic/private KEY=secret at stack`); };
+  await assert.rejects(fake.commands.get("career-vacancy").handler("clear", ctx.ctx), (error) => {
+    assert.equal(error.code, "workflow_failed");
+    assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
+    return true;
+  });
+  ctx.ctx.sessionManager.getBranch = () => { throw new CareerInvocationError({
+    schema_version: "career.pi_error.v1", code: "career_cli_error",
+    message: marker, career_error: { schema_version: "career.error.v1", code: marker,
+      message: `${marker} /synthetic/private KEY=secret at stack`, field_path: marker },
+  }); };
+  await assert.rejects(fake.commands.get("career-vacancy").handler("clear", ctx.ctx), (error) => {
+    assert.equal(error.payload.code, "career_cli_error");
+    assert.equal(error.payload.career_error, undefined);
+    assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
+    return true;
+  });
+  assert.deepEqual(fake.entries, []);
+  assert.deepEqual(ctx.notifications, []);
+});
 
 test("P3-37 scoped session loader and UI failures render fixed payload-free messages", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-errors-"));

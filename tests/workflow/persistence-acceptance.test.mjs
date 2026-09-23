@@ -73,7 +73,7 @@ const deferred = {
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
-  36: "Scoped print/JSON command traps cover session, UI, append, send and Core; config/root/document filesystem loaders lack a scoped pre-guard interception seam.",
+  36: "Print/JSON session_start and session_tree plus /career traps cover registration-scoped library loading, session getters, UI, append, send and Core. Direct filesystem reads, host lifecycle ordering, and all potential future read routes are not intercepted by an independent filesystem boundary.",
   37: "Scoped session/UI/forged-error sentinels and Core-invoke sentinels do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
   38: "Two concurrent creators need a deterministic no-clobber race test.",
   39: "Two concurrent revision plans need a deterministic no-fork race test.",

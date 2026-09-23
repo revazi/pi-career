@@ -101,3 +101,10 @@ export function publicAdapterMessage(error: CareerInvocationError): string {
 export function publicAdapterError(error: unknown): CareerInvocationError {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
+
+// For unstructured public throws, omit even validated Core details from the error object.
+export function payloadFreeAdapterError(error: CareerInvocationError): CareerInvocationError {
+  const code = error.payload?.code;
+  return adapterError(typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code)
+    ? code as AdapterErrorCode : "internal_error");
+}
