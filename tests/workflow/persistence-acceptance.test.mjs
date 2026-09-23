@@ -38,7 +38,7 @@ const behavioral = {
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
-  55: ["session-catalog-attach", "P3-29/P3-55 a used session opens another application only in a replacement session"],
+  55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
 };
 
 const deferred = {

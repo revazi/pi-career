@@ -10,12 +10,10 @@ import test from "node:test";
 import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_ASSISTANCE_HANDOFF } from "../../src/workflow/session-attachment.ts";
-import { createApplicationEntry } from "../../src/workflow/session-state.ts";
 import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
 
 const ROOT_ID = "00000000-0000-4000-8000-000000000099";
 const APPLICATION_ID = "00000000-0000-4000-8000-000000000077";
-const OTHER_APP_ID = "00000000-0000-4000-8000-000000000066";
 const ROOT_CREATED_AT = "2026-08-01T00:00:00.000Z";
 const APPLICATION_CREATED_AT = "2026-08-02T00:00:00.000Z";
 const WORKSPACE_CREATED_AT = "2026-08-03T00:00:00.000Z";
@@ -108,6 +106,10 @@ async function fixture() {
 
 async function runWorkspace(value, options = {}) {
   const context = makeContext(value.fake, { mode: "rpc", persisted: false, ...options });
+  if (options.submitted) {
+    context.ctx.sendMessage = options.submitted;
+    context.ctx.sendUserMessage = options.submitted;
+  }
   await value.workspace.run("", context.ctx);
   return context;
 }
@@ -142,18 +144,27 @@ test("P3-16/P3-28 a clean Pi session can attach a validated catalog application"
   }
 });
 
-test("P3-29/P3-55 a used session opens another application only in a replacement session", async () => {
+test("P3-55 an activated session opens a replacement with attachment only and no conversation", async () => {
   const value = await fixture();
   try {
-    const other = createApplicationEntry("Other Company", "Other Role", "preparing", {
-      uuid: uuidSequence(),
-      now: () => new Date(APPLICATION_CREATED_AT),
-    }, OTHER_APP_ID);
+    await runWorkspace(value, { selects: ["Attach application", OPTION], confirms: [true] });
+    await runWorkspace(value, {
+      selects: ["Activate Career assistance"], confirms: [true], reload: async () => {},
+    });
+    assert.deepEqual(value.fake.entries.map(({ customType }) => customType), [
+      "career.application_attachment", "career.application_assistance",
+    ]);
     value.fake.entries.push({
-      type: "custom", customType: "career.workflow", data: other,
-      id: "other-1", parentId: null, timestamp: APPLICATION_CREATED_AT,
+      type: "message", role: "user", content: "Synthetic conversation marker",
+      id: "conversation-1", parentId: value.fake.entries.at(-1).id,
+      timestamp: APPLICATION_CREATED_AT,
     });
     const beforeEntries = structuredClone(value.fake.entries);
+    const beforeRoot = await snapshot(value.root);
+    let submissions = 0;
+    const submitted = () => { submissions += 1; throw new Error("automatic message forbidden"); };
+    value.fake.api.sendMessage = submitted;
+    value.fake.api.sendUserMessage = submitted;
     const replacementEntries = [];
     const newSessions = [];
     await runWorkspace(value, {
@@ -161,12 +172,16 @@ test("P3-29/P3-55 a used session opens another application only in a replacement
       confirms: [true],
       replacementEntries,
       newSessions,
+      submitted,
     });
     assert.deepEqual(value.fake.entries, beforeEntries);
     assert.equal(replacementEntries.length, 1);
     assert.equal(replacementEntries[0].customType, "career.application_attachment");
     assert.equal(replacementEntries[0].data.application_id, APPLICATION_ID);
+    assert.equal(replacementEntries[0].data.kind, "application_attachment");
     assert.equal(newSessions.length, 1);
+    assert.equal(submissions, 0);
+    assert.deepEqual(await snapshot(value.root), beforeRoot);
     assert.doesNotMatch(JSON.stringify(replacementEntries), /applications|resume\.md/);
     const cancelledEntries = [];
     await runWorkspace(value, {
@@ -174,9 +189,12 @@ test("P3-29/P3-55 a used session opens another application only in a replacement
       confirms: [true],
       replacementEntries: cancelledEntries,
       newSessionCancelled: true,
+      submitted,
     });
     assert.deepEqual(cancelledEntries, []);
     assert.deepEqual(value.fake.entries, beforeEntries);
+    assert.equal(submissions, 0);
+    assert.deepEqual(await snapshot(value.root), beforeRoot);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
