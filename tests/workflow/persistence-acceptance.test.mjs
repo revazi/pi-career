@@ -29,6 +29,8 @@ const behavioral = {
   2: ["application-catalog", "catalog sorts valid and legacy applications and marks slug presentation non-authoritative"],
   3: ["application-catalog", "catalog classifies a mixed root exactly once per child without exposing invalid details"],
   4: ["persistence-acceptance-behavior", "P3-04 corrupt manifest identity and chain are never exposed as valid"],
+  8: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
+  9: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   10: ["application-state-v2-reader", "P3-04/P3-10: complete-chain validation rejects downgrade, gap, mismatch, fork, and future schema"],
   17: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   18: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
@@ -43,7 +45,7 @@ const behavioral = {
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
-  45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
+  45: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
@@ -51,7 +53,6 @@ const behavioral = {
 };
 
 const deferred = {
-  8: "Catalog acceptance of an all-v1 chain preserves bytes but does not return the legacy state to a caller.",
   22: "Pure readiness verifies an eligible scan record but does not block binding an assisted variant in a workflow action.",
   29: "Opening another application in a replacement session does not test rejection of attach on a used session or its fresh-session offer.",
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
@@ -63,7 +64,6 @@ const deferred = {
   56: "Pointer validation failures alone do not establish that invalid transitions append and mutate nothing.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
-  9: "Reading a v1-to-v2 chain does not test an approved append transition.",
   11: "Opening a legacy application through the overlay needs a no-write integration test.",
   12: "Migration preview cancellation and changed-byte race need a workflow test.",
   13: "Migration confirmation needs a no-clobber identity and byte-preservation test.",

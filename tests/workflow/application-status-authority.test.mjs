@@ -2,12 +2,13 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
+import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { createApplicationAttachmentEntry } from "../../src/workflow/session-attachment.ts";
 import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
@@ -29,18 +30,33 @@ async function snapshot(directory) {
   const result = {};
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
-    result[entry.name] = entry.isDirectory() ? await snapshot(target) : (await readFile(target)).toString("hex");
+    const metadata = await stat(target);
+    result[entry.name] = entry.isDirectory()
+      ? { type: "directory", mode: metadata.mode & 0o777, entries: await snapshot(target) }
+      : { type: "file", mode: metadata.mode & 0o777, bytes: (await readFile(target)).toString("hex") };
   }
   return result;
+}
+
+function assertPrivateTree(tree) {
+  for (const entry of Object.values(tree)) {
+    assert.equal(entry.mode, entry.type === "directory" ? 0o700 : 0o600);
+    if (entry.type === "directory") assertPrivateTree(entry.entries);
+  }
 }
 
 async function fixture() {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-status-authority-")));
   const agentDir = path.join(temp, "agent");
   const root = path.join(temp, "applications");
+  const library = path.join(temp, "library");
   await prepareConfigDirectory(agentDir);
   await mkdir(root, { mode: 0o700 });
   await chmod(root, 0o700);
+  await mkdir(library, { mode: 0o700 });
+  await chmod(library, 0o700);
+  await writeFile(path.join(library, "synthetic-resume.md"), "# Synthetic Resume\n", { mode: 0o600 });
+  await chmod(path.join(library, "synthetic-resume.md"), 0o600);
   await privateJson(path.join(agentDir, "career", "config.v1.json"), {
     schema_version: "pi.career.config.v2",
     library_roots: [],
@@ -74,8 +90,8 @@ async function fixture() {
     role_label: "Synthetic Engineer",
     created_at: APPLICATION_CREATED_AT,
   });
-  await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v2",
+  const state1 = canonical({
+    schema_version: "pi.career.application_state.v1",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -84,9 +100,24 @@ async function fixture() {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
-    cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   });
+  const state2 = canonical({
+    schema_version: "pi.career.application_state.v1",
+    kind: "application_state_revision",
+    application_id: APPLICATION_ID,
+    sequence: 2,
+    parent_sha256: hash(state1),
+    status: "interviewing",
+    vacancy: null,
+    selected_original: null,
+    resume_artifact: null,
+    updated_at: "2026-08-04T00:00:00.000Z",
+  });
+  await writeFile(path.join(directory, ".pi-career-state-000001.json"), state1, { mode: 0o600 });
+  await chmod(path.join(directory, ".pi-career-state-000001.json"), 0o600);
+  await writeFile(path.join(directory, ".pi-career-state-000002.json"), state2, { mode: 0o600 });
+  await chmod(path.join(directory, ".pi-career-state-000002.json"), 0o600);
   const fake = makeFakePi();
   const attachment = createApplicationAttachmentEntry({
     applicationId: APPLICATION_ID,
@@ -102,34 +133,51 @@ async function fixture() {
   let tick = 10;
   const now = () => new Date(`2026-08-12T00:00:${String(tick++).padStart(2, "0")}.000Z`);
   const ids = uuidSequence();
-  registerCareerCommands(fake.api, {
-    agentDir, now, uuid: ids,
-    invoke: async () => { throw new Error("application status must not invoke Career Core"); },
-  });
+  let invocations = 0;
+  const invoke = async () => {
+    invocations += 1;
+    throw new Error("application status must not invoke Career Core");
+  };
+  registerCareerCommands(fake.api, { agentDir, now, uuid: ids, invoke });
   const workspace = new ApplicationWorkspaceWorkflow({
     agentDir, now, uuid: ids,
     appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
   });
-  return { temp, root, directory, fake, workspace };
+  return {
+    temp, root, directory, fake, workspace, manifest, state1, state2,
+    get invocations() { return invocations; },
+  };
 }
 
-test("P3-45 attached application status is workspace-only and cancelled updates change neither authority", async () => {
+test("P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition", async () => {
   const value = await fixture();
   try {
-    const beforeRoot = await snapshot(value.root);
+    const before = await snapshot(value.temp);
+    assertPrivateTree(before);
+    const legacyKeys = [
+      "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
+      "vacancy", "selected_original", "resume_artifact", "updated_at",
+    ];
+    const legacy1 = JSON.parse(value.state1);
+    const legacy2 = JSON.parse(value.state2);
+    assert.deepEqual(Object.keys(legacy1), legacyKeys);
+    assert.deepEqual(Object.keys(legacy2), legacyKeys);
+    assert.equal(legacy1.parent_sha256, hash(value.manifest));
+    assert.equal(legacy2.parent_sha256, hash(value.state1));
     const beforeEntries = structuredClone(value.fake.entries);
     const status = makeContext(value.fake, { mode: "rpc", persisted: false });
     await value.fake.commands.get("career-application").handler("status", status.ctx);
-    assert.ok(status.notifications.some(({ message }) => message.includes("preparing")));
-    assert.doesNotMatch(JSON.stringify(status.notifications), /applications|resume\.md/);
+    assert.ok(status.notifications.some(({ message }) => message === "Synthetic Company — Synthetic Engineer — interviewing"));
+    assert.doesNotMatch(JSON.stringify(status.notifications), /applications|synthetic-resume\.md/);
+    assert.deepEqual(await snapshot(value.temp), before);
     assert.deepEqual(value.fake.entries, beforeEntries);
+    assert.equal(value.invocations, 0);
 
     const cancelledPreview = makeContext(value.fake, {
       mode: "rpc", persisted: false, editors: [undefined],
     });
     assert.equal(await value.workspace.writeAttachedStatus(cancelledPreview.ctx, "applied"), "cancelled");
-    assert.deepEqual(value.fake.entries, beforeEntries);
-    assert.deepEqual(await snapshot(value.root), beforeRoot);
+    assert.deepEqual(await snapshot(value.temp), before);
 
     const cancelledConfirm = makeContext(value.fake, {
       mode: "rpc", persisted: false,
@@ -137,25 +185,62 @@ test("P3-45 attached application status is workspace-only and cancelled updates 
       confirms: [false],
     });
     assert.equal(await value.workspace.writeAttachedStatus(cancelledConfirm.ctx, "applied"), "cancelled");
-    assert.deepEqual(value.fake.entries, beforeEntries);
-    assert.deepEqual(await snapshot(value.root), beforeRoot);
+    assert.deepEqual(await snapshot(value.temp), before);
 
     const saved = makeContext(value.fake, {
       mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.updateStatus, "Applied", CAREER_UI_RPC_ACTIONS.close],
       editors: [(_title, preview) => preview],
       confirms: [true],
     });
-    assert.equal(await value.workspace.writeAttachedStatus(saved.ctx, "applied"), "written");
-    assert.equal(value.fake.entries.some((entry) => entry.data?.kind === "application"), false);
-    assert.deepEqual(
-      value.fake.entries.map((entry) => entry.customType),
-      beforeEntries.map((entry) => entry.customType),
-    );
-    const after = await snapshot(value.directory);
-    assert.notEqual(after[".pi-career-state-000002.json"], undefined);
-    assert.equal(after["application.json"], beforeRoot[path.basename(value.directory)]["application.json"]);
-    assert.match(Buffer.from(after[".pi-career-state-000002.json"], "hex").toString("utf8"), /"status": "applied"/);
-    assert.match(Buffer.from(after[".pi-career-state-000002.json"], "hex").toString("utf8"), /"schema_version": "pi.career.application_state.v2"/);
+    await value.fake.commands.get("career").handler("", saved.ctx);
+
+    const transition = canonical({
+      schema_version: "pi.career.application_state.v2",
+      kind: "application_state_revision",
+      application_id: APPLICATION_ID,
+      sequence: 3,
+      parent_sha256: hash(value.state2),
+      status: "interviewing",
+      vacancy: null,
+      selected_original: null,
+      resume_artifact: null,
+      cover_letter_artifact: null,
+      updated_at: "2026-08-04T00:00:00.001Z",
+    });
+    const mutation = canonical({
+      schema_version: "pi.career.application_state.v2",
+      kind: "application_state_revision",
+      application_id: APPLICATION_ID,
+      sequence: 4,
+      parent_sha256: hash(transition),
+      status: "applied",
+      vacancy: null,
+      selected_original: null,
+      resume_artifact: null,
+      cover_letter_artifact: null,
+      updated_at: "2026-08-12T00:00:12.000Z",
+    });
+    assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000003.json")), transition);
+    assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000004.json")), mutation);
+    assert.deepEqual(Object.keys(JSON.parse(transition)), [
+      "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
+      "vacancy", "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
+    ]);
+
+    const after = await snapshot(value.temp);
+    assertPrivateTree(after);
+    const applicationName = path.basename(value.directory);
+    const expected = structuredClone(before);
+    expected.applications.entries[applicationName].entries[".pi-career-state-000003.json"] = {
+      type: "file", mode: 0o600, bytes: transition.toString("hex"),
+    };
+    expected.applications.entries[applicationName].entries[".pi-career-state-000004.json"] = {
+      type: "file", mode: 0o600, bytes: mutation.toString("hex"),
+    };
+    assert.deepEqual(after, expected);
+    assert.deepEqual(value.fake.entries, beforeEntries);
+    assert.equal(value.invocations, 0);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
