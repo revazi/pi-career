@@ -493,6 +493,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         let result: CoreResult;
         try {
           result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            if (attached !== undefined) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id ||
+                fresh.selected_original?.text_sha256 !== resume.text_sha256 ||
+                fresh.selected_original?.id !== resume.id) throw workflowError("workspace_drift");
+            }
             const invocation = await dependencies.invoke(
               { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
               signal,
@@ -550,7 +557,19 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         await ensureConsent(ctx, run);
         const queue = await runOperation(
           ctx, owner, run, "Running deterministic career match queue…",
-          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal),
+          async (signal) => {
+            if (attached !== undefined) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id ||
+                fresh.effective_resume?.text_sha256 !== selected[0]?.text_sha256 ||
+                fresh.effective_resume?.id !== selected[0]?.id ||
+                fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) {
+                throw workflowError("workspace_drift");
+              }
+            }
+            return executeMatchQueue(dependencies, selected, vacancy, signal);
+          },
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;

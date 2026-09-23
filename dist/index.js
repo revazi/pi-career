@@ -4514,8 +4514,9 @@ async function listCatalogApplications(agentDir) {
     return [];
   }
 }
-async function readApplicationCatalog(rootPath, expectedRootId) {
+async function readApplicationCatalog(rootPath, expectedRootId, betweenSnapshots) {
   const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  await betweenSnapshots?.();
   let current;
   try {
     current = await deriveApplicationCatalog(rootPath, expectedRootId);
@@ -9449,6 +9450,11 @@ Application context is session-scoped; no workspace files were created.`,
         let result;
         try {
           result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            if (attached !== void 0) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id || fresh.selected_original?.text_sha256 !== resume.text_sha256 || fresh.selected_original?.id !== resume.id) throw workflowError("workspace_drift");
+            }
             const invocation = await dependencies.invoke(
               { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
               signal
@@ -9512,7 +9518,16 @@ Application context is session-scoped; no workspace files were created.`,
           owner,
           run,
           "Running deterministic career match queue…",
-          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal)
+          async (signal) => {
+            if (attached !== void 0) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id || fresh.effective_resume?.text_sha256 !== selected[0]?.text_sha256 || fresh.effective_resume?.id !== selected[0]?.id || fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) {
+                throw workflowError("workspace_drift");
+              }
+            }
+            return executeMatchQueue(dependencies, selected, vacancy, signal);
+          }
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;

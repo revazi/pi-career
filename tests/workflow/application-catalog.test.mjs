@@ -5,7 +5,6 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { readApplicationCatalog } from "../../src/workflow/application-workspace.ts";
 
@@ -212,16 +211,10 @@ test("catalog rejects an untrusted or locked root without a partial projection",
 
 test("catalog rejects root entry-set drift observed between bounded snapshots", async (t) => {
   const root = await fixture(t);
-  for (let number = 100; number < 500; number++) {
-    const directory = path.join(root, `race--role--${uuid(number)}`);
-    await mkdir(directory, { mode: 0o700 });
-    await chmod(directory, 0o700);
-  }
-  await readdir(root);
-  const pending = readApplicationCatalog(root, rootId);
-  await delay(10);
-  await writeFile(path.join(root, "Synthetic-late-private-entry"), "Synthetic late bytes");
-  await assert.rejects(pending, privateFailure("workspace_drift"));
+  await application(root, 1);
+  await assert.rejects(readApplicationCatalog(root, rootId, async () => {
+    await writeFile(path.join(root, "Synthetic-late-private-entry"), "Synthetic late bytes");
+  }), privateFailure("workspace_drift"));
 });
 
 test("catalog uses the latest head but classifies changed referenced bytes as drifted", async (t) => {

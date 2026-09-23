@@ -600,6 +600,42 @@ test("RPC overlay binds an attached selected original without calling Core", asy
   }
 });
 
+test("RPC attached analyze refuses a changed original before Core stdin", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-drift-");
+  try {
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+    const config = await loadConfig(value.agentDir);
+    const original = (await scanLibrary(config)).records[0];
+    const bound = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, selectedOriginalOptions([original])[0].option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await value.fake.commands.get("career-analyze").handler("", bound.ctx);
+    const request = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close],
+    });
+    let confirmed = false;
+    request.ctx.ui.confirm = async () => {
+      confirmed = true;
+      await writeFile(path.join(value.library, "alpha.md"), "# Synthetic changed Alpha\n");
+      return true;
+    };
+    await value.fake.commands.get("career-analyze").handler("", request.ctx);
+    assert.equal(confirmed, true);
+    assert.equal(value.calls.length, 0);
+    assert.equal(value.fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC overlay can create an application, rescan, and remove a root without Core", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-actions-")));
   try {

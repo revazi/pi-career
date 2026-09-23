@@ -1465,8 +1465,14 @@ export async function listCatalogApplications(agentDir: string): Promise<Array<{
   }
 }
 
-export async function readApplicationCatalog(rootPath: string, expectedRootId: string): Promise<ApplicationCatalogProjection> {
+export async function readApplicationCatalog(
+  rootPath: string,
+  expectedRootId: string,
+  // Test seam for deterministic inter-snapshot drift; normal callers do not supply it.
+  betweenSnapshots?: () => Promise<void>,
+): Promise<ApplicationCatalogProjection> {
   const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  await betweenSnapshots?.();
   let current: CatalogEvidence;
   try {
     current = await deriveApplicationCatalog(rootPath, expectedRootId);
