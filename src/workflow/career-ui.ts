@@ -170,25 +170,30 @@ async function freshAttachedPreview(agentDir: string, ctx: ExtensionCommandConte
   return freshResumeText(record, reference);
 }
 
+function samePreviewRecord(record: ResumeRecord, reference: PreviewReference): boolean {
+  return record.id === reference.id && record.root_id === reference.rootId &&
+    record.format === reference.format && record.text_sha256 === reference.digest;
+}
+
 function freshResumeText(record: ResumeRecord | undefined, reference: PreviewReference): string | undefined {
-  if (record === undefined || record.id !== reference.id || record.root_id !== reference.rootId ||
-    record.format !== reference.format || record.text_sha256 !== reference.digest ||
-    record.too_large_for_core_input === true) return undefined;
-  if (reference.source === "original" && record.kind !== "original") return undefined;
+  if (record === undefined || record.too_large_for_core_input === true || !samePreviewRecord(record, reference)) return undefined;
+  if (reference.source === "original") return record.kind === "original" ? record.text : undefined;
   if (reference.source === "effective" && record.kind !== "original" && record.kind !== "assisted_variant") return undefined;
   return record.text;
+}
+
+async function freshPreviewForView(agentDir: string, ctx: ExtensionCommandContext, view: CareerUiView, reference: PreviewReference): Promise<string | undefined> {
+  if (view === "library" && reference.source === "library") return freshLibraryPreview(agentDir, reference);
+  const attachedView = (view === "vacancy" && reference.source === "vacancy") ||
+    (view === "analyze" && reference.source === "original") ||
+    (view === "match" && reference.source === "effective");
+  return attachedView ? freshAttachedPreview(agentDir, ctx, reference) : undefined;
 }
 
 export function careerPreviewLoader(agentDir: string, ctx: ExtensionCommandContext) {
   return async (view: CareerUiView, reference: PreviewReference): Promise<string | undefined> => {
     try {
-      if (view === "library" && reference.source === "library")
-        return eligiblePreview(await freshLibraryPreview(agentDir, reference));
-      if ((view === "vacancy" && reference.source === "vacancy") ||
-        (view === "analyze" && reference.source === "original") ||
-        (view === "match" && reference.source === "effective"))
-        return eligiblePreview(await freshAttachedPreview(agentDir, ctx, reference));
-      return undefined;
+      return eligiblePreview(await freshPreviewForView(agentDir, ctx, view, reference));
     } catch {
       return undefined;
     }
@@ -735,12 +740,15 @@ async function rpcListStep(ctx: ExtensionCommandContext, session: CareerUiSessio
   return true;
 }
 
+function rpcDetailTitle(session: CareerUiSession): string {
+  const preview = session.preview;
+  if (preview !== undefined) return `Local document preview (exact text; close with Back)\n${preview}`;
+  return `${session.selected?.detail ?? session.pane.intro}${session.previewError === undefined ? "" : `\n${session.previewError}`}`;
+}
+
 async function rpcDetailStep(ctx: ExtensionCommandContext, session: CareerUiSession): Promise<boolean> {
   const preview = session.preview;
-  const selected = session.selected;
-  const choice = await ctx.ui.select(preview === undefined
-    ? `${selected?.detail ?? session.pane.intro}${session.previewError === undefined ? "" : `\n${session.previewError}`}`
-    : `Local document preview (exact text; close with Back)\n${preview}`, [
+  const choice = await ctx.ui.select(rpcDetailTitle(session), [
     CAREER_UI_RPC_ACTIONS.back,
     ...(preview === undefined ? session.rpcActions() : []),
     CAREER_UI_RPC_ACTIONS.switchView,
@@ -886,16 +894,39 @@ export class CareerOverlay implements Component {
     return entries.find(([name, enabled]) => name === key && enabled)?.[2]();
   }
 
+  private handleCancel(): void {
+    if (this.session.showingDetail && !this.session.busy) {
+      this.session.back();
+      this.previewPage = 0;
+      this.requestRender();
+      return;
+    }
+    this.session.cancelPreview();
+    this.close();
+  }
+
+  private listMovement(data: string): number | undefined {
+    if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) return -1;
+    if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) return 1;
+    return undefined;
+  }
+
+  private handleListInput(data: string): void {
+    if (this.session.showingDetail) return;
+    const delta = this.listMovement(data);
+    if (delta !== undefined) {
+      this.session.move(delta);
+      this.requestRender();
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.return) || matchesKey(data, Key.enter)) {
+      if (this.session.open()) this.requestRender();
+    }
+  }
+
   handleInput(data: string): void {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape)) {
-      if (this.session.showingDetail && !this.session.busy) {
-        this.session.back();
-        this.previewPage = 0;
-        this.requestRender();
-        return;
-      }
-      this.session.cancelPreview();
-      this.close();
+      this.handleCancel();
       return;
     }
     if (this.session.busy) return;
@@ -916,43 +947,31 @@ export class CareerOverlay implements Component {
       void keyed.finally(() => this.requestRender());
       return;
     }
-    if (this.session.showingDetail) return;
-    if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) {
-      this.session.move(-1);
-      this.requestRender();
-      return;
-    }
-    if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) {
-      this.session.move(1);
-      this.requestRender();
-      return;
-    }
-    if (this.keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.return) || matchesKey(data, Key.enter)) {
-      if (this.session.open()) this.requestRender();
-    }
+    this.handleListInput(data);
   }
 
   private footerHints(): string[] {
-    return [
-      ...(this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"]),
-      ...(this.session.canPreview ? ["v preview locally"] : []),
-      ...(this.session.preview !== undefined ? ["↑↓ preview pages · soft-wrapped"] : []),
-      ...(this.session.preview !== undefined ? [] : this.session.canAttach ? ["a attach"] : []),
-      ...(this.session.canCreate ? ["c create"] : []),
-      ...(this.session.canAddRoot ? ["n add root"] : []),
-      ...(this.session.canRemoveRoot ? ["x remove"] : []),
-      ...(this.session.canRescan ? ["r rescan"] : []),
-      ...(this.session.canAnalyze ? ["g analyze"] : []),
-      ...(this.session.canMatch ? ["g match"] : []),
-      ...(this.session.canEditVacancy ? ["e edit"] : []),
-      ...(this.session.canUpdateStatus ? ["s status"] : []),
-      ...(this.session.canWorkspace ? ["m workspace"] : []),
-      ...(this.session.canAskPi ? ["p ask Pi"] : []),
-      ...(this.session.canDetach ? ["d detach"] : []),
-      ...(this.session.canClearVacancy ? ["k clear"] : []),
-      ...(this.session.canSelectOriginal ? ["o original"] : []),
-      "1-8 view",
+    const hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
+    if (this.session.canPreview) hints.push("v preview locally");
+    if (this.session.preview !== undefined) hints.push("↑↓ preview pages · soft-wrapped");
+    const actions: Array<[boolean, string]> = [
+      [this.session.preview === undefined && this.session.canAttach, "a attach"],
+      [this.session.canCreate, "c create"],
+      [this.session.canAddRoot, "n add root"],
+      [this.session.canRemoveRoot, "x remove"],
+      [this.session.canRescan, "r rescan"],
+      [this.session.canAnalyze, "g analyze"],
+      [this.session.canMatch, "g match"],
+      [this.session.canEditVacancy, "e edit"],
+      [this.session.canUpdateStatus, "s status"],
+      [this.session.canWorkspace, "m workspace"],
+      [this.session.canAskPi, "p ask Pi"],
+      [this.session.canDetach, "d detach"],
+      [this.session.canClearVacancy, "k clear"],
+      [this.session.canSelectOriginal, "o original"],
     ];
+    hints.push(...actions.filter(([enabled]) => enabled).map(([, label]) => label), "1-8 view");
+    return hints;
   }
 
   render(width: number): string[] {
