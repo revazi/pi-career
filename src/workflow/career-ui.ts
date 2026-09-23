@@ -11,8 +11,8 @@ import {
 import { loadConfig } from "./config.ts";
 import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
-import type { ApplicationAttachmentPointer } from "./session-attachment.ts";
-import { reconstructWorkflowState } from "./session-state.ts";
+import { replayApplicationSessionRecords, type ApplicationAttachmentPointer } from "./session-attachment.ts";
+import { reconstructWorkflowState, workspaceApplicationIdentity } from "./session-state.ts";
 
 export const CAREER_UI_VIEWS = [
   "setup",
@@ -256,16 +256,29 @@ export async function buildCareerUiModel(
     empty.analyze = unavailablePane();
   }
 
-  const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
-  if (empty.applications.items.length === 0 && state.application !== undefined) {
-    empty.applications = {
-      intro: "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.",
-      items: [item(
-        state.application.application_id,
-        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status}`,
-        `${state.application.company_label} — ${state.application.role_label}\nStatus: ${state.application.status}\nSession-scoped. Opening does not attach this application.`,
-      )],
-    };
+  const branch = ctx.sessionManager.getBranch();
+  const state = reconstructWorkflowState(branch);
+  // A session row is presentation only: never infer a workspace pointer from its labels.
+  // Reject conflicted/legacy identity and attachment replay rather than inventing authority.
+  let sessionIdentity: ReturnType<typeof workspaceApplicationIdentity>;
+  try {
+    sessionIdentity = workspaceApplicationIdentity(branch);
+  } catch {
+    // Invalid session identity cannot be presented as a valid application.
+  }
+  const records = replayApplicationSessionRecords(branch, ctx.sessionManager.getEntries());
+  if (sessionIdentity !== undefined && records.integrity === "valid" && records.attachment === undefined &&
+    !empty.applications.items.some((entry) => entry.id === sessionIdentity.identity.application_id)) {
+    const application = sessionIdentity.current;
+    const sessionRow = item(
+      application.application_id,
+      `Current session · Not persisted — ${application.company_label} — ${application.role_label} — ${application.status}`,
+      `${application.company_label} — ${application.role_label}\nStatus: ${application.status}\nCurrent session · Not persisted. Opening does not attach this application.`,
+    );
+    if (empty.applications.items.length === 0) {
+      empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.";
+    }
+    empty.applications.items = [sessionRow, ...empty.applications.items];
   }
   const analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5);
   const matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);

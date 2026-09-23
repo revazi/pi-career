@@ -40,6 +40,7 @@ const behavioral = {
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
+  46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
 };
@@ -80,7 +81,6 @@ const deferred = {
   42: "Crash-left lock needs an attempted mutation with no polling/removal assertion.",
   43: "Catalog drift detection alone does not test a mutation against edited referenced bytes.",
   44: "Read-time state/cover bounds alone do not cover each plan/commit bound or preview race.",
-  46: "Session-only detail and a persistent record are rendered in separate RPC sessions; a nonempty catalog suppresses the session-only row, so one Applications view cannot distinguish Not persisted beside persistent records.",
   47: "Read-time v1 byte preservation is not a migration commit test.",
   48: "Analyze/Match selection and Core input exclude a sidecar-classified artifact, but no application state binds that artifact to the selected original.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",

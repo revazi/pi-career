@@ -16,6 +16,7 @@ import {
   CAREER_UI_RPC_ACTIONS,
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
+  buildCareerUiModel,
 } from "../../src/workflow/career-ui.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import { encodeAssistedVariantMetadataV2, encodeManagedVariantsMarker } from "../../src/workflow/variant-metadata.ts";
@@ -414,51 +415,136 @@ test("P3-26/P3-27/P3-34 unattached browse and open retain authority and hide pri
   }
 });
 
-test("session-only RPC detail is session-scoped and navigation preserves files and entries (P3-46 partial)", async () => {
-  const persistent = await catalogFixture("pi-career-ui-persistent-46-");
-  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-session-46-")));
+test("P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority", async () => {
+  const value = await catalogFixture("pi-career-ui-combined-46-");
+  const session = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-session-46-")));
   try {
-    const persistentBefore = await treeBytes(persistent.temp);
-    const persistentDialog = makeContext(persistent.fake, { mode: "rpc", persisted: false });
-    const persistentTitles = [];
-    persistentDialog.ctx.ui.select = async (title, options) => {
-      persistentTitles.push([title, ...options]);
-      return persistentTitles.length === 1 ? "Synthetic Company — Synthetic Engineer — preparing" : CAREER_UI_RPC_ACTIONS.close;
-    };
-    await persistent.fake.commands.get("career").handler("", persistentDialog.ctx);
-    assert.match(JSON.stringify(persistentTitles), /Synthetic Company.*Synthetic Engineer.*Classification:/);
-    assert.doesNotMatch(JSON.stringify(persistentTitles), /Not persisted/);
-
-    const { fake, calls } = await register(temp);
-    const created = makeContext(fake, {
+    const source = await register(session);
+    const created = makeContext(source.fake, {
       mode: "rpc", persisted: false,
       selects: [CAREER_UI_RPC_ACTIONS.create, CAREER_UI_RPC_ACTIONS.close],
       inputs: ["Session Company", "Session Engineer"], confirms: [true],
     });
-    await fake.commands.get("career").handler("", created.ctx);
-    assert.equal(reconstructWorkflowState(fake.entries).application?.company_label, "Session Company");
-    const before = await treeBytes(temp);
-    const entries = structuredClone(fake.entries);
-    const sessionDialog = makeContext(fake, { mode: "rpc", persisted: false });
-    const sessionTitles = [];
-    sessionDialog.ctx.ui.select = async (title, options) => {
-      sessionTitles.push([title, ...options]);
-      return sessionTitles.length === 1
-        ? "Session Company — Session Engineer — preparing"
-        : CAREER_UI_RPC_ACTIONS.close;
+    await source.fake.commands.get("career").handler("", created.ctx);
+    value.fake.entries.push(...structuredClone(source.fake.entries));
+    const before = await treeBytes(value.temp);
+    const sends = [];
+    value.fake.api.sendUserMessage = (...args) => sends.push(args);
+    const entries = structuredClone(value.fake.entries);
+    const authority = reconstructWorkflowState(value.fake.entries).application;
+    const sessionLabel = "Current session · Not persisted — Session Company — Session Engineer — preparing";
+    const persistentLabel = "Synthetic Company — Synthetic Engineer — preparing";
+    const dialogs = [];
+    const rpc = makeContext(value.fake, { mode: "rpc", persisted: false });
+    rpc.ctx.sendUserMessage = (...args) => sends.push(args);
+    rpc.ctx.sendMessage = (...args) => sends.push(args);
+    rpc.ctx.ui.select = async (title, options) => {
+      dialogs.push([title, ...options]);
+      return [sessionLabel, CAREER_UI_RPC_ACTIONS.back, persistentLabel,
+        CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.switchView,
+        CAREER_UI_VIEW_LABELS.library, CAREER_UI_RPC_ACTIONS.rescan,
+        CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_VIEW_LABELS.applications,
+        sessionLabel, CAREER_UI_RPC_ACTIONS.close][dialogs.length - 1];
     };
-    await fake.commands.get("career").handler("", sessionDialog.ctx);
-    assert.match(JSON.stringify(sessionTitles), /Session Company.*Session Engineer.*Session-scoped/);
-    assert.doesNotMatch(JSON.stringify(sessionTitles), /Classification:/);
-    assert.deepEqual(fake.entries, entries);
-    assert.deepEqual(await treeBytes(temp), before);
-    assert.deepEqual(await treeBytes(persistent.temp), persistentBefore);
-    assert.deepEqual(calls, []);
-    assert.deepEqual(persistent.calls, []);
-    assert.deepEqual(sessionDialog.notifications, []);
+    await value.fake.commands.get("career").handler("", rpc.ctx);
+    const rendered = JSON.stringify(dialogs);
+    assert.match(rendered, /Current session · Not persisted.*Session Company/);
+    assert.match(rendered, /Synthetic Company.*Synthetic Engineer.*Classification:/);
+    assert.match(rendered, /Session Company.*Session Engineer.*Opening does not attach/);
+    const applicationDialogs = dialogs.filter(([title]) => title.startsWith("Career • Applications"));
+    assert.ok(applicationDialogs.length >= 2);
+    assert.deepEqual(applicationDialogs[0].slice(1, 3), applicationDialogs.at(-1).slice(1, 3));
+    assert.doesNotMatch(rendered, /applications[/\\]|alpha\.md|# Synthetic Alpha|\/synthetic\/session/);
+
+    const components = [];
+    const tui = makeContext(value.fake, {
+      mode: "tui", persisted: false, components,
+      keybindings: { matches(data, action) {
+        return (data === "esc" && action === "tui.select.cancel") ||
+          (data === "enter" && action === "tui.select.confirm") ||
+          (data === "down" && action === "tui.select.down");
+      } },
+    });
+    tui.ctx.sendUserMessage = (...args) => sends.push(args);
+    tui.ctx.sendMessage = (...args) => sends.push(args);
+    const pending = value.fake.commands.get("career").handler("", tui.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(components.length, 1);
+    const overlay = components[0];
+    assert.equal(overlay.currentItem.label, sessionLabel);
+    assert.match(overlay.render(100).join("\n"), /Not persisted/);
+    assert.doesNotMatch(overlay.render(100).join("\n"), /applications[/\\]|alpha\.md|# Synthetic Alpha|\/synthetic\/session/);
+    overlay.handleInput("enter");
+    assert.match(overlay.render(100).join("\n"), /Opening does not attach/);
+    overlay.handleInput("esc");
+    overlay.handleInput("down");
+    assert.equal(overlay.currentItem.label, persistentLabel);
+    overlay.handleInput("esc");
+    await pending;
+    assert.deepEqual(reconstructWorkflowState(value.fake.entries).application, authority);
+    assert.deepEqual(value.fake.entries, entries);
+    assert.deepEqual(await treeBytes(value.temp), before);
+    assert.deepEqual(value.calls, []);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(source.calls, []);
+    assert.equal(rpc.customCalls, 0);
+    assert.deepEqual(rpc.notifications, []);
+    assert.deepEqual(tui.notifications, []);
   } finally {
-    await rm(temp, { recursive: true, force: true });
-    await rm(persistent.temp, { recursive: true, force: true });
+    await rm(value.temp, { recursive: true, force: true });
+    await rm(session, { recursive: true, force: true });
+  }
+});
+
+test("session overlay deduplicates persistent UUID and rejects conflicted or attached session identity", async () => {
+  const value = await catalogFixture("pi-career-ui-identity-46-");
+  const session = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ui-identity-source-")));
+  try {
+    const source = await register(session);
+    const created = makeContext(source.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.create, CAREER_UI_RPC_ACTIONS.close],
+      inputs: ["Session Company", "Session Engineer"], confirms: [true],
+    });
+    await source.fake.commands.get("career").handler("", created.ctx);
+    const original = structuredClone(source.fake.entries);
+    const ctx = makeContext(value.fake, { mode: "rpc", persisted: false }).ctx;
+    const before = await treeBytes(value.temp);
+    value.fake.entries.push(...structuredClone(original));
+    let model = await buildCareerUiModel(value.agentDir, ctx);
+    assert.equal(model.applications.items.length, 2);
+    assert.equal(model.applications.items[0].pointer, undefined);
+    assert.ok(model.applications.items[1].pointer);
+    value.fake.entries[0].data.application_id = "00000000-0000-4000-8000-000000000077";
+    model = await buildCareerUiModel(value.agentDir, ctx);
+    assert.equal(model.applications.items.length, 1);
+    assert.doesNotMatch(model.applications.items[0].label, /Not persisted/);
+    value.fake.entries.splice(0, value.fake.entries.length, ...structuredClone(original));
+    value.fake.entries[0].data.created_at = "invalid";
+    model = await buildCareerUiModel(value.agentDir, ctx);
+    assert.equal(model.applications.items.length, 1);
+    value.fake.entries.splice(0, value.fake.entries.length, ...structuredClone(original));
+    value.fake.entries[0].data.application_id = "00000000-0000-4000-8000-00000000000A";
+    model = await buildCareerUiModel(value.agentDir, ctx);
+    assert.equal(model.applications.items.length, 1);
+    value.fake.entries.splice(0, value.fake.entries.length, ...structuredClone(original));
+    value.fake.entries[0].data.application_id = "00000000-0000-4000-8000-000000000077";
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+    assert.equal(value.fake.entries.at(-1)?.customType, "career.application_attachment");
+    model = await buildCareerUiModel(value.agentDir, ctx);
+    assert.equal(model.applications.items.length, 1);
+    assert.doesNotMatch(model.applications.items[0].label, /Not persisted/);
+    assert.deepEqual(await treeBytes(value.temp), before);
+    assert.deepEqual(value.calls, []);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+    await rm(session, { recursive: true, force: true });
   }
 });
 
