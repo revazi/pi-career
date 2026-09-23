@@ -10000,8 +10000,8 @@ Application context is session-scoped; no workspace files were created.`,
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
       if (argument === "") {
-        requireInteractive(ctx);
         await openUi(ctx, "vacancy");
         return;
       }
@@ -10009,7 +10009,6 @@ Application context is session-scoped; no workspace files were created.`,
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
       if (attached !== void 0) {
-        requireInteractive(ctx);
         if (attached.vacancy !== void 0) {
           const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
           owner.assert(run, ctx);

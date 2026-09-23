@@ -59,6 +59,55 @@ for (const mode of ["print", "json"]) {
   });
 }
 
+for (const mode of ["print", "json"]) {
+  test(`/career-vacancy clear ${mode} rejects before private clear boundaries`, async () => {
+    const fake = makeFakePi();
+    const calls = {
+      ownership: 0,
+      session: 0,
+      ui: 0,
+      sourcesConfigFiles: 0,
+      core: 0,
+      sends: 0,
+      appends: 0,
+    };
+    fake.api.appendEntry = () => { calls.appends++; poison(); };
+    registerCareerCommands(fake.api, {
+      agentDir: `/synthetic/${marker}`,
+      uuid: () => { calls.ownership++; poison(); },
+      loadLibrary: async () => { calls.sourcesConfigFiles++; poison(); },
+      invoke: async () => { calls.core++; poison(); },
+    });
+    const ctx = {
+      mode,
+      hasUI: true, // Inconsistent host flags must not bypass the mode guard.
+      get sessionManager() { calls.session++; poison(); },
+      get ui() { calls.ui++; poison(); },
+      sendUserMessage() { calls.sends++; poison(); },
+    };
+    await assert.rejects(fake.commands.get("career-vacancy").handler("clear", ctx), (error) => {
+      assert.equal(error.code, "interactive_mode_required");
+      assert.deepEqual(JSON.parse(error.message), {
+        schema_version: "pi.career.workflow_error.v1",
+        code: "interactive_mode_required",
+        message: "This career command requires TUI or RPC mode.",
+      });
+      assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
+      return true;
+    });
+    assert.deepEqual(calls, {
+      ownership: 0,
+      session: 0,
+      ui: 0,
+      sourcesConfigFiles: 0,
+      core: 0,
+      sends: 0,
+      appends: 0,
+    });
+    assert.deepEqual(fake.entries, []);
+  });
+}
+
 test("P3-36 installed extension lifecycle rejects private session getters in print/JSON", async () => {
   const fake = makeFakePi();
   careerCoreExtension(fake.api);
@@ -107,28 +156,26 @@ test("P3-37 public raw tool adapter errors omit validated Core text and foreign 
   assert.doesNotMatch(String(safe.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
 });
 
-test("P3-37 non-UI public throws replace raw adapter messages and stacks", async () => {
+test("non-UI vacancy clear rejects before foreign session errors", async () => {
   const fake = makeFakePi();
   registerCareerCommands(fake.api, { agentDir: "/synthetic/absent" });
   const ctx = makeContext(fake, { mode: "rpc", persisted: false });
   ctx.ctx.hasUI = false;
-  ctx.ctx.sessionManager.getBranch = () => { throw new Error(`${marker} /synthetic/private KEY=secret at stack`); };
+  let branchReads = 0;
+  ctx.ctx.sessionManager.getBranch = () => {
+    branchReads++;
+    throw new CareerInvocationError({
+      schema_version: "career.pi_error.v1", code: "career_cli_error",
+      message: marker, career_error: { schema_version: "career.error.v1", code: marker,
+        message: `${marker} /synthetic/private KEY=secret at stack`, field_path: marker },
+    });
+  };
   await assert.rejects(fake.commands.get("career-vacancy").handler("clear", ctx.ctx), (error) => {
-    assert.equal(error.code, "workflow_failed");
+    assert.equal(error.code, "interactive_mode_required");
     assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
     return true;
   });
-  ctx.ctx.sessionManager.getBranch = () => { throw new CareerInvocationError({
-    schema_version: "career.pi_error.v1", code: "career_cli_error",
-    message: marker, career_error: { schema_version: "career.error.v1", code: marker,
-      message: `${marker} /synthetic/private KEY=secret at stack`, field_path: marker },
-  }); };
-  await assert.rejects(fake.commands.get("career-vacancy").handler("clear", ctx.ctx), (error) => {
-    assert.equal(error.payload.code, "career_cli_error");
-    assert.equal(error.payload.career_error, undefined);
-    assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
-    return true;
-  });
+  assert.equal(branchReads, 0);
   assert.deepEqual(fake.entries, []);
   assert.deepEqual(ctx.notifications, []);
 });

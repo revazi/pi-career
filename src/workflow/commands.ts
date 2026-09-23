@@ -842,8 +842,8 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
       if (argument === "") {
-        requireInteractive(ctx);
         await openUi(ctx, "vacancy");
         return;
       }
@@ -851,7 +851,6 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
       if (attached !== undefined) {
-        requireInteractive(ctx);
         if (attached.vacancy !== undefined) {
           const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
           owner.assert(run, ctx);
