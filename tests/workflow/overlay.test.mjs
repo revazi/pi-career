@@ -636,6 +636,55 @@ test("RPC attached analyze refuses a changed original before Core stdin", async 
   }
 });
 
+test("RPC attached match refuses post-confirm selected-original drift before Core stdin", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-match-drift-");
+  try {
+    registerCareerCommands(value.fake.api, {
+      agentDir: value.agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        value.calls.push(invocation);
+        if (invocation.operation === "normalize") return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+        throw new Error("changed original must not reach Core");
+      },
+    });
+    await value.fake.commands.get("career").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];
+    await value.fake.commands.get("career-analyze").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, selectedOriginalOptions([original])[0].option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    await value.fake.commands.get("career-vacancy").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: ["Synthetic vacancy for match", (_title, preview) => preview], confirms: [true],
+    }).ctx);
+    const request = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close],
+    });
+    let confirmed = false;
+    request.ctx.ui.confirm = async () => {
+      confirmed = true;
+      await writeFile(path.join(value.library, "alpha.md"), "# Synthetic changed Alpha\n");
+      return true;
+    };
+    const before = value.fake.entries.length;
+    const calls = value.calls.length;
+    await value.fake.commands.get("career-match").handler("", request.ctx);
+    assert.equal(confirmed, true);
+    assert.equal(value.calls.length, calls);
+    assert.equal(value.fake.entries.length, before);
+    assert.doesNotMatch(JSON.stringify(request.notifications), /Synthetic changed Alpha|Synthetic vacancy for match/);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC overlay can create an application, rescan, and remove a root without Core", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-actions-")));
   try {

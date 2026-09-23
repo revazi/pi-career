@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -287,6 +288,39 @@ test("career_run hides schema discovery, uses ephemeral handles, and hydrates bo
     const analysisCall = calls.find(({ invocation }) => invocation.kind === "resume" && invocation.operation === "analyze");
     assert.equal(analysisCall.options.toolResultMaxBytes, MANAGED_OUTPUT_MAX_BYTES);
     assert.match(JSON.parse(analysisCall.invocation.inputJson).text, /Built reliable APIs/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("career_run match rejects a handle source changed while resolving vacancy", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "pi-career-run-handle-drift-"));
+  try {
+    const { agentDir } = await configuredAgent(temp);
+    const fake = makeFakePi();
+    fake.entries.push({
+      type: "custom", customType: "career.workflow",
+      data: createVacancyEntry("Synthetic Backend vacancy", "paste", { uuid: uuidSequence(), now }),
+      id: "vacancy", parentId: null, timestamp: now().toISOString(),
+    });
+    const calls = [];
+    registerCareerRun(fake.api, { agentDir, uuid: uuidSequence(), now, invoke: managedInvoke(calls, {}) });
+    const rpc = makeContext(fake, { mode: "rpc", persisted: false });
+    const tool = fake.tools.get("career_run");
+    const context = parsed(await runTool(tool, { command: "context" }, rpc.ctx));
+    const getBranch = rpc.ctx.sessionManager.getBranch;
+    let reads = 0;
+    rpc.ctx.sessionManager.getBranch = () => {
+      reads++;
+      if (reads === 2) writeFileSync(path.join(temp, "library", "resume.md"), "Synthetic changed resume\n");
+      return getBranch();
+    };
+    await assert.rejects(
+      runTool(tool, { command: "match", handle: context.resumes[0].handle }, rpc.ctx),
+      (error) => error instanceof CareerRunError && error.code === "resume_not_found",
+    );
+    assert.equal(calls.some(({ invocation }) => invocation.operation === "match"), false);
+    assert.equal(fake.entries.length, 1);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

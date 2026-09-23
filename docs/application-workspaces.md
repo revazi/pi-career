@@ -72,7 +72,7 @@ The following current behavior remains unchanged unless a persistent application
 - Unattached `/career-vacancy` owns the current session vacancy. It does not imply workspace consent. Once attached, workspace vacancy files are the only current job-description authority; `/career-vacancy` cannot append a competing session-only vacancy.
 - `/career-save <variant-handle>` owns the separate resume-library variation save protocol. Its handle argument and consent do not select or authorize an application-workspace artifact.
 - Unattached `/career-workbench` only prepares an editor message. Attached `/career-workbench` is an assistance action: it appends activation if needed, prepares `/skill:career-core …`, and never submits. The user's later ordinary Pi submission is the separate provider-submission decision.
-- Unattached `/career-match` and `/career-analyze` keep their explicit library-source pickers. Once attached, match uses the effective Resume and analyze uses only the selected original.
+- Unattached `/career-match` and `/career-analyze` keep their explicit library-source pickers. Once attached, match uses the effective Resume and analyze uses only the selected original. A selected original is re-scanned at each final Core submission boundary after confirmation/consent; changes to its authority or exact serialized text fail closed without result persistence. Attached match also revalidates its current vacancy before each submission.
 
 ### New workspace command
 
@@ -142,7 +142,7 @@ Workspace references are not added to that strict schema. Session reconstruction
 
 ### `/career` attachment records
 
-The persistent catalog changes discovery, not authority: `/career` may list and open validated applications without any Pi session attachment. Overlay route, filter, search, cursor, bounded catalog snapshots, and lazy detail bytes remain process-memory-only. Browsing appends nothing and does not load Career-specific model context.
+The persistent catalog changes discovery, not authority: `/career` may list and open validated applications without any Pi session attachment. Overlay route, filter, search, cursor, bounded catalog snapshots, and lazy detail bytes remain process-memory-only. Browsing appends nothing and does not load Career-specific model context. The attachable-list discovery projection returns no pointers on inter-snapshot drift; the diagnostic catalog reader instead reports `workspace_drift`. An empty discovery projection cannot authorize attachment: opening a pointer revalidates its authority independently.
 
 Attachment uses Pi custom entries, which do not participate in model context. The custom type is exactly `career.application_attachment`. An attach entry has exactly this ordered data object:
 
