@@ -78,6 +78,7 @@ export const CAREER_UI_RPC_ACTIONS = {
   askPi: "Ask Pi",
   detach: "Detach",
   clearVacancy: "Clear job description",
+  selectOriginal: "Select original resume",
 } as const;
 
 export interface CareerUiItem {
@@ -90,6 +91,7 @@ export interface CareerUiItem {
 export interface CareerUiPane {
   intro: string;
   items: CareerUiItem[];
+  canSelectOriginal?: boolean;
 }
 
 export type CareerUiModel = Record<CareerUiView, CareerUiPane>;
@@ -108,6 +110,7 @@ export interface CareerUiActions {
   askPi?: () => Promise<boolean>;
   detach?: () => Promise<boolean>;
   clearVacancy?: () => Promise<boolean>;
+  selectOriginal?: () => Promise<boolean>;
 }
 
 function unavailablePane(): CareerUiPane {
@@ -214,6 +217,7 @@ export async function buildCareerUiModel(
     if (attached !== undefined) {
       const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
       const pack = `Job description: ${attached.vacancy === undefined ? "missing" : "ready"} · Selected original: ${attached.selected_original === undefined ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === undefined ? "missing" : "ready"}`;
+      empty.library.canSelectOriginal = attached.can_select_original;
       empty.vacancy = {
         intro: `${heading}\n${pack}`,
         items: attached.vacancy === undefined
@@ -223,6 +227,7 @@ export async function buildCareerUiModel(
       if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\n${pack}\nNo current job description. Press e to paste one.`;
       empty.match = {
         intro: `${heading}\n${pack}`,
+        canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === undefined
           ? []
           : [item("effective", attached.effective_resume.label, `${heading}\nEffective Resume: ${attached.effective_resume.label}\nMatch is not run by opening this view.`)],
@@ -230,6 +235,7 @@ export async function buildCareerUiModel(
       if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.`;
       empty.analyze = {
         intro: `${heading}\n${pack}`,
+        canSelectOriginal: attached.can_select_original,
         items: attached.selected_original === undefined
           ? []
           : [item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`)],
@@ -373,6 +379,10 @@ export class CareerUiSession {
     return this.current === "vacancy" && this.actions.clearVacancy !== undefined && !this.busyFlag;
   }
 
+  get canSelectOriginal(): boolean {
+    return this.pane.canSelectOriginal === true && this.actions.selectOriginal !== undefined && !this.busyFlag;
+  }
+
   rpcActions(): string[] {
     return [
       ...(this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : []),
@@ -388,6 +398,7 @@ export class CareerUiSession {
       ...(this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : []),
       ...(this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : []),
       ...(this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : []),
+      ...(this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : []),
     ];
   }
 
@@ -522,6 +533,12 @@ export class CareerUiSession {
     return this.runBound(this.canClearVacancy, action);
   }
 
+  async selectOriginal(): Promise<boolean> {
+    const action = this.actions.selectOriginal;
+    if (action === undefined) return false;
+    return this.runBound(this.canSelectOriginal, action);
+  }
+
   async runRpcAction(choice: string): Promise<boolean> {
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
@@ -536,6 +553,7 @@ export class CareerUiSession {
     if (choice === CAREER_UI_RPC_ACTIONS.askPi) return this.askPi();
     if (choice === CAREER_UI_RPC_ACTIONS.detach) return this.detach();
     if (choice === CAREER_UI_RPC_ACTIONS.clearVacancy) return this.clearVacancy();
+    if (choice === CAREER_UI_RPC_ACTIONS.selectOriginal) return this.selectOriginal();
     return false;
   }
 }
@@ -702,6 +720,7 @@ export class CareerOverlay implements Component {
       key === "p" && this.session.canAskPi ? this.session.askPi() :
       key === "d" && this.session.canDetach ? this.session.detach() :
       key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() :
+      key === "o" && this.session.canSelectOriginal ? this.session.selectOriginal() :
       undefined;
     if (keyed !== undefined) {
       void keyed.finally(() => this.requestRender());
@@ -755,6 +774,7 @@ export class CareerOverlay implements Component {
       ...(this.session.canAskPi ? ["p ask Pi"] : []),
       ...(this.session.canDetach ? ["d detach"] : []),
       ...(this.session.canClearVacancy ? ["k clear"] : []),
+      ...(this.session.canSelectOriginal ? ["o original"] : []),
       "1-8 view",
     ];
     const footer = hints.join("   ");

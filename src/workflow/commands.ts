@@ -14,6 +14,7 @@ import { CareerInvocationError, invokeCareerCli } from "../process.ts";
 import {
   ApplicationWorkspaceWorkflow,
   attachedApplicationSourcesForSession,
+  selectedOriginalOptions,
 } from "./application-workspace.ts";
 import { openCareerUi, type CareerUiView } from "./career-ui.ts";
 import { addLibraryRoot, loadConfig, removeLibraryRoot, writeConfig } from "./config.ts";
@@ -452,14 +453,27 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
         return true;
       },
+      selectOriginal: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached === undefined) {
+          ctx.ui.notify("Attach an application before binding its selected original. No files were changed.", "warning");
+          return false;
+        }
+        const outcome = await applicationWorkspace.selectAttachedOriginal(ctx);
+        return outcome === "written" || outcome === "unchanged";
+      },
       analyze: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== undefined && attached.selected_original === undefined) {
+          ctx.ui.notify("Select an original resume with o before analyzing this attached application.", "warning");
+          return false;
+        }
         const confirmed = await ctx.ui.confirm(
           "Run analyze",
           "Run deterministic resume analysis with Career Core? This does not call a model or attach an application.",
         );
         if (confirmed !== true) return false;
         const run = owner.start(ctx);
-        const attached = await attachedSources(ctx);
         const { scan } = await refreshState(ctx);
         let resume: ResumeRecord | undefined = attached?.selected_original;
         if (resume === undefined) {
@@ -468,9 +482,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
           if (originals.length === 1) {
             resume = originals[0];
           } else {
-            const byLabel = new Map(originals.map((record) => [record.label, record]));
-            const chosen = await ctx.ui.select("Choose an original resume", [...byLabel.keys()]);
-            resume = chosen === undefined ? undefined : byLabel.get(chosen);
+            const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+            const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+            resume = chosen === undefined ? undefined : byOption.get(chosen);
             if (resume === undefined) return false;
           }
         }
@@ -479,6 +493,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         let result: CoreResult;
         try {
           result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            if (attached !== undefined) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id ||
+                fresh.selected_original?.text_sha256 !== resume.text_sha256 ||
+                fresh.selected_original?.id !== resume.id) throw workflowError("workspace_drift");
+            }
             const invocation = await dependencies.invoke(
               { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
               signal,
@@ -508,23 +529,47 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         return true;
       },
       match: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== undefined && attached.effective_resume === undefined) {
+          ctx.ui.notify("Select an original resume with o before matching this attached application.", "warning");
+          return false;
+        }
         const confirmed = await ctx.ui.confirm(
           "Run match",
           "Run deterministic career match with Career Core? This does not call a model or attach an application.",
         );
         if (confirmed !== true) return false;
         const run = owner.start(ctx);
-        const attached = await attachedSources(ctx);
         const { scan } = await refreshState(ctx);
         const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
         const vacancy = attached === undefined ? state.vacancy : attached.vacancy;
         if (vacancy === undefined) throw workflowError("vacancy_required");
-        const selected = attached?.effective_resume === undefined ? eligibleOriginals(scan) : [attached.effective_resume];
+        let selected = attached?.effective_resume === undefined ? eligibleOriginals(scan) : [attached.effective_resume];
         if (selected.length === 0) throw workflowError("library_empty");
+        if (attached === undefined && selected.length > 1) {
+          const options = selectedOriginalOptions(selected);
+          const byOption = new Map(options.map(({ option, record }) => [option, record]));
+          const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+          const resume = chosen === undefined ? undefined : byOption.get(chosen);
+          if (resume === undefined) return false;
+          selected = [resume];
+        }
         await ensureConsent(ctx, run);
         const queue = await runOperation(
           ctx, owner, run, "Running deterministic career match queue…",
-          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal),
+          async (signal) => {
+            if (attached !== undefined) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id ||
+                fresh.effective_resume?.text_sha256 !== selected[0]?.text_sha256 ||
+                fresh.effective_resume?.id !== selected[0]?.id ||
+                fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) {
+                throw workflowError("workspace_drift");
+              }
+            }
+            return executeMatchQueue(dependencies, selected, vacancy, signal);
+          },
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;

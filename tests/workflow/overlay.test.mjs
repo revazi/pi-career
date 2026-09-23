@@ -2,12 +2,13 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
@@ -16,6 +17,7 @@ import {
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
 } from "../../src/workflow/career-ui.ts";
+import { scanLibrary } from "../../src/workflow/scan.ts";
 import { reconstructWorkflowState } from "../../src/workflow/session-state.ts";
 import {
   makeContext, makeFakePi, matchResult, normalizationResult, prepareConfigDirectory, resumeResult, uuidSequence,
@@ -356,7 +358,7 @@ async function catalogFixture(prefix) {
       throw new Error("Career UI must not invoke Career Core");
     },
   });
-  return { temp, fake, calls };
+  return { temp, agentDir, library, root, fake, calls };
 }
 
 test("RPC hierarchical dialogs browse, switch views, and open detail without attaching", async () => {
@@ -531,6 +533,109 @@ test("TUI overlay stays within width and keeps selected/attachable marks without
   }
 });
 
+test("RPC overlay binds an attached selected original without calling Core", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-original-");
+  try {
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [
+        "Synthetic Company — Synthetic Engineer — preparing",
+        CAREER_UI_RPC_ACTIONS.attach,
+        CAREER_UI_RPC_ACTIONS.close,
+      ],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+
+    for (const command of ["career-library", "career-analyze", "career-match"]) {
+      let firstOptions;
+      const opened = makeContext(value.fake, { mode: "rpc", persisted: false });
+      opened.ctx.ui.select = async (_title, options) => {
+        firstOptions ??= options;
+        return CAREER_UI_RPC_ACTIONS.close;
+      };
+      await value.fake.commands.get(command).handler("", opened.ctx);
+      assert.ok(firstOptions.includes(CAREER_UI_RPC_ACTIONS.selectOriginal));
+    }
+
+    for (const [command, action] of [
+      ["career-analyze", CAREER_UI_RPC_ACTIONS.analyze],
+      ["career-match", CAREER_UI_RPC_ACTIONS.match],
+    ]) {
+      const blocked = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        selects: [action, CAREER_UI_RPC_ACTIONS.close],
+      });
+      await value.fake.commands.get(command).handler("", blocked.ctx);
+      assert.ok(blocked.notifications.some(({ message }) => message.includes("Select an original resume with o")));
+    }
+    assert.equal(value.calls.length, 0);
+
+    const config = await loadConfig(value.agentDir);
+    const original = (await scanLibrary(config)).records[0];
+    assert.ok(original);
+    const option = selectedOriginalOptions([original])[0].option;
+    const bound = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career-analyze").handler("", bound.ctx);
+
+    const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
+    assert.ok(applicationName);
+    const selectedState = JSON.parse(await readFile(
+      path.join(value.root, applicationName, ".pi-career-state-000003.json"),
+      "utf8",
+    ));
+    assert.equal(selectedState.selected_original.document_id, original.id);
+    assert.equal(selectedState.selected_original.library_root_id, original.root_id);
+    assert.equal(selectedState.selected_original.text_sha256, original.text_sha256);
+    assert.equal(selectedState.selected_original.format, "markdown");
+    assert.equal(value.calls.length, 0);
+    assert.ok(bound.notifications.some(({ message }) => message.includes("no original bytes were copied or changed")));
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC attached analyze refuses a changed original before Core stdin", async () => {
+  const value = await catalogFixture("pi-career-ui-rpc-drift-");
+  try {
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+    const config = await loadConfig(value.agentDir);
+    const original = (await scanLibrary(config)).records[0];
+    const bound = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, selectedOriginalOptions([original])[0].option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await value.fake.commands.get("career-analyze").handler("", bound.ctx);
+    const request = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close],
+    });
+    let confirmed = false;
+    request.ctx.ui.confirm = async () => {
+      confirmed = true;
+      await writeFile(path.join(value.library, "alpha.md"), "# Synthetic changed Alpha\n");
+      return true;
+    };
+    await value.fake.commands.get("career-analyze").handler("", request.ctx);
+    assert.equal(confirmed, true);
+    assert.equal(value.calls.length, 0);
+    assert.equal(value.fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC overlay can create an application, rescan, and remove a root without Core", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-actions-")));
   try {
@@ -631,6 +736,54 @@ test("RPC overlay analyze and match stay confirmation-gated and local", async ()
     await fake.commands.get("career-match").handler("", matched.ctx);
     assert.ok(fake.entries.some((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "match"));
     assert.doesNotMatch(JSON.stringify(analyzed.notifications), /Deterministic content/);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC overlay refuses unattached assistance and clears only the current vacancy", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-vacancy-clear-")));
+  try {
+    const { fake } = await register(temp);
+    const agentDir = path.join(temp, "agent");
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation.operation);
+        return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      },
+    });
+    const blocked = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-workbench").handler("", blocked.ctx);
+    assert.equal(fake.entries.length, 0);
+    assert.equal(calls.length, 0);
+    assert.ok(blocked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(fake.activeTools.length, 0);
+
+    const vacancyText = "Synthetic vacancy: Backend Engineer.\nSynthetic requirements only.";
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [vacancyText],
+    }).ctx);
+    assert.deepEqual(calls, ["normalize"]);
+    assert.equal(reconstructWorkflowState(fake.entries).vacancy?.vacancy_text, vacancyText);
+    const beforeClear = fake.entries.length;
+    const clear = makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.clearVacancy, CAREER_UI_RPC_ACTIONS.close],
+    });
+    await fake.commands.get("career-vacancy").handler("", clear.ctx);
+    assert.equal(fake.entries.length, beforeClear + 1);
+    assert.equal(reconstructWorkflowState(fake.entries).vacancy, undefined);
+    assert.deepEqual(calls, ["normalize"]);
+    assert.equal(clear.customCalls, 0);
+    assert.equal(fake.activeTools.length, 0);
+    assert.doesNotMatch(JSON.stringify(clear.notifications), /Synthetic requirements only|pi-career-overlay-vacancy-clear-/);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

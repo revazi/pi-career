@@ -4514,8 +4514,9 @@ async function listCatalogApplications(agentDir) {
     return [];
   }
 }
-async function readApplicationCatalog(rootPath, expectedRootId) {
+async function readApplicationCatalog(rootPath, expectedRootId, betweenSnapshots) {
   const initial = await deriveApplicationCatalog(rootPath, expectedRootId);
+  await betweenSnapshots?.();
   let current;
   try {
     current = await deriveApplicationCatalog(rootPath, expectedRootId);
@@ -4685,6 +4686,7 @@ async function loadAttachedApplicationSources(agentDir, attachment) {
     company_label: loaded.identity.company_label,
     role_label: loaded.identity.role_label,
     status: application.head.status,
+    can_select_original: application.head.resume_artifact === null,
     ...vacancy === void 0 ? {} : { vacancy },
     ...selectedOriginal === void 0 ? {} : { selected_original: selectedOriginal },
     ...effective === void 0 ? {} : { effective_resume: effective }
@@ -5142,6 +5144,59 @@ function selectedOriginalOptions(records) {
   if (new Set(options.map(({ option }) => option)).size !== options.length) throw workflowError("workspace_drift");
   return options;
 }
+async function chooseSelectedOriginal(config, ctx) {
+  const scan = await scanLibrary(config);
+  if (scan.total_capped) throw workflowError("workspace_limit_reached");
+  const eligibleRootIds = new Set(scan.roots.filter((root) => !root.capped && !root.stale).map((root) => root.root_id));
+  const originals = eligibleOriginals(scan).filter((record) => eligibleRootIds.has(record.root_id));
+  if (originals.length === 0) throw workflowError("workspace_unavailable");
+  const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+  const selectedOption = await ctx.ui.select("Select original resume binding", [...byOption.keys()]);
+  return selectedOption === void 0 ? void 0 : byOption.get(selectedOption);
+}
+function selectedOriginalBinding(record) {
+  return {
+    document_id: record.id,
+    library_root_id: record.root_id,
+    text_sha256: record.text_sha256,
+    format: record.format
+  };
+}
+function prepareSelectedOriginalRevision(options, application, applicationId, binding) {
+  const mutationId = options.uuid().toLowerCase();
+  const prepared = prepareV2Mutation(application, mutationId, options.now().toISOString());
+  const { createdAt, sequence } = prepared;
+  if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+  const state = {
+    schema_version: STATE_SCHEMA_V2,
+    kind: "application_state_revision",
+    application_id: applicationId,
+    sequence,
+    parent_sha256: prepared.parentSha256,
+    status: application.head.status,
+    vacancy: application.head.vacancy,
+    selected_original: binding,
+    resume_artifact: null,
+    cover_letter_artifact: prepared.coverLetterArtifact,
+    updated_at: createdAt
+  };
+  const stateBuffer = stateBytes(state);
+  return {
+    mutationId,
+    createdAt,
+    sequence,
+    stateBuffer,
+    files: [
+      ...prepared.transitionFiles,
+      {
+        final: path6.join(application.directoryPath, stateName(sequence)),
+        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer
+      }
+    ],
+    revisionAdditions: prepared.revisionAdditions
+  };
+}
 var ApplicationWorkspaceWorkflow = class {
   constructor(options) {
     this.options = options;
@@ -5213,7 +5268,7 @@ var ApplicationWorkspaceWorkflow = class {
       }
     };
   }
-  async publishAttachedRevision(ctx, mutation, operation, mutationId, createdAt, files, stateBuffer, revisionAdditions, successMessage) {
+  async publishAttachedRevision(ctx, mutation, operation, mutationId, createdAt, files, stateBuffer, revisionAdditions, successMessage, sourceValidation) {
     const configured = mutation.loaded.snapshot.config.application_workspace;
     if (configured === null) throw workflowError("attachment_unavailable");
     for (const file of files) await requireAbsent(file.final);
@@ -5250,6 +5305,7 @@ var ApplicationWorkspaceWorkflow = class {
       stateBuffer,
       async () => {
         await validateSelectedBinding(mutation.loaded.snapshot.config, mutation.application.head.selected_original);
+        await sourceValidation?.();
       },
       mutation.target
     );
@@ -5311,6 +5367,38 @@ var ApplicationWorkspaceWorkflow = class {
       stateBuffer,
       prepared.revisionAdditions,
       `Recorded immutable workspace vacancy revision ${sequence}. Earlier vacancy files remain unchanged.`
+    );
+  }
+  async selectAttachedOriginal(ctx) {
+    const mutation = await this.attachedMutation(ctx);
+    const { application } = mutation;
+    if (application.head.resume_artifact !== null) throw workflowError("workspace_unavailable");
+    const selected = await chooseSelectedOriginal(mutation.loaded.snapshot.config, ctx);
+    if (selected === void 0) return "cancelled";
+    const binding = selectedOriginalBinding(selected);
+    if (JSON.stringify(binding) === JSON.stringify(application.head.selected_original)) {
+      ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
+      return "unchanged";
+    }
+    const revision = prepareSelectedOriginalRevision(
+      this.options,
+      application,
+      application.manifest.application_id,
+      binding
+    );
+    return this.publishAttachedRevision(
+      ctx,
+      mutation,
+      "select_original",
+      revision.mutationId,
+      revision.createdAt,
+      revision.files,
+      revision.stateBuffer,
+      revision.revisionAdditions,
+      `Recorded selected-original binding in immutable revision ${revision.sequence}; no original bytes were copied or changed.`,
+      async () => {
+        freshRecord(await scanLibrary(mutation.loaded.snapshot.config), selected);
+      }
     );
   }
   async writeAttachedStatus(ctx, status) {
@@ -6182,53 +6270,21 @@ var ApplicationWorkspaceWorkflow = class {
       throw workflowError("workspace_unavailable");
     }
     await validateSelectedBinding(attachment.snapshot.config, application.head.selected_original);
-    const scan = await scanLibrary(attachment.snapshot.config);
-    if (scan.total_capped) throw workflowError("workspace_limit_reached");
-    const eligibleRootIds = new Set(scan.roots.filter((root) => !root.capped && !root.stale).map((root) => root.root_id));
-    const originals = eligibleOriginals(scan).filter((record) => eligibleRootIds.has(record.root_id));
-    if (originals.length === 0) throw workflowError("workspace_unavailable");
-    const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
-    const selectedOption = await ctx.ui.select("Select original resume binding", [...byOption.keys()]);
-    const selected = selectedOption === void 0 ? void 0 : byOption.get(selectedOption);
+    const selected = await chooseSelectedOriginal(attachment.snapshot.config, ctx);
     if (selected === void 0) return;
-    const binding = {
-      document_id: selected.id,
-      library_root_id: selected.root_id,
-      text_sha256: selected.text_sha256,
-      format: selected.format
-    };
+    const binding = selectedOriginalBinding(selected);
     if (JSON.stringify(binding) === JSON.stringify(application.head.selected_original)) {
       ctx.ui.notify("The selected original binding is already current; no revision was added.", "info");
       return;
     }
-    const mutationId = this.options.uuid().toLowerCase();
-    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
-    const { createdAt, sequence } = prepared;
-    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
-    const state = {
-      schema_version: STATE_SCHEMA_V2,
-      kind: "application_state_revision",
-      application_id: identity2.identity.application_id,
-      sequence,
-      parent_sha256: prepared.parentSha256,
-      status: application.head.status,
-      vacancy: application.head.vacancy,
-      selected_original: binding,
-      resume_artifact: null,
-      cover_letter_artifact: prepared.coverLetterArtifact,
-      updated_at: createdAt
-    };
-    const bytes = stateBytes(state);
-    const files = [
-      ...prepared.transitionFiles,
-      {
-        final: path6.join(application.directoryPath, stateName(sequence)),
-        temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
-        bytes
-      }
-    ];
-    for (const file of files) await requireAbsent(file.final);
-    assertApplicationCapacity(application, files, prepared.revisionAdditions);
+    const revision = prepareSelectedOriginalRevision(
+      this.options,
+      application,
+      identity2.identity.application_id,
+      binding
+    );
+    for (const file of revision.files) await requireAbsent(file.final);
+    assertApplicationCapacity(application, revision.files, revision.revisionAdditions);
     const plan = buildPlan(
       this.options,
       ctx,
@@ -6237,15 +6293,15 @@ var ApplicationWorkspaceWorkflow = class {
       identity2,
       attachment.snapshot.sha256,
       application.headFile.sha256,
-      files.map((file) => createPreview(file.final, file.bytes)),
+      revision.files.map((file) => createPreview(file.final, file.bytes)),
       [],
-      [workspaceLockPath(configured.root_path), ...files.map((file) => file.temp)],
+      [workspaceLockPath(configured.root_path), ...revision.files.map((file) => file.temp)],
       [],
-      mutationId,
-      createdAt
+      revision.mutationId,
+      revision.createdAt
     );
     if (!await approve(plan, ctx)) return;
-    await this.commitRevision(plan, ctx, attachment, identity2, files, bytes, async () => {
+    await this.commitRevision(plan, ctx, attachment, identity2, revision.files, revision.stateBuffer, async () => {
       const freshScan = await scanLibrary(attachment.snapshot.config);
       freshRecord(freshScan, selected);
     }, {
@@ -6255,7 +6311,7 @@ var ApplicationWorkspaceWorkflow = class {
       companyLabel: identity2.identity.company_label,
       roleLabel: identity2.identity.role_label
     });
-    ctx.ui.notify(`Recorded selected-original binding in immutable revision ${sequence}; no original bytes were copied or changed.`, "info");
+    ctx.ui.notify(`Recorded selected-original binding in immutable revision ${revision.sequence}; no original bytes were copied or changed.`, "info");
   }
   async commitRevision(plan, ctx, attachment, identity2, files, stateBuffer, sourceValidation, target) {
     const configured = attachment.snapshot.config.application_workspace;
@@ -8378,7 +8434,8 @@ var CAREER_UI_RPC_ACTIONS = {
   workspace: "Manage workspace",
   askPi: "Ask Pi",
   detach: "Detach",
-  clearVacancy: "Clear job description"
+  clearVacancy: "Clear job description",
+  selectOriginal: "Select original resume"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
@@ -8479,6 +8536,7 @@ Opening does not attach. Press a to attach this application without activating a
     if (attached !== void 0) {
       const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
       const pack = `Job description: ${attached.vacancy === void 0 ? "missing" : "ready"} · Selected original: ${attached.selected_original === void 0 ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === void 0 ? "missing" : "ready"}`;
+      empty.library.canSelectOriginal = attached.can_select_original;
       empty.vacancy = {
         intro: `${heading}
 ${pack}`,
@@ -8492,6 +8550,7 @@ No current job description. Press e to paste one.`;
       empty.match = {
         intro: `${heading}
 ${pack}`,
+        canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === void 0 ? [] : [item("effective", attached.effective_resume.label, `${heading}
 Effective Resume: ${attached.effective_resume.label}
 Match is not run by opening this view.`)]
@@ -8502,6 +8561,7 @@ No effective Resume is available.`;
       empty.analyze = {
         intro: `${heading}
 ${pack}`,
+        canSelectOriginal: attached.can_select_original,
         items: attached.selected_original === void 0 ? [] : [item("original", attached.selected_original.label, `${heading}
 Selected original: ${attached.selected_original.label}
 Analyze is not run by opening this view.`)]
@@ -8629,6 +8689,9 @@ var CareerUiSession = class {
   get canClearVacancy() {
     return this.current === "vacancy" && this.actions.clearVacancy !== void 0 && !this.busyFlag;
   }
+  get canSelectOriginal() {
+    return this.pane.canSelectOriginal === true && this.actions.selectOriginal !== void 0 && !this.busyFlag;
+  }
   rpcActions() {
     return [
       ...this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : [],
@@ -8643,7 +8706,8 @@ var CareerUiSession = class {
       ...this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : [],
       ...this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : [],
       ...this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : [],
-      ...this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : []
+      ...this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : [],
+      ...this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : []
     ];
   }
   switchView(view) {
@@ -8757,6 +8821,11 @@ var CareerUiSession = class {
     if (action === void 0) return false;
     return this.runBound(this.canClearVacancy, action);
   }
+  async selectOriginal() {
+    const action = this.actions.selectOriginal;
+    if (action === void 0) return false;
+    return this.runBound(this.canSelectOriginal, action);
+  }
   async runRpcAction(choice) {
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
@@ -8771,6 +8840,7 @@ var CareerUiSession = class {
     if (choice === CAREER_UI_RPC_ACTIONS.askPi) return this.askPi();
     if (choice === CAREER_UI_RPC_ACTIONS.detach) return this.detach();
     if (choice === CAREER_UI_RPC_ACTIONS.clearVacancy) return this.clearVacancy();
+    if (choice === CAREER_UI_RPC_ACTIONS.selectOriginal) return this.selectOriginal();
     return false;
   }
 };
@@ -8913,7 +8983,7 @@ var CareerOverlay = class {
       return;
     }
     const key = data.length === 1 ? data.toLowerCase() : data;
-    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : void 0;
+    const keyed = key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : key === "o" && this.session.canSelectOriginal ? this.session.selectOriginal() : void 0;
     if (keyed !== void 0) {
       void keyed.finally(() => this.requestRender());
       return;
@@ -8965,6 +9035,7 @@ var CareerOverlay = class {
       ...this.session.canAskPi ? ["p ask Pi"] : [],
       ...this.session.canDetach ? ["d detach"] : [],
       ...this.session.canClearVacancy ? ["k clear"] : [],
+      ...this.session.canSelectOriginal ? ["o original"] : [],
       "1-8 view"
     ];
     const footer = hints.join("   ");
@@ -9339,14 +9410,27 @@ Application context is session-scoped; no workspace files were created.`,
         ctx.ui.notify(`Current vacancy: ${vacancy.vacancy_label}`, "info");
         return true;
       },
+      selectOriginal: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached === void 0) {
+          ctx.ui.notify("Attach an application before binding its selected original. No files were changed.", "warning");
+          return false;
+        }
+        const outcome = await applicationWorkspace.selectAttachedOriginal(ctx);
+        return outcome === "written" || outcome === "unchanged";
+      },
       analyze: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== void 0 && attached.selected_original === void 0) {
+          ctx.ui.notify("Select an original resume with o before analyzing this attached application.", "warning");
+          return false;
+        }
         const confirmed = await ctx.ui.confirm(
           "Run analyze",
           "Run deterministic resume analysis with Career Core? This does not call a model or attach an application."
         );
         if (confirmed !== true) return false;
         const run = owner.start(ctx);
-        const attached = await attachedSources(ctx);
         const { scan } = await refreshState(ctx);
         let resume = attached?.selected_original;
         if (resume === void 0) {
@@ -9355,9 +9439,9 @@ Application context is session-scoped; no workspace files were created.`,
           if (originals.length === 1) {
             resume = originals[0];
           } else {
-            const byLabel = new Map(originals.map((record) => [record.label, record]));
-            const chosen = await ctx.ui.select("Choose an original resume", [...byLabel.keys()]);
-            resume = chosen === void 0 ? void 0 : byLabel.get(chosen);
+            const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+            const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+            resume = chosen === void 0 ? void 0 : byOption.get(chosen);
             if (resume === void 0) return false;
           }
         }
@@ -9366,6 +9450,11 @@ Application context is session-scoped; no workspace files were created.`,
         let result;
         try {
           result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            if (attached !== void 0) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id || fresh.selected_original?.text_sha256 !== resume.text_sha256 || fresh.selected_original?.id !== resume.id) throw workflowError("workspace_drift");
+            }
             const invocation = await dependencies.invoke(
               { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
               signal
@@ -9398,26 +9487,47 @@ Application context is session-scoped; no workspace files were created.`,
         return true;
       },
       match: async () => {
+        const attached = await attachedSources(ctx);
+        if (attached !== void 0 && attached.effective_resume === void 0) {
+          ctx.ui.notify("Select an original resume with o before matching this attached application.", "warning");
+          return false;
+        }
         const confirmed = await ctx.ui.confirm(
           "Run match",
           "Run deterministic career match with Career Core? This does not call a model or attach an application."
         );
         if (confirmed !== true) return false;
         const run = owner.start(ctx);
-        const attached = await attachedSources(ctx);
         const { scan } = await refreshState(ctx);
         const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
         const vacancy = attached === void 0 ? state.vacancy : attached.vacancy;
         if (vacancy === void 0) throw workflowError("vacancy_required");
-        const selected = attached?.effective_resume === void 0 ? eligibleOriginals(scan) : [attached.effective_resume];
+        let selected = attached?.effective_resume === void 0 ? eligibleOriginals(scan) : [attached.effective_resume];
         if (selected.length === 0) throw workflowError("library_empty");
+        if (attached === void 0 && selected.length > 1) {
+          const options2 = selectedOriginalOptions(selected);
+          const byOption = new Map(options2.map(({ option, record }) => [option, record]));
+          const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+          const resume = chosen === void 0 ? void 0 : byOption.get(chosen);
+          if (resume === void 0) return false;
+          selected = [resume];
+        }
         await ensureConsent(ctx, run);
         const queue = await runOperation(
           ctx,
           owner,
           run,
           "Running deterministic career match queue…",
-          (signal) => executeMatchQueue(dependencies, selected, vacancy, signal)
+          async (signal) => {
+            if (attached !== void 0) {
+              const fresh = await attachedSources(ctx);
+              owner.assert(run, ctx);
+              if (fresh?.application_id !== attached.application_id || fresh.effective_resume?.text_sha256 !== selected[0]?.text_sha256 || fresh.effective_resume?.id !== selected[0]?.id || fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) {
+                throw workflowError("workspace_drift");
+              }
+            }
+            return executeMatchQueue(dependencies, selected, vacancy, signal);
+          }
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;

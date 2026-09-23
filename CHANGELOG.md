@@ -19,6 +19,7 @@
 - TUI Career overlay uses a clearer visual hierarchy, view marks, selected/attachable symbols, wrapping, and width-bounded rules without changing actions or adding private content.
 - Overlay/RPC Career UI can create an application, rescan or remove a library root, run analyze/match, edit a vacancy, update status, and open Gate 1 workspace management from the shared view model. Opening and browsing still never attach or call Core; those actions stay confirmation-gated.
 - Overlay empty states, session-created applications, analyze/match result rows, Ask Pi, detach, and vacancy clear stay on the shared view model so `/career` can run as an in-Pi application without leftover command menus.
+- Attached applications can select and immutably bind one eligible original Resume from Library, Analyze, or Match (`o` in TUI) through the existing exact preview and separate confirmation flow. Attached Analyze/Match no longer fall back to an unbound library Resume, and assisted variants remain ineligible.
 
 ## 0.3.0 - 2026-08-14
 
