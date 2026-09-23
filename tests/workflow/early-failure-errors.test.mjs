@@ -7,6 +7,9 @@ import path from "node:path";
 import test from "node:test";
 
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
+import { registerCareerRun } from "../../src/managed/tool.ts";
+import careerCoreExtension from "../../src/index.ts";
+import { payloadFreeAdapterError, publicAdapterError } from "../../src/errors.ts";
 import { addLibraryRoot, emptyConfig, writeConfig } from "../../src/workflow/config.ts";
 import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import { prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
@@ -29,6 +32,10 @@ for (const mode of ["print", "json"]) {
       loadLibrary: async () => { loads++; poison(); },
       invoke: async () => { invocations++; poison(); },
     });
+    registerCareerRun(fake.api, {
+      agentDir: `/synthetic/${marker}`,
+      invoke: async () => { invocations++; poison(); },
+    });
     const ctx = {
       mode, hasUI: true, // Inconsistent host flags must not bypass the mode guard.
       get sessionManager() { return poison(); },
@@ -48,8 +55,57 @@ for (const mode of ["print", "json"]) {
     assert.equal(appends, 0);
     assert.equal(sends, 0);
     assert.deepEqual(fake.entries, []);
+    assert.deepEqual(fake.activeTools, []);
   });
 }
+
+test("P3-36 installed extension lifecycle rejects private session getters in print/JSON", async () => {
+  const fake = makeFakePi();
+  careerCoreExtension(fake.api);
+  for (const mode of ["print", "json"]) {
+    const ctx = {
+      mode, hasUI: true,
+      get sessionManager() { return poison(); },
+      get ui() { return poison(); },
+      sendUserMessage: poison,
+    };
+    for (const event of ["session_start", "session_tree"]) {
+      for (const handler of fake.events.get(event) ?? []) await handler({}, ctx);
+    }
+    await assert.rejects(fake.commands.get("career").handler("", ctx), (error) => {
+      assert.equal(error.code, "interactive_mode_required");
+      return true;
+    });
+    assert.deepEqual(fake.entries, []);
+    assert.deepEqual(fake.activeTools, []);
+  }
+});
+
+test("public raw tool throws a payload-free structured error on invalid request", async () => {
+  const fake = makeFakePi();
+  careerCoreExtension(fake.api);
+  await assert.rejects(fake.tools.get("career_core_resume").execute("call", {
+    operation: "analyze", input_json: marker,
+  }), (error) => {
+    assert.equal(error.payload.code, "invalid_request");
+    assert.equal(error.payload.career_error, undefined);
+    assert.doesNotMatch(String(error.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
+    return true;
+  });
+  assert.deepEqual(fake.entries, []);
+});
+
+test("P3-37 public raw tool adapter errors omit validated Core text and foreign stacks", () => {
+  const raw = new CareerInvocationError({
+    schema_version: "career.pi_error.v1", code: "career_cli_error", message: marker,
+    career_error: { schema_version: "career.error.v1", code: marker,
+      message: `${marker} /synthetic/private KEY=secret at stack`, field_path: marker },
+  });
+  const safe = payloadFreeAdapterError(publicAdapterError(raw));
+  assert.equal(safe.payload.code, "career_cli_error");
+  assert.equal(safe.payload.career_error, undefined);
+  assert.doesNotMatch(String(safe.stack), /SYNTHETIC_PRIVATE|KEY=secret|at stack/);
+});
 
 test("P3-37 non-UI public throws replace raw adapter messages and stacks", async () => {
   const fake = makeFakePi();

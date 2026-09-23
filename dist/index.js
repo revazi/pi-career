@@ -5,11 +5,6 @@
 import { StringEnum as StringEnum2 } from "@earendil-works/pi-ai";
 import { Type as Type2 } from "typebox";
 
-// src/process.ts
-import { spawn as spawn2 } from "node:child_process";
-import { isAbsolute } from "node:path";
-import { TextDecoder as TextDecoder2 } from "node:util";
-
 // src/errors.ts
 var ERROR_MESSAGES = {
   unsupported_platform: "pi-career supports only macOS and Linux.",
@@ -63,6 +58,11 @@ function payloadFreeAdapterError(error) {
   const code = error.payload?.code;
   return adapterError(typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code) ? code : "internal_error");
 }
+
+// src/process.ts
+import { spawn as spawn2 } from "node:child_process";
+import { isAbsolute } from "node:path";
+import { TextDecoder as TextDecoder2 } from "node:util";
 
 // src/managed/catalog.ts
 var MANAGED_OUTPUT_MAX_BYTES = 33554432;
@@ -8359,18 +8359,33 @@ Sidecar: ${outcome.sidecarPath}`,
   };
   pi.on("session_start", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.enterSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
   });
   pi.on("session_tree", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.resetSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
   });
   pi.on("resources_discover", () => surfaceState.skillDiscoverable ? { skillPaths: [careerSkillsDirectory()] } : {});
   pi.on("input", async (event, ctx) => {
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return { action: "continue" };
     const skillCommand = event.text.startsWith("/skill:career-core");
     if (!surfaceState.skillDiscoverable && !skillCommand) return { action: "continue" };
     const previous = surfaceState.skillDiscoverable;
@@ -10168,7 +10183,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
@@ -10195,7 +10210,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
@@ -10222,7 +10237,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
