@@ -8453,33 +8453,43 @@ var PREVIEW_MAX_BYTES3 = 12e3;
 function previewText(text) {
   return Buffer.byteLength(text, "utf8") <= PREVIEW_MAX_BYTES3 && !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(text);
 }
+function eligiblePreview(text) {
+  return text !== void 0 && previewText(text) ? text : void 0;
+}
+async function freshLibraryPreview(agentDir, reference) {
+  const scan = await scanLibrary(await loadConfig(agentDir));
+  const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+  if (scan.total_capped || root === void 0 || root.capped || root.stale) return void 0;
+  const matches = scan.records.filter((record) => record.kind === "original" && record.id === reference.id && record.root_id === reference.rootId && record.format === reference.format && record.text_sha256 === reference.digest && record.too_large_for_core_input !== true);
+  return matches.length === 1 ? matches[0]?.text : void 0;
+}
+async function freshAttachedPreview(agentDir, ctx, reference) {
+  const attached = await attachedApplicationSourcesForSession(
+    agentDir,
+    ctx.sessionManager.getBranch(),
+    ctx.sessionManager.getEntries()
+  );
+  if (reference.source === "vacancy") {
+    if (attached?.vacancy?.vacancy_text_sha256 !== reference.digest || attached.application_id !== reference.id) return void 0;
+    return attached.vacancy.vacancy_text;
+  }
+  const record = reference.source === "original" ? attached?.selected_original : attached?.effective_resume;
+  return freshResumeText(record, reference);
+}
+function freshResumeText(record, reference) {
+  if (record === void 0 || record.id !== reference.id || record.root_id !== reference.rootId || record.format !== reference.format || record.text_sha256 !== reference.digest || record.too_large_for_core_input === true) return void 0;
+  if (reference.source === "original" && record.kind !== "original") return void 0;
+  if (reference.source === "effective" && record.kind !== "original" && record.kind !== "assisted_variant") return void 0;
+  return record.text;
+}
 function careerPreviewLoader(agentDir, ctx) {
   return async (view, reference) => {
     try {
-      let text;
-      if (view === "library" && reference.source === "library") {
-        const scan = await scanLibrary(await loadConfig(agentDir));
-        const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
-        if (scan.total_capped || root === void 0 || root.capped || root.stale) return void 0;
-        const matches = scan.records.filter((record) => record.kind === "original" && record.id === reference.id && record.root_id === reference.rootId && record.format === reference.format && record.text_sha256 === reference.digest && record.too_large_for_core_input !== true);
-        if (matches.length !== 1) return void 0;
-        text = matches[0]?.text;
-      } else if (view === "vacancy" && reference.source === "vacancy" || view === "analyze" && reference.source === "original" || view === "match" && reference.source === "effective") {
-        const attached = await attachedApplicationSourcesForSession(
-          agentDir,
-          ctx.sessionManager.getBranch(),
-          ctx.sessionManager.getEntries()
-        );
-        const record = reference.source === "original" ? attached?.selected_original : attached?.effective_resume;
-        if (reference.source === "vacancy") {
-          if (attached?.vacancy?.vacancy_text_sha256 !== reference.digest || attached.application_id !== reference.id) return void 0;
-          text = attached.vacancy.vacancy_text;
-        } else {
-          if (record === void 0 || record.id !== reference.id || record.root_id !== reference.rootId || record.format !== reference.format || record.text_sha256 !== reference.digest || record.too_large_for_core_input === true || reference.source === "original" && record.kind !== "original" || reference.source === "effective" && record.kind !== "original" && record.kind !== "assisted_variant") return void 0;
-          text = record.text;
-        }
-      }
-      return text !== void 0 && previewText(text) ? text : void 0;
+      if (view === "library" && reference.source === "library")
+        return eligiblePreview(await freshLibraryPreview(agentDir, reference));
+      if (view === "vacancy" && reference.source === "vacancy" || view === "analyze" && reference.source === "original" || view === "match" && reference.source === "effective")
+        return eligiblePreview(await freshAttachedPreview(agentDir, ctx, reference));
+      return void 0;
     } catch {
       return void 0;
     }
@@ -8772,24 +8782,27 @@ var CareerUiSession = class {
   get canSelectOriginal() {
     return this.pane.canSelectOriginal === true && this.actions.selectOriginal !== void 0 && !this.busyFlag;
   }
-  rpcActions() {
+  actionEntries() {
     return [
-      ...this.canAttach ? [CAREER_UI_RPC_ACTIONS.attach] : [],
-      ...this.canCreate ? [CAREER_UI_RPC_ACTIONS.create] : [],
-      ...this.canAddRoot ? [CAREER_UI_RPC_ACTIONS.addRoot] : [],
-      ...this.canRemoveRoot ? [CAREER_UI_RPC_ACTIONS.removeRoot] : [],
-      ...this.canRescan ? [CAREER_UI_RPC_ACTIONS.rescan] : [],
-      ...this.canAnalyze ? [CAREER_UI_RPC_ACTIONS.analyze] : [],
-      ...this.canMatch ? [CAREER_UI_RPC_ACTIONS.match] : [],
-      ...this.canEditVacancy ? [CAREER_UI_RPC_ACTIONS.editVacancy] : [],
-      ...this.canUpdateStatus ? [CAREER_UI_RPC_ACTIONS.updateStatus] : [],
-      ...this.canWorkspace ? [CAREER_UI_RPC_ACTIONS.workspace] : [],
-      ...this.canAskPi ? [CAREER_UI_RPC_ACTIONS.askPi] : [],
-      ...this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : [],
-      ...this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : [],
-      ...this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : [],
-      ...this.canPreview ? [CAREER_UI_RPC_ACTIONS.preview] : []
+      [CAREER_UI_RPC_ACTIONS.attach, this.canAttach, () => this.attach()],
+      [CAREER_UI_RPC_ACTIONS.create, this.canCreate, () => this.createApplication()],
+      [CAREER_UI_RPC_ACTIONS.addRoot, this.canAddRoot, () => this.addRoot()],
+      [CAREER_UI_RPC_ACTIONS.removeRoot, this.canRemoveRoot, () => this.removeRoot()],
+      [CAREER_UI_RPC_ACTIONS.rescan, this.canRescan, () => this.rescan()],
+      [CAREER_UI_RPC_ACTIONS.analyze, this.canAnalyze, () => this.analyze()],
+      [CAREER_UI_RPC_ACTIONS.match, this.canMatch, () => this.match()],
+      [CAREER_UI_RPC_ACTIONS.editVacancy, this.canEditVacancy, () => this.editVacancy()],
+      [CAREER_UI_RPC_ACTIONS.updateStatus, this.canUpdateStatus, () => this.updateStatus()],
+      [CAREER_UI_RPC_ACTIONS.workspace, this.canWorkspace, () => this.workspace()],
+      [CAREER_UI_RPC_ACTIONS.askPi, this.canAskPi, () => this.askPi()],
+      [CAREER_UI_RPC_ACTIONS.detach, this.canDetach, () => this.detach()],
+      [CAREER_UI_RPC_ACTIONS.clearVacancy, this.canClearVacancy, () => this.clearVacancy()],
+      [CAREER_UI_RPC_ACTIONS.selectOriginal, this.canSelectOriginal, () => this.selectOriginal()],
+      [CAREER_UI_RPC_ACTIONS.preview, this.canPreview, () => this.openPreview()]
     ];
+  }
+  rpcActions() {
+    return this.actionEntries().filter(([, enabled]) => enabled).map(([label]) => label);
   }
   switchView(view) {
     if (this.busyFlag) return;
@@ -8940,22 +8953,8 @@ var CareerUiSession = class {
     return this.runBound(this.canSelectOriginal, action);
   }
   async runRpcAction(choice) {
-    if (choice === CAREER_UI_RPC_ACTIONS.preview) return this.openPreview();
-    if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
-    if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
-    if (choice === CAREER_UI_RPC_ACTIONS.removeRoot) return this.removeRoot();
-    if (choice === CAREER_UI_RPC_ACTIONS.rescan) return this.rescan();
-    if (choice === CAREER_UI_RPC_ACTIONS.create) return this.createApplication();
-    if (choice === CAREER_UI_RPC_ACTIONS.analyze) return this.analyze();
-    if (choice === CAREER_UI_RPC_ACTIONS.match) return this.match();
-    if (choice === CAREER_UI_RPC_ACTIONS.editVacancy) return this.editVacancy();
-    if (choice === CAREER_UI_RPC_ACTIONS.updateStatus) return this.updateStatus();
-    if (choice === CAREER_UI_RPC_ACTIONS.workspace) return this.workspace();
-    if (choice === CAREER_UI_RPC_ACTIONS.askPi) return this.askPi();
-    if (choice === CAREER_UI_RPC_ACTIONS.detach) return this.detach();
-    if (choice === CAREER_UI_RPC_ACTIONS.clearVacancy) return this.clearVacancy();
-    if (choice === CAREER_UI_RPC_ACTIONS.selectOriginal) return this.selectOriginal();
-    return false;
+    const action = this.actionEntries().find(([label]) => label === choice);
+    return action === void 0 ? false : action[2]();
   }
 };
 function uniqueItemOptions(items) {
@@ -8978,59 +8977,52 @@ async function switchViewRpc(ctx, session) {
   const view = index < 0 ? void 0 : CAREER_UI_VIEWS[index];
   if (view !== void 0) session.switchView(view);
 }
-async function runCareerUiRpc(ctx, session) {
-  while (true) {
-    if (!session.showingDetail) {
-      const options = uniqueItemOptions(session.pane.items);
-      const choice2 = await ctx.ui.select(
-        `${viewTitle(session.view)}
-${session.pane.intro}`,
-        [
-          ...options.keys(),
-          ...session.rpcActions(),
-          CAREER_UI_RPC_ACTIONS.switchView,
-          CAREER_UI_RPC_ACTIONS.close
-        ]
-      );
-      if (choice2 === void 0 || choice2 === CAREER_UI_RPC_ACTIONS.close) {
-        session.cancelPreview();
-        return;
-      }
-      if (choice2 === CAREER_UI_RPC_ACTIONS.switchView) {
-        await switchViewRpc(ctx, session);
-        continue;
-      }
-      if (session.rpcActions().includes(choice2)) {
-        await session.runRpcAction(choice2);
-        continue;
-      }
-      const entry = options.get(choice2);
-      if (entry === void 0) return;
-      session.openItem(entry);
-      continue;
-    }
-    const selected = session.selected;
-    const choice = await ctx.ui.select(session.preview === void 0 ? `${selected?.detail ?? session.pane.intro}${session.previewError === void 0 ? "" : `
+async function rpcListStep(ctx, session) {
+  const options = uniqueItemOptions(session.pane.items);
+  const choice = await ctx.ui.select(`${viewTitle(session.view)}
+${session.pane.intro}`, [
+    ...options.keys(),
+    ...session.rpcActions(),
+    CAREER_UI_RPC_ACTIONS.switchView,
+    CAREER_UI_RPC_ACTIONS.close
+  ]);
+  if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close) {
+    session.cancelPreview();
+    return false;
+  }
+  if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
+    await switchViewRpc(ctx, session);
+  } else if (session.rpcActions().includes(choice)) {
+    await session.runRpcAction(choice);
+  } else {
+    const entry = options.get(choice);
+    if (entry === void 0) return false;
+    session.openItem(entry);
+  }
+  return true;
+}
+async function rpcDetailStep(ctx, session) {
+  const preview = session.preview;
+  const selected = session.selected;
+  const choice = await ctx.ui.select(preview === void 0 ? `${selected?.detail ?? session.pane.intro}${session.previewError === void 0 ? "" : `
 ${session.previewError}`}` : `Local document preview (exact text; close with Back)
-${session.preview}`, [
-      CAREER_UI_RPC_ACTIONS.back,
-      ...session.preview === void 0 ? session.rpcActions() : [],
-      CAREER_UI_RPC_ACTIONS.switchView,
-      CAREER_UI_RPC_ACTIONS.close
-    ]);
-    if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close) {
-      session.cancelPreview();
-      return;
-    }
-    if (choice === CAREER_UI_RPC_ACTIONS.back) {
-      session.back();
-      continue;
-    }
-    if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
-      await switchViewRpc(ctx, session);
-      continue;
-    }
-    if (session.preview === void 0 && session.rpcActions().includes(choice)) await session.runRpcAction(choice);
+${preview}`, [
+    CAREER_UI_RPC_ACTIONS.back,
+    ...preview === void 0 ? session.rpcActions() : [],
+    CAREER_UI_RPC_ACTIONS.switchView,
+    CAREER_UI_RPC_ACTIONS.close
+  ]);
+  if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close) {
+    session.cancelPreview();
+    return false;
+  }
+  if (choice === CAREER_UI_RPC_ACTIONS.back) session.back();
+  else if (choice === CAREER_UI_RPC_ACTIONS.switchView) await switchViewRpc(ctx, session);
+  else if (session.preview === void 0 && session.rpcActions().includes(choice)) await session.runRpcAction(choice);
+  return true;
+}
+async function runCareerUiRpc(ctx, session) {
+  while (await (session.showingDetail ? rpcDetailStep(ctx, session) : rpcListStep(ctx, session))) {
   }
 }
 function rule(theme, width) {
@@ -9104,6 +9096,46 @@ var CareerOverlay = class {
   get currentItem() {
     return this.session.selected;
   }
+  handlePreviewInput(data) {
+    if (this.keybindings.matches(data, "tui.select.up") || matchesKey2(data, Key2.up)) {
+      this.previewPage = Math.max(0, this.previewPage - 1);
+      this.requestRender();
+    } else if (this.keybindings.matches(data, "tui.select.down") || matchesKey2(data, Key2.down)) {
+      this.previewPage++;
+      this.requestRender();
+    }
+  }
+  renderPreview(text, width) {
+    const lines = exactPreviewLines(text, width, (value) => this.theme.fg("text", value));
+    const pages = Math.max(1, Math.ceil((lines?.length ?? 0) / 6));
+    this.previewPage = Math.min(this.previewPage, pages - 1);
+    if (lines === void 0) return ["", truncateToWidth2(this.theme.fg("muted", "Preview unavailable at this width; widen terminal"), width)];
+    return [
+      "",
+      truncateToWidth2(this.theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${pages} · exact text, soft-wrapped`), width),
+      ...lines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)
+    ];
+  }
+  keyedAction(key) {
+    const entries = [
+      ["v", this.session.canPreview, () => this.session.openPreview()],
+      ["a", this.session.canAttach, () => this.session.attach()],
+      ["n", this.session.canAddRoot, () => this.session.addRoot()],
+      ["x", this.session.canRemoveRoot, () => this.session.removeRoot()],
+      ["r", this.session.canRescan, () => this.session.rescan()],
+      ["c", this.session.canCreate, () => this.session.createApplication()],
+      ["g", this.session.canAnalyze, () => this.session.analyze()],
+      ["g", this.session.canMatch, () => this.session.match()],
+      ["e", this.session.canEditVacancy, () => this.session.editVacancy()],
+      ["s", this.session.canUpdateStatus, () => this.session.updateStatus()],
+      ["m", this.session.canWorkspace, () => this.session.workspace()],
+      ["p", this.session.canAskPi, () => this.session.askPi()],
+      ["d", this.session.canDetach, () => this.session.detach()],
+      ["k", this.session.canClearVacancy, () => this.session.clearVacancy()],
+      ["o", this.session.canSelectOriginal, () => this.session.selectOriginal()]
+    ];
+    return entries.find(([name, enabled]) => name === key && enabled)?.[2]();
+  }
   handleInput(data) {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
       if (this.session.showingDetail && !this.session.busy) {
@@ -9118,13 +9150,7 @@ var CareerOverlay = class {
     }
     if (this.session.busy) return;
     if (this.session.preview !== void 0) {
-      if (this.keybindings.matches(data, "tui.select.up") || matchesKey2(data, Key2.up)) {
-        this.previewPage = Math.max(0, this.previewPage - 1);
-        this.requestRender();
-      } else if (this.keybindings.matches(data, "tui.select.down") || matchesKey2(data, Key2.down)) {
-        this.previewPage++;
-        this.requestRender();
-      }
+      this.handlePreviewInput(data);
       return;
     }
     const index = Number.parseInt(data, 10);
@@ -9135,7 +9161,7 @@ var CareerOverlay = class {
       return;
     }
     const key = data.length === 1 ? data.toLowerCase() : data;
-    const keyed = key === "v" && this.session.canPreview ? this.session.openPreview() : key === "a" && this.session.canAttach ? this.session.attach() : key === "n" && this.session.canAddRoot ? this.session.addRoot() : key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() : key === "r" && this.session.canRescan ? this.session.rescan() : key === "c" && this.session.canCreate ? this.session.createApplication() : key === "g" && this.session.canAnalyze ? this.session.analyze() : key === "g" && this.session.canMatch ? this.session.match() : key === "e" && this.session.canEditVacancy ? this.session.editVacancy() : key === "s" && this.session.canUpdateStatus ? this.session.updateStatus() : key === "m" && this.session.canWorkspace ? this.session.workspace() : key === "p" && this.session.canAskPi ? this.session.askPi() : key === "d" && this.session.canDetach ? this.session.detach() : key === "k" && this.session.canClearVacancy ? this.session.clearVacancy() : key === "o" && this.session.canSelectOriginal ? this.session.selectOriginal() : void 0;
+    const keyed = this.keyedAction(key);
     if (keyed !== void 0) {
       void keyed.finally(() => this.requestRender());
       return;
@@ -9155,24 +9181,8 @@ var CareerOverlay = class {
       if (this.session.open()) this.requestRender();
     }
   }
-  render(width) {
-    const renderWidth = Math.max(1, width);
-    const theme = this.theme;
-    const view = this.session.view;
-    const pane = this.session.pane;
-    const selected = this.session.selected;
-    const header = `${theme.bold(theme.fg("accent", "◆  Career"))}${theme.fg("dim", "  ·  ")}${theme.bold(theme.fg("accent", CAREER_UI_VIEW_LABELS[view]))}${theme.fg("dim", `  ${VIEW_MARKS[view]}`)}`;
-    const fullChips = CAREER_UI_VIEWS.map((name, index) => {
-      const chip = `${index + 1} ${VIEW_MARKS[name]} ${CAREER_UI_VIEW_LABELS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    });
-    const compactChips = CAREER_UI_VIEWS.map((name, index) => {
-      const chip = `${index + 1}${VIEW_MARKS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    });
-    const fullNav = packChips(fullChips, renderWidth);
-    const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
-    const hints = [
+  footerHints() {
+    return [
       ...this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"],
       ...this.session.canPreview ? ["v preview locally"] : [],
       ...this.session.preview !== void 0 ? ["↑↓ preview pages · soft-wrapped"] : [],
@@ -9192,15 +9202,27 @@ var CareerOverlay = class {
       ...this.session.canSelectOriginal ? ["o original"] : [],
       "1-8 view"
     ];
-    const footer = hints.join("   ");
-    const previewLines = this.session.preview === void 0 ? void 0 : exactPreviewLines(this.session.preview, renderWidth, (text) => theme.fg("text", text));
-    const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
-    this.previewPage = Math.min(this.previewPage, previewPages - 1);
-    const body = this.session.preview !== void 0 && previewLines === void 0 ? ["", truncateToWidth2(theme.fg("muted", "Preview unavailable at this width; widen terminal"), renderWidth)] : previewLines !== void 0 ? [
-      "",
-      truncateToWidth2(theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`), renderWidth),
-      ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)
-    ] : this.session.showingDetail && selected !== void 0 ? [
+  }
+  render(width) {
+    const renderWidth = Math.max(1, width);
+    const theme = this.theme;
+    const view = this.session.view;
+    const pane = this.session.pane;
+    const selected = this.session.selected;
+    const header = `${theme.bold(theme.fg("accent", "◆  Career"))}${theme.fg("dim", "  ·  ")}${theme.bold(theme.fg("accent", CAREER_UI_VIEW_LABELS[view]))}${theme.fg("dim", `  ${VIEW_MARKS[view]}`)}`;
+    const fullChips = CAREER_UI_VIEWS.map((name, index) => {
+      const chip = `${index + 1} ${VIEW_MARKS[name]} ${CAREER_UI_VIEW_LABELS[name]}`;
+      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    });
+    const compactChips = CAREER_UI_VIEWS.map((name, index) => {
+      const chip = `${index + 1}${VIEW_MARKS[name]}`;
+      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    });
+    const fullNav = packChips(fullChips, renderWidth);
+    const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
+    const footer = this.footerHints().join("   ");
+    if (this.session.preview === void 0) this.previewPage = 0;
+    const body = this.session.preview !== void 0 ? this.renderPreview(this.session.preview, renderWidth) : this.session.showingDetail && selected !== void 0 ? [
       "",
       ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
       ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
