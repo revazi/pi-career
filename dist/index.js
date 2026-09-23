@@ -7206,8 +7206,10 @@ var CareerRunEngine = class {
     this.preparePrivateCommand(params, ctx);
     const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
     const vacancy = await resolveVacancy(this.options.agentDir, ctx);
+    const current = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    if (current.id !== resume.id || current.text_sha256 !== resume.text_sha256 || current.text !== resume.text) throw careerRunError("resume_not_found");
     const invocation = await this.options.invoke(
-      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(current, vacancy)) },
       signal,
       MANAGED_INVOKE_OPTIONS
     );
@@ -9187,10 +9189,10 @@ function retainOversizeFailure(error, resume, unavailable) {
   unavailable.set(resume.id, { resume, code });
   return true;
 }
-async function executeMatchQueue(dependencies, resumes, vacancy, signal) {
+async function executeMatchQueue(dependencies, resumes, vacancy, signal, freshSources) {
   const unavailable = /* @__PURE__ */ new Map();
   const normalized = await dependencies.invoke(
-    { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput(vacancy)) },
+    { kind: "job", operation: "normalize", inputJson: serializeCoreInput(buildJobInput((await freshSources()).vacancy)) },
     signal
   );
   if (parseCoreJson(normalized.json).schema_version !== "career.job_normalization.v1") {
@@ -9200,7 +9202,7 @@ async function executeMatchQueue(dependencies, resumes, vacancy, signal) {
     if (signal.aborted) throw workflowError("workflow_cancelled");
     try {
       const invocation = await dependencies.invoke(
-        { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+        { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput((await freshSources()).resume)) },
         signal
       );
       projectResumeAnalysis(parseCoreJson(invocation.json));
@@ -9212,8 +9214,9 @@ async function executeMatchQueue(dependencies, resumes, vacancy, signal) {
   for (const resume of resumes) {
     if (signal.aborted) throw workflowError("workflow_cancelled");
     try {
+      const fresh = await freshSources();
       const invocation = await dependencies.invoke(
-        { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+        { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(fresh.resume, fresh.vacancy)) },
         signal
       );
       const result = parseCoreJson(invocation.json);
@@ -9254,6 +9257,12 @@ function registerCareerCommands(pi, options = {}) {
     ctx.sessionManager.getBranch(),
     ctx.sessionManager.getEntries()
   );
+  const freshOriginal = async (expected) => {
+    const { scan } = await loadLibrary(dependencies);
+    const current = eligibleOriginals(scan).find((record) => record.id === expected.id);
+    if (current === void 0 || current.root_id !== expected.root_id || current.format !== expected.format || current.text_sha256 !== expected.text_sha256 || sha256(current.text) !== expected.text_sha256) throw workflowError("workspace_drift");
+    return current;
+  };
   const ensureConsent = async (ctx, run) => {
     if (!persisted2(ctx)) {
       if (transientNoticeSession !== run.sessionId) {
@@ -9450,13 +9459,19 @@ Application context is session-scoped; no workspace files were created.`,
         let result;
         try {
           result = await runOperation(ctx, owner, run, "Running deterministic resume analysis…", async (signal) => {
+            let current;
             if (attached !== void 0) {
               const fresh = await attachedSources(ctx);
               owner.assert(run, ctx);
-              if (fresh?.application_id !== attached.application_id || fresh.selected_original?.text_sha256 !== resume.text_sha256 || fresh.selected_original?.id !== resume.id) throw workflowError("workspace_drift");
+              if (fresh?.application_id !== attached.application_id || fresh.selected_original?.text_sha256 !== resume.text_sha256 || fresh.selected_original?.id !== resume.id || fresh.selected_original === void 0 || sha256(fresh.selected_original.text) !== resume.text_sha256) throw workflowError("workspace_drift");
+              current = fresh.selected_original;
+            } else {
+              current = await freshOriginal(resume);
             }
+            owner.assert(run, ctx);
+            if (signal.aborted) throw workflowError("workflow_cancelled");
             const invocation = await dependencies.invoke(
-              { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(resume)) },
+              { kind: "resume", operation: "analyze", inputJson: serializeCoreInput(buildResumeInput(current)) },
               signal
             );
             return parseCoreJson(invocation.json);
@@ -9513,20 +9528,35 @@ Application context is session-scoped; no workspace files were created.`,
           selected = [resume];
         }
         await ensureConsent(ctx, run);
+        const expectedResume = selected[0];
         const queue = await runOperation(
           ctx,
           owner,
           run,
           "Running deterministic career match queue…",
           async (signal) => {
-            if (attached !== void 0) {
-              const fresh = await attachedSources(ctx);
-              owner.assert(run, ctx);
-              if (fresh?.application_id !== attached.application_id || fresh.effective_resume?.text_sha256 !== selected[0]?.text_sha256 || fresh.effective_resume?.id !== selected[0]?.id || fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) {
-                throw workflowError("workspace_drift");
+            const freshSources = async () => {
+              let current;
+              let currentVacancy;
+              if (attached !== void 0) {
+                const fresh = await attachedSources(ctx);
+                if (fresh?.application_id !== attached.application_id || fresh.effective_resume?.text_sha256 !== expectedResume.text_sha256 || fresh.effective_resume?.id !== expectedResume.id || fresh.vacancy?.vacancy_text_sha256 !== vacancy.vacancy_text_sha256 || fresh.effective_resume === void 0 || fresh.vacancy === void 0) {
+                  throw workflowError("workspace_drift");
+                }
+                current = fresh.effective_resume;
+                currentVacancy = fresh.vacancy;
+              } else {
+                current = await freshOriginal(expectedResume);
+                const fresh = reconstructWorkflowState(ctx.sessionManager.getBranch()).vacancy;
+                if (fresh === void 0 || fresh.state_id !== vacancy.state_id || fresh.vacancy_text_sha256 !== vacancy.vacancy_text_sha256) throw workflowError("workspace_drift");
+                currentVacancy = fresh;
               }
-            }
-            return executeMatchQueue(dependencies, selected, vacancy, signal);
+              owner.assert(run, ctx);
+              if (signal.aborted) throw workflowError("workflow_cancelled");
+              if (sha256(current.text) !== expectedResume.text_sha256 || sha256(currentVacancy.vacancy_text) !== vacancy.vacancy_text_sha256) throw workflowError("workspace_drift");
+              return { resume: current, vacancy: currentVacancy };
+            };
+            return executeMatchQueue(dependencies, selected, vacancy, signal, freshSources);
           }
         );
         const ranked = rankMatches(queue.matches);

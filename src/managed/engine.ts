@@ -707,8 +707,13 @@ export class CareerRunEngine {
     this.preparePrivateCommand(params, ctx);
     const resume = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
     const vacancy = await resolveVacancy(this.options.agentDir, ctx);
+    // Vacancy resolution can yield after the handle scan; reject changed source
+    // instead of submitting the previously captured resume bytes.
+    const current = await resolveResume(this.options.agentDir, ctx, this.registry, params.handle, "match");
+    if (current.id !== resume.id || current.text_sha256 !== resume.text_sha256 ||
+      current.text !== resume.text) throw careerRunError("resume_not_found");
     const invocation = await this.options.invoke(
-      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(resume, vacancy)) },
+      { kind: "job", operation: "match", inputJson: serializeCoreInput(buildJobMatchInput(current, vacancy)) },
       signal,
       MANAGED_INVOKE_OPTIONS,
     );
