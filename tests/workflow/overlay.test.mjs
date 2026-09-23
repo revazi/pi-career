@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
+import { ApplicationWorkspaceWorkflow, selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
@@ -16,7 +16,9 @@ import {
   CAREER_UI_RPC_ACTIONS,
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
+  CareerUiSession,
   buildCareerUiModel,
+  careerPreviewLoader,
 } from "../../src/workflow/career-ui.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import { encodeAssistedVariantMetadataV2, encodeManagedVariantsMarker } from "../../src/workflow/variant-metadata.ts";
@@ -782,6 +784,110 @@ test("RPC overlay binds an attached selected original without calling Core", asy
     assert.equal(selectedState.selected_original.format, "markdown");
     assert.equal(value.calls.length, 0);
     assert.ok(bound.notifications.some(({ message }) => message.includes("no original bytes were copied or changed")));
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("attached original and effective original need explicit RPC preview after authority validation", async () => {
+  const value = await catalogFixture("pi-career-attached-preview-");
+  try {
+    registerCareerCommands(value.fake.api, {
+      agentDir: value.agentDir, uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        value.calls.push(invocation);
+        if (invocation.operation === "normalize") return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+        throw new Error("preview must not call Core");
+      },
+    });
+    await value.fake.commands.get("career").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];
+    await value.fake.commands.get("career-analyze").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, selectedOriginalOptions([original])[0].option, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    const entries = JSON.stringify(value.fake.entries);
+    const calls = value.calls.length;
+    for (const [command, body, label] of [
+      ["career-analyze", original.text, "Selected original"],
+      ["career-match", original.text, "Effective Resume (original)"],
+    ]) {
+      const dialogs = [];
+      const rpc = makeContext(value.fake, { mode: "rpc", persisted: false });
+      rpc.ctx.sendMessage = () => assert.fail("preview cannot send");
+      rpc.ctx.sendUserMessage = () => assert.fail("preview cannot send");
+      const choices = [null, CAREER_UI_RPC_ACTIONS.preview, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.close];
+      rpc.ctx.ui.select = async (title, options) => {
+        dialogs.push([title, options]);
+        const next = choices.shift();
+        return next === null ? options.find((option) => option.includes(original.label)) : next;
+      };
+      await value.fake.commands.get(command).handler("", rpc.ctx);
+      assert.equal(dialogs.length, 4);
+      assert.ok(dialogs[1][0].includes(label));
+      assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
+      assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), body);
+      assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("Built reliable")));
+      assert.equal(rpc.customCalls, 0);
+      assert.deepEqual(rpc.notifications, []);
+    }
+    assert.equal(value.calls.length, calls);
+    assert.equal(JSON.stringify(value.fake.entries), entries);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("attached vacancy preview reads only the exact revalidated workspace text", async () => {
+  const value = await catalogFixture("pi-career-preview-vacancy-");
+  try {
+    await value.fake.commands.get("career").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    const vacancyText = "Synthetic vacancy PRIVATE_VACANCY_BODY";
+    const workspace = new ApplicationWorkspaceWorkflow({ agentDir: value.agentDir,
+      uuid: uuidSequence(), now: () => new Date("2026-08-12T00:00:00.000Z") });
+    const write = makeContext(value.fake, { mode: "rpc", persisted: false,
+      editors: [(_title, preview) => preview], confirms: [true] });
+    assert.equal(await workspace.writeAttachedVacancy(write.ctx, vacancyText), "written");
+    const beforeEntries = JSON.stringify(value.fake.entries);
+    const calls = value.calls.length;
+    const dialogs = [];
+    const rpc = makeContext(value.fake, { mode: "rpc", persisted: false });
+    rpc.ctx.sendMessage = () => assert.fail("preview cannot send");
+    rpc.ctx.sendUserMessage = () => assert.fail("preview cannot send");
+    const choices = [null, CAREER_UI_RPC_ACTIONS.preview, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.close];
+    rpc.ctx.ui.select = async (title, options) => {
+      dialogs.push([title, options]);
+      const next = choices.shift();
+      return next === null ? options.find((option) => option === "Current job description") : next;
+    };
+    await value.fake.commands.get("career-vacancy").handler("", rpc.ctx);
+    assert.equal(dialogs.length, 4);
+    assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
+    assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("PRIVATE_VACANCY_BODY")));
+    assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), vacancyText);
+    assert.equal(value.calls.length, calls);
+    assert.equal(JSON.stringify(value.fake.entries), beforeEntries);
+    assert.deepEqual(rpc.notifications, []);
+    const model = await buildCareerUiModel(value.agentDir, rpc.ctx);
+    const session = new CareerUiSession("vacancy", model, {}, undefined, careerPreviewLoader(value.agentDir, rpc.ctx));
+    assert.equal(session.open(), true);
+    const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
+    assert.ok(applicationName);
+    const vacancyFile = path.join(value.root, applicationName, "vacancy-000002.md");
+    await writeFile(vacancyFile, `${vacancyText} changed`);
+    assert.equal(await session.openPreview(), false);
+    assert.equal(session.preview, undefined);
+    assert.match(session.previewError, /unavailable or changed/);
+    assert.doesNotMatch(session.previewError, /PRIVATE_VACANCY_BODY/);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }

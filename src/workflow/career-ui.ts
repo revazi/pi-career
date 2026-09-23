@@ -11,6 +11,7 @@ import {
 import { loadConfig } from "./config.ts";
 import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
+import type { ResumeRecord } from "./types.ts";
 import { replayApplicationSessionRecords, type ApplicationAttachmentPointer } from "./session-attachment.ts";
 import { reconstructWorkflowState, workspaceApplicationIdentity } from "./session-state.ts";
 
@@ -79,6 +80,7 @@ export const CAREER_UI_RPC_ACTIONS = {
   detach: "Detach",
   clearVacancy: "Clear job description",
   selectOriginal: "Select original resume",
+  preview: "Preview document (local only)",
 } as const;
 
 export interface CareerUiItem {
@@ -86,6 +88,8 @@ export interface CareerUiItem {
   label: string;
   detail: string;
   pointer?: ApplicationAttachmentPointer;
+  /** In-memory identity only; never rendered in list/detail or persisted. */
+  preview?: { source: "library" | "vacancy" | "original" | "effective"; digest: string; id: string; rootId?: string; format?: string };
 }
 
 export interface CareerUiPane {
@@ -124,6 +128,57 @@ function item(
   pointer?: ApplicationAttachmentPointer,
 ): CareerUiItem {
   return pointer === undefined ? { id, label, detail } : { id, label, detail, pointer };
+}
+
+function resumePreview(source: "library" | "original" | "effective", record: ResumeRecord): NonNullable<CareerUiItem["preview"]> {
+  return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
+}
+
+// The RPC select title is also a UI surface: reject instead of silently clipping exact text.
+const PREVIEW_MAX_BYTES = 12_000;
+function previewText(text: string): boolean {
+  return Buffer.byteLength(text, "utf8") <= PREVIEW_MAX_BYTES &&
+    !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(text);
+}
+
+export function careerPreviewLoader(agentDir: string, ctx: ExtensionCommandContext) {
+  return async (view: CareerUiView, reference: NonNullable<CareerUiItem["preview"]>): Promise<string | undefined> => {
+    try {
+      let text: string | undefined;
+      if (view === "library" && reference.source === "library") {
+        const scan = await scanLibrary(await loadConfig(agentDir));
+        const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+        if (scan.total_capped || root === undefined || root.capped || root.stale) return undefined;
+        const matches = scan.records.filter((record) => record.kind === "original" &&
+          record.id === reference.id && record.root_id === reference.rootId && record.format === reference.format &&
+          record.text_sha256 === reference.digest && record.too_large_for_core_input !== true);
+        if (matches.length !== 1) return undefined;
+        text = matches[0]?.text;
+      } else if ((view === "vacancy" && reference.source === "vacancy") ||
+        (view === "analyze" && reference.source === "original") ||
+        (view === "match" && reference.source === "effective")) {
+        const attached = await attachedApplicationSourcesForSession(
+          agentDir, ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries(),
+        );
+        const record = reference.source === "original" ? attached?.selected_original : attached?.effective_resume;
+        if (reference.source === "vacancy") {
+          if (attached?.vacancy?.vacancy_text_sha256 !== reference.digest ||
+            attached.application_id !== reference.id) return undefined;
+          text = attached.vacancy.vacancy_text;
+        } else {
+          if (record === undefined || record.id !== reference.id || record.root_id !== reference.rootId ||
+            record.format !== reference.format || record.text_sha256 !== reference.digest ||
+            record.too_large_for_core_input === true ||
+            (reference.source === "original" && record.kind !== "original") ||
+            (reference.source === "effective" && record.kind !== "original" && record.kind !== "assisted_variant")) return undefined;
+          text = record.text;
+        }
+      }
+      return text !== undefined && previewText(text) ? text : undefined;
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 function emptyCursors(): Record<CareerUiView, number> {
@@ -173,11 +228,10 @@ export async function buildCareerUiModel(
           ...(record.kind === "assisted_variant" ? ["assisted variant"] : []),
           ...(record.too_large_for_core_input === true ? ["too large"] : []),
         ].join(" • ");
-        return item(
-          record.id,
-          `${record.label} — ${badges}`,
-          `${record.label}\n${badges}\nOverlay browse does not analyze or attach this resume.`,
-        );
+        const row = item(record.id, `${record.label} — ${badges}`,
+          `${record.label}\n${badges}\nOverlay browse does not analyze or attach this resume.`);
+        if (record.kind === "original" && record.too_large_for_core_input !== true) row.preview = resumePreview("library", record);
+        return row;
       }),
     };
     const workspace = config.application_workspace;
@@ -222,7 +276,8 @@ export async function buildCareerUiModel(
         intro: `${heading}\n${pack}`,
         items: attached.vacancy === undefined
           ? []
-          : [item("vacancy", attached.vacancy.vacancy_label, `${heading}\nCurrent job description: ${attached.vacancy.vacancy_label}\nBrowse does not replace workspace files.`)],
+          : [{ ...item("vacancy", "Current job description", `${heading}\nCurrent job description is ready. Browse does not replace workspace files.`),
+            preview: { source: "vacancy", id: attached.application_id, digest: attached.vacancy.vacancy_text_sha256 } }],
       };
       if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\n${pack}\nNo current job description. Press e to paste one.`;
       empty.match = {
@@ -230,7 +285,8 @@ export async function buildCareerUiModel(
         canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === undefined
           ? []
-          : [item("effective", attached.effective_resume.label, `${heading}\nEffective Resume: ${attached.effective_resume.label}\nMatch is not run by opening this view.`)],
+          : [{ ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}\nEffective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}\nMatch is not run by opening this view.`),
+            preview: resumePreview("effective", attached.effective_resume) }],
       };
       if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.`;
       empty.analyze = {
@@ -238,7 +294,8 @@ export async function buildCareerUiModel(
         canSelectOriginal: attached.can_select_original,
         items: attached.selected_original === undefined
           ? []
-          : [item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`)],
+          : [{ ...item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`),
+            preview: resumePreview("original", attached.selected_original) }],
       };
       if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\n${pack}\nNo selected original Resume is available.`;
       empty.workbench = {
@@ -302,6 +359,9 @@ export class CareerUiSession {
   private current: CareerUiView;
   private readonly cursors: Record<CareerUiView, number>;
   private detail = false;
+  private previewBody: string | undefined;
+  private previewFailed = false;
+  private previewGeneration = 0;
   private busyFlag = false;
   private model: CareerUiModel;
 
@@ -310,6 +370,7 @@ export class CareerUiSession {
     model: CareerUiModel,
     private readonly actions: CareerUiActions = {},
     private readonly reloadModel?: () => Promise<CareerUiModel>,
+    private readonly loadPreview?: (view: CareerUiView, reference: NonNullable<CareerUiItem["preview"]>) => Promise<string | undefined>,
   ) {
     this.current = view;
     this.model = model;
@@ -322,6 +383,25 @@ export class CareerUiSession {
 
   get showingDetail(): boolean {
     return this.detail;
+  }
+
+  get preview(): string | undefined {
+    return this.previewBody;
+  }
+
+  get previewError(): string | undefined {
+    return this.previewFailed ? "Document preview unavailable or changed. Refresh and try again." : undefined;
+  }
+
+  cancelPreview(): void {
+    this.previewGeneration++;
+    this.previewBody = undefined;
+    this.previewFailed = false;
+  }
+
+  get canPreview(): boolean {
+    return this.detail && this.previewBody === undefined && this.selected?.preview !== undefined &&
+      this.loadPreview !== undefined && !this.busyFlag;
   }
 
   get cursor(): number {
@@ -412,12 +492,15 @@ export class CareerUiSession {
       ...(this.canDetach ? [CAREER_UI_RPC_ACTIONS.detach] : []),
       ...(this.canClearVacancy ? [CAREER_UI_RPC_ACTIONS.clearVacancy] : []),
       ...(this.canSelectOriginal ? [CAREER_UI_RPC_ACTIONS.selectOriginal] : []),
+      ...(this.canPreview ? [CAREER_UI_RPC_ACTIONS.preview] : []),
     ];
   }
 
   switchView(view: CareerUiView): void {
+    if (this.busyFlag) return;
     this.current = view;
     this.detail = false;
+    this.cancelPreview();
   }
 
   move(delta: number): void {
@@ -434,6 +517,7 @@ export class CareerUiSession {
   open(): boolean {
     if (this.busyFlag || this.detail || this.selected === undefined) return false;
     this.detail = true;
+    this.cancelPreview();
     return true;
   }
 
@@ -445,8 +529,13 @@ export class CareerUiSession {
   }
 
   back(): "list" | "close" {
+    if (this.previewBody !== undefined) {
+      this.cancelPreview();
+      return "list";
+    }
     if (this.detail) {
       this.detail = false;
+      this.cancelPreview();
       return "list";
     }
     return "close";
@@ -460,6 +549,32 @@ export class CareerUiSession {
       if (ok === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
       return ok === true;
     } catch {
+      return false;
+    } finally {
+      this.busyFlag = false;
+    }
+  }
+
+  async openPreview(): Promise<boolean> {
+    if (!this.canPreview || this.loadPreview === undefined) return false;
+    const reference = this.selected?.preview;
+    if (reference === undefined) return false;
+    const view = this.current;
+    const generation = ++this.previewGeneration;
+    this.previewFailed = false;
+    this.busyFlag = true;
+    try {
+      const text = await this.loadPreview(view, reference);
+      if (generation !== this.previewGeneration) return false;
+      if (text === undefined || !previewText(text) || this.current !== view ||
+        this.selected?.preview !== reference || !this.detail) {
+        this.previewFailed = true;
+        return false;
+      }
+      this.previewBody = text;
+      return true;
+    } catch {
+      if (generation === this.previewGeneration) this.previewFailed = true;
       return false;
     } finally {
       this.busyFlag = false;
@@ -553,6 +668,7 @@ export class CareerUiSession {
   }
 
   async runRpcAction(choice: string): Promise<boolean> {
+    if (choice === CAREER_UI_RPC_ACTIONS.preview) return this.openPreview();
     if (choice === CAREER_UI_RPC_ACTIONS.attach) return this.attach();
     if (choice === CAREER_UI_RPC_ACTIONS.addRoot) return this.addRoot();
     if (choice === CAREER_UI_RPC_ACTIONS.removeRoot) return this.removeRoot();
@@ -609,7 +725,10 @@ export async function runCareerUiRpc(
           CAREER_UI_RPC_ACTIONS.close,
         ],
       );
-      if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) return;
+      if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) {
+        session.cancelPreview();
+        return;
+      }
       if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
         await switchViewRpc(ctx, session);
         continue;
@@ -624,13 +743,18 @@ export async function runCareerUiRpc(
       continue;
     }
     const selected = session.selected;
-    const choice = await ctx.ui.select(selected?.detail ?? session.pane.intro, [
+    const choice = await ctx.ui.select(session.preview === undefined
+      ? `${selected?.detail ?? session.pane.intro}${session.previewError === undefined ? "" : `\n${session.previewError}`}`
+      : `Local document preview (exact text; close with Back)\n${session.preview}`, [
       CAREER_UI_RPC_ACTIONS.back,
-      ...session.rpcActions(),
+      ...(session.preview === undefined ? session.rpcActions() : []),
       CAREER_UI_RPC_ACTIONS.switchView,
       CAREER_UI_RPC_ACTIONS.close,
     ]);
-    if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) return;
+    if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) {
+      session.cancelPreview();
+      return;
+    }
     if (choice === CAREER_UI_RPC_ACTIONS.back) {
       session.back();
       continue;
@@ -639,7 +763,7 @@ export async function runCareerUiRpc(
       await switchViewRpc(ctx, session);
       continue;
     }
-    if (session.rpcActions().includes(choice)) await session.runRpcAction(choice);
+    if (session.preview === undefined && session.rpcActions().includes(choice)) await session.runRpcAction(choice);
   }
 }
 
@@ -650,6 +774,28 @@ function rule(theme: Theme, width: number): string {
 function styledLines(text: string, width: number, style: (value: string) => string): string[] {
   if (text.length === 0) return [];
   return wrapTextWithAnsi(style(text), Math.max(1, width)).map((line) => truncateToWidth(line, width));
+}
+
+// Unlike wrapTextWithAnsi, this path must not trim spaces at soft breaks.
+// Style only after wrapping so ANSI codes cannot change source segmentation.
+function exactPreviewLines(text: string, width: number, style: (value: string) => string): string[] | undefined {
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const lines: string[] = [];
+  for (const sourceLine of text.split("\n")) {
+    let current = "";
+    for (const { segment } of segmenter.segment(sourceLine)) {
+      // A grapheme wider than the terminal cannot be displayed exactly within
+      // its columns. Do not expose a partial preview or claim exact display.
+      if (visibleWidth(segment) > width) return undefined;
+      if (current && visibleWidth(current + segment) > width) {
+        lines.push(style(current));
+        current = "";
+      }
+      current += segment;
+    }
+    lines.push(current ? style(current) : "");
+  }
+  return lines;
 }
 
 function packChips(chips: string[], width: number): string[] {
@@ -676,6 +822,8 @@ function itemMark(view: CareerUiView, entry: CareerUiItem): string {
 }
 
 export class CareerOverlay implements Component {
+  private previewPage = 0;
+
   constructor(
     private readonly session: CareerUiSession,
     private readonly theme: Theme,
@@ -704,13 +852,25 @@ export class CareerOverlay implements Component {
     if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape)) {
       if (this.session.showingDetail && !this.session.busy) {
         this.session.back();
+        this.previewPage = 0;
         this.requestRender();
         return;
       }
+      this.session.cancelPreview();
       this.close();
       return;
     }
     if (this.session.busy) return;
+    if (this.session.preview !== undefined) {
+      if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) {
+        this.previewPage = Math.max(0, this.previewPage - 1);
+        this.requestRender();
+      } else if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) {
+        this.previewPage++;
+        this.requestRender();
+      }
+      return;
+    }
     const index = Number.parseInt(data, 10);
     const next = CAREER_UI_VIEWS[index - 1];
     if (next !== undefined) {
@@ -720,6 +880,7 @@ export class CareerOverlay implements Component {
     }
     const key = data.length === 1 ? data.toLowerCase() : data;
     const keyed =
+      key === "v" && this.session.canPreview ? this.session.openPreview() :
       key === "a" && this.session.canAttach ? this.session.attach() :
       key === "n" && this.session.canAddRoot ? this.session.addRoot() :
       key === "x" && this.session.canRemoveRoot ? this.session.removeRoot() :
@@ -774,7 +935,9 @@ export class CareerOverlay implements Component {
     const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
     const hints = [
       ...(this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"]),
-      ...(this.session.canAttach ? ["a attach"] : []),
+      ...(this.session.canPreview ? ["v preview locally"] : []),
+      ...(this.session.preview !== undefined ? ["↑↓ preview pages · soft-wrapped"] : []),
+      ...(this.session.preview !== undefined ? [] : this.session.canAttach ? ["a attach"] : []),
       ...(this.session.canCreate ? ["c create"] : []),
       ...(this.session.canAddRoot ? ["n add root"] : []),
       ...(this.session.canRemoveRoot ? ["x remove"] : []),
@@ -791,11 +954,21 @@ export class CareerOverlay implements Component {
       "1-8 view",
     ];
     const footer = hints.join("   ");
-    const body = this.session.showingDetail && selected !== undefined
+    const previewLines = this.session.preview === undefined ? undefined :
+      exactPreviewLines(this.session.preview, renderWidth, (text) => theme.fg("text", text));
+    const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
+    this.previewPage = Math.min(this.previewPage, previewPages - 1);
+    const body = this.session.preview !== undefined && previewLines === undefined
+      ? ["", truncateToWidth(theme.fg("muted", "Preview unavailable at this width; widen terminal"), renderWidth)]
+      : previewLines !== undefined
+      ? ["", truncateToWidth(theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`), renderWidth),
+        ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)]
+      : this.session.showingDetail && selected !== undefined
       ? [
         "",
         ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
         ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
+        ...(this.session.previewError === undefined ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))),
       ]
       : [
         "",
@@ -834,7 +1007,7 @@ export async function openCareerUi(
   actions: CareerUiActions = {},
 ): Promise<void> {
   const reload = () => buildCareerUiModel(agentDir, ctx);
-  const session = new CareerUiSession(view, await reload(), actions, reload);
+  const session = new CareerUiSession(view, await reload(), actions, reload, careerPreviewLoader(agentDir, ctx));
   if (ctx.mode === "tui") {
     await ctx.ui.custom<void>((tui, theme, keybindings, done) => new CareerOverlay(
       session,
