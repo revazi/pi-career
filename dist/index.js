@@ -9040,6 +9040,22 @@ function styledLines(text, width, style) {
   if (text.length === 0) return [];
   return wrapTextWithAnsi2(style(text), Math.max(1, width)).map((line) => truncateToWidth2(line, width));
 }
+function exactPreviewLines(text, width, style) {
+  const segmenter = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+  return text.split("\n").flatMap((sourceLine) => {
+    const lines = [];
+    let current = "";
+    for (const { segment } of segmenter.segment(sourceLine)) {
+      if (current && visibleWidth(current + segment) > width) {
+        lines.push(style(current));
+        current = "";
+      }
+      current += segment;
+    }
+    lines.push(current ? style(current) : "");
+    return lines;
+  });
+}
 function packChips(chips, width) {
   const lines = [];
   let current = "";
@@ -9176,12 +9192,12 @@ var CareerOverlay = class {
       "1-8 view"
     ];
     const footer = hints.join("   ");
-    const previewLines = this.session.preview?.split("\n").flatMap((line) => line.length === 0 ? [""] : styledLines(line, renderWidth, (text) => theme.fg("text", text)));
+    const previewLines = this.session.preview === void 0 ? void 0 : exactPreviewLines(this.session.preview, renderWidth, (text) => theme.fg("text", text));
     const previewPages = Math.max(1, Math.ceil((previewLines?.length ?? 0) / 6));
     this.previewPage = Math.min(this.previewPage, previewPages - 1);
     const body = previewLines !== void 0 ? [
       "",
-      theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`),
+      truncateToWidth2(theme.fg("muted", `Local preview · page ${this.previewPage + 1}/${previewPages} · exact text, soft-wrapped`), renderWidth),
       ...previewLines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)
     ] : this.session.showingDetail && selected !== void 0 ? [
       "",
