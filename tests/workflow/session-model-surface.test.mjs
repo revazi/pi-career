@@ -157,7 +157,7 @@ test("applyCareerToolSurface preserves unrelated tools and never enables raw by 
   assert.deepEqual(active, ["read", "career_run"]);
 });
 
-test("P3-57 raw tool request without activation rejects all four Career schemas", async () => {
+test("inactive raw-tool request is rejected without activating tools or sending messages", async () => {
   const fake = makeFakePi();
   const submitted = [];
   fake.api.sendMessage = (...args) => submitted.push(args);
@@ -174,6 +174,7 @@ test("P3-57 raw tool request without activation rejects all four Career schemas"
   assert.deepEqual(discovered, {});
   await fake.commands.get("career-tools").handler("raw", rpc.ctx);
   assert.ok(rpc.notifications.some(({ message }) => message.includes("inactive")));
+  assert.ok(rpc.notifications.every(({ message }) => !message.includes("Synthetic private")));
   assert.deepEqual(fake.activeTools, ["read"]);
   assert.equal(fake.activeTools.filter((name) => name.startsWith("career")).length, 0);
   assert.deepEqual(await (fake.events.get("resources_discover") ?? [])[0]({}), {});

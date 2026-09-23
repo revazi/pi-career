@@ -42,7 +42,6 @@ const behavioral = {
   45: ["application-status-authority", "P3-45 attached application status is workspace-only and cancelled updates change neither authority"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
-  57: ["session-model-surface", "P3-57 raw tool request without activation rejects all four Career schemas"],
 };
 
 const deferred = {
@@ -85,6 +84,7 @@ const deferred = {
   47: "Read-time v1 byte preservation is not a migration commit test.",
   48: "Ineligible assisted scan evidence does not test Analyze/Match original selection.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
+  57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
   58: "Transient replay does not prove reload and process-shutdown handle loss.",
 };
 
