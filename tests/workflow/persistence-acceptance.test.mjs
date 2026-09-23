@@ -90,6 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
+  assert.equal(Object.keys(behavioral).length, 25, "reviewed map has exactly 25 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 33, "reviewed map retains exactly 33 deferrals");
+  assert.match(markdown, /Currently 25 have scoped witnesses and 33 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
