@@ -227,12 +227,26 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
 
   pi.on("session_start", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.enterSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
   });
   pi.on("session_tree", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.resetSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
@@ -241,6 +255,7 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
     ? { skillPaths: [careerSkillsDirectory()] }
     : {});
   pi.on("input", async (event, ctx) => {
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return { action: "continue" as const };
     const skillCommand = event.text.startsWith("/skill:career-core");
     if (!surfaceState.skillDiscoverable && !skillCommand) return { action: "continue" as const };
     const previous = surfaceState.skillDiscoverable;

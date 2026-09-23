@@ -43,7 +43,7 @@ test("registers the approved deterministic commands and reviewable workbench han
   ]);
 });
 
-test("print/JSON modes fail closed except pure vacancy clear", async () => {
+test("print/JSON modes fail closed including vacancy clear", async () => {
   const fake = makeFakePi();
   registerCareerCommands(fake.api, { agentDir: "/synthetic/agent", uuid: uuidSequence(), now });
   const nonUi = makeContext(fake, { mode: "print", hasUI: false });
@@ -52,8 +52,9 @@ test("print/JSON modes fail closed except pure vacancy clear", async () => {
 
   const vacancy = createVacancyEntry("Synthetic vacancy", "paste", { uuid: uuidSequence(), now });
   fake.entries.push({ type: "custom", customType: "career.workflow", data: vacancy, id: "seed", parentId: null, timestamp: now().toISOString() });
-  await fake.commands.get("career-vacancy").handler("clear", nonUi.ctx);
-  assert.equal(fake.entries.at(-1).data.kind, "vacancy_clear");
+  const beforeEntries = structuredClone(fake.entries);
+  await assert.rejects(fake.commands.get("career-vacancy").handler("clear", nonUi.ctx), /interactive_mode_required/);
+  assert.deepEqual(fake.entries, beforeEntries);
 });
 
 test("empty career commands open the shared UI without Core, custom overlays, or session append", async () => {

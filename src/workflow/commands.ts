@@ -10,6 +10,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { payloadFreeAdapterError, publicAdapterMessage } from "../errors.ts";
 import { CareerInvocationError, invokeCareerCli } from "../process.ts";
 import {
   ApplicationWorkspaceWorkflow,
@@ -77,6 +78,8 @@ interface CommandRuntimeOptions {
   invoke?: WorkflowDependencies["invoke"];
   now?: () => Date;
   uuid?: () => string;
+  // Registration-scoped loader seam for early-guard tests; production uses loadLibrary.
+  loadLibrary?: typeof loadLibrary;
 }
 
 class RunOwner {
@@ -117,7 +120,7 @@ function persisted(ctx: ExtensionContext): boolean {
 }
 
 function requireInteractive(ctx: ExtensionContext): void {
-  if (!ctx.hasUI) throw workflowError("interactive_mode_required");
+  if ((ctx.mode !== "tui" && ctx.mode !== "rpc") || !ctx.hasUI) throw workflowError("interactive_mode_required");
 }
 
 function parseStatusArgument(args: string): "default" | "status" {
@@ -673,7 +676,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
   };
 
   const refreshState = async (ctx: ExtensionContext): Promise<{ config: CareerConfig; scan: LibraryScan }> => {
-    const library = await loadLibrary(dependencies);
+    const library = await (options.loadLibrary ?? loadLibrary)(dependencies);
     const branch = ctx.sessionManager.getBranch();
     const attached = await attachedSources(ctx);
     const state = withCurrentStaleness(
@@ -712,14 +715,20 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     try {
       await action();
     } catch (error) {
-      if (!ctx.hasUI) throw error;
+      if (!ctx.hasUI || (ctx.mode !== "tui" && ctx.mode !== "rpc")) {
+        if (error instanceof CareerWorkflowError) throw workflowError(error.code);
+        if (error instanceof CareerInvocationError) {
+          throw payloadFreeAdapterError(error);
+        }
+        throw workflowError("workflow_failed");
+      }
       if (error instanceof CareerWorkflowError) {
         const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
         ctx.ui.notify(workflowErrorMessage(error.code), type);
         return;
       }
       if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(`${error.payload.code}: ${error.payload.message}`, "error");
+        ctx.ui.notify(publicAdapterMessage(error), "error");
         return;
       }
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
@@ -833,8 +842,8 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
       if (argument === "") {
-        requireInteractive(ctx);
         await openUi(ctx, "vacancy");
         return;
       }
@@ -842,7 +851,6 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
       if (attached !== undefined) {
-        requireInteractive(ctx);
         if (attached.vacancy !== undefined) {
           const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
           owner.assert(run, ctx);
@@ -889,6 +897,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
   pi.on("session_start", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
     try {
       const { config, scan } = await refreshState(ctx);
       if (ctx.hasUI && config.library_roots.length === 0) {
@@ -905,6 +914,11 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
   pi.on("session_tree", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      renderedData.clear();
+      renderedTieStateIds.clear();
+      return;
+    }
     try {
       await refreshState(ctx);
     } catch {

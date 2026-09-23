@@ -5,6 +5,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
+import { payloadFreeAdapterError } from "./errors.ts";
+
 import {
   COMPOSITE_INPUT_MAX_BYTES,
   invokeCareerCli,
@@ -122,7 +124,7 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     },
   });
@@ -151,7 +153,7 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     },
   });
@@ -180,7 +182,7 @@ export default function careerCoreExtension(pi: ExtensionAPI) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     },
   });

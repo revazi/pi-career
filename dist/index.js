@@ -5,11 +5,6 @@
 import { StringEnum as StringEnum2 } from "@earendil-works/pi-ai";
 import { Type as Type2 } from "typebox";
 
-// src/process.ts
-import { spawn as spawn2 } from "node:child_process";
-import { isAbsolute } from "node:path";
-import { TextDecoder as TextDecoder2 } from "node:util";
-
 // src/errors.ts
 var ERROR_MESSAGES = {
   unsupported_platform: "pi-career supports only macOS and Linux.",
@@ -51,9 +46,23 @@ function adapterError(code, careerError) {
     ...careerError === void 0 ? {} : { career_error: careerError }
   });
 }
+function publicAdapterMessage(error) {
+  const code = error.payload?.code;
+  const safeCode = typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code) ? code : "internal_error";
+  return `${safeCode}: ${ERROR_MESSAGES[safeCode]}`;
+}
 function publicAdapterError(error) {
   return error instanceof CareerInvocationError ? error : adapterError("internal_error");
 }
+function payloadFreeAdapterError(error) {
+  const code = error.payload?.code;
+  return adapterError(typeof code === "string" && Object.hasOwn(ERROR_MESSAGES, code) ? code : "internal_error");
+}
+
+// src/process.ts
+import { spawn as spawn2 } from "node:child_process";
+import { isAbsolute } from "node:path";
+import { TextDecoder as TextDecoder2 } from "node:util";
 
 // src/managed/catalog.ts
 var MANAGED_OUTPUT_MAX_BYTES = 33554432;
@@ -8350,18 +8359,33 @@ Sidecar: ${outcome.sidecarPath}`,
   };
   pi.on("session_start", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.enterSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
   });
   pi.on("session_tree", async (_event, ctx) => {
     variantSave.clearReceipts();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      engine.shutdown();
+      surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+      rawRequested = false;
+      setCareerToolSurface(pi, surfaceState);
+      return;
+    }
     engine.resetSession(ctx.sessionManager.getSessionId());
     rawRequested = false;
     await refreshSurface(ctx);
   });
   pi.on("resources_discover", () => surfaceState.skillDiscoverable ? { skillPaths: [careerSkillsDirectory()] } : {});
   pi.on("input", async (event, ctx) => {
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return { action: "continue" };
     const skillCommand = event.text.startsWith("/skill:career-core");
     if (!surfaceState.skillDiscoverable && !skillCommand) return { action: "continue" };
     const previous = surfaceState.skillDiscoverable;
@@ -9326,7 +9350,7 @@ function persisted2(ctx) {
   return ctx.sessionManager.getSessionFile() !== void 0;
 }
 function requireInteractive(ctx) {
-  if (!ctx.hasUI) throw workflowError("interactive_mode_required");
+  if (ctx.mode !== "tui" && ctx.mode !== "rpc" || !ctx.hasUI) throw workflowError("interactive_mode_required");
 }
 function parseStatusArgument(args) {
   const value = args.trim();
@@ -9823,7 +9847,7 @@ Application context is session-scoped; no workspace files were created.`,
     });
   };
   const refreshState = async (ctx) => {
-    const library = await loadLibrary(dependencies);
+    const library = await (options.loadLibrary ?? loadLibrary)(dependencies);
     const branch = ctx.sessionManager.getBranch();
     const attached = await attachedSources(ctx);
     const state = withCurrentStaleness(
@@ -9857,14 +9881,20 @@ Application context is session-scoped; no workspace files were created.`,
     try {
       await action();
     } catch (error) {
-      if (!ctx.hasUI) throw error;
+      if (!ctx.hasUI || ctx.mode !== "tui" && ctx.mode !== "rpc") {
+        if (error instanceof CareerWorkflowError) throw workflowError(error.code);
+        if (error instanceof CareerInvocationError) {
+          throw payloadFreeAdapterError(error);
+        }
+        throw workflowError("workflow_failed");
+      }
       if (error instanceof CareerWorkflowError) {
         const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
         ctx.ui.notify(workflowErrorMessage(error.code), type);
         return;
       }
       if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(`${error.payload.code}: ${error.payload.message}`, "error");
+        ctx.ui.notify(publicAdapterMessage(error), "error");
         return;
       }
       ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
@@ -9970,8 +10000,8 @@ Application context is session-scoped; no workspace files were created.`,
     handler: async (args, ctx) => handle(ctx, async () => {
       const argument = args.trim();
       if (argument !== "" && argument !== "clear") throw workflowError("invalid_command_arguments");
+      requireInteractive(ctx);
       if (argument === "") {
-        requireInteractive(ctx);
         await openUi(ctx, "vacancy");
         return;
       }
@@ -9979,7 +10009,6 @@ Application context is session-scoped; no workspace files were created.`,
       const attached = await attachedSources(ctx);
       owner.assert(run, ctx);
       if (attached !== void 0) {
-        requireInteractive(ctx);
         if (attached.vacancy !== void 0) {
           const outcome = await applicationWorkspace.writeAttachedVacancy(ctx, null);
           owner.assert(run, ctx);
@@ -10022,6 +10051,7 @@ Application context is session-scoped; no workspace files were created.`,
   });
   pi.on("session_start", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
     try {
       const { config, scan } = await refreshState(ctx);
       if (ctx.hasUI && config.library_roots.length === 0) {
@@ -10037,6 +10067,11 @@ Application context is session-scoped; no workspace files were created.`,
   });
   pi.on("session_tree", async (_event, ctx) => {
     owner.invalidate();
+    if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
+      renderedData.clear();
+      renderedTieStateIds.clear();
+      return;
+    }
     try {
       await refreshState(ctx);
     } catch {
@@ -10147,7 +10182,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
@@ -10174,7 +10209,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
@@ -10201,7 +10236,7 @@ function careerCoreExtension(pi) {
         );
         return resultContent(result.json, result.operation);
       } catch (error) {
-        throw publicAdapterError(error);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
     }
   });
