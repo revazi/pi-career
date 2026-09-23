@@ -8590,18 +8590,27 @@ Opening this view does not mutate files or attach another application.`)]
     empty.match = unavailablePane();
     empty.analyze = unavailablePane();
   }
-  const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
-  if (empty.applications.items.length === 0 && state.application !== void 0) {
-    empty.applications = {
-      intro: "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.",
-      items: [item(
-        state.application.application_id,
-        `${state.application.company_label} — ${state.application.role_label} — ${state.application.status}`,
-        `${state.application.company_label} — ${state.application.role_label}
-Status: ${state.application.status}
-Session-scoped. Opening does not attach this application.`
-      )]
-    };
+  const branch = ctx.sessionManager.getBranch();
+  const state = reconstructWorkflowState(branch);
+  let sessionIdentity2;
+  try {
+    sessionIdentity2 = workspaceApplicationIdentity(branch);
+  } catch {
+  }
+  const records = replayApplicationSessionRecords(branch, ctx.sessionManager.getEntries());
+  if (sessionIdentity2 !== void 0 && records.integrity === "valid" && records.attachment === void 0 && !empty.applications.items.some((entry) => entry.id === sessionIdentity2.identity.application_id)) {
+    const application = sessionIdentity2.current;
+    const sessionRow = item(
+      application.application_id,
+      `Current session · Not persisted — ${application.company_label} — ${application.role_label} — ${application.status}`,
+      `${application.company_label} — ${application.role_label}
+Status: ${application.status}
+Current session · Not persisted. Opening does not attach this application.`
+    );
+    if (empty.applications.items.length === 0) {
+      empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.";
+    }
+    empty.applications.items = [sessionRow, ...empty.applications.items];
   }
   const analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5);
   const matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
