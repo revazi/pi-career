@@ -161,6 +161,30 @@ async function runApplications(value, options = {}) {
   return context;
 }
 
+function branchMarker(id, parentId, marker) {
+  return {
+    type: "custom", customType: "synthetic.branch_marker", data: { marker }, id, parentId,
+    timestamp: "2026-08-06T00:00:00.000Z",
+  };
+}
+
+function replayBranch(entries, leafId) {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  assert.equal(byId.size, entries.length, "synthetic session entry IDs must be unique");
+  const branch = [];
+  const visited = new Set();
+  let id = leafId;
+  while (id !== null) {
+    assert.ok(!visited.has(id), "synthetic session ancestry must be acyclic");
+    visited.add(id);
+    const entry = byId.get(id);
+    assert.ok(entry, `synthetic session parent ${id} must exist`);
+    branch.push(entry);
+    id = entry.parentId;
+  }
+  return branch.reverse();
+}
+
 test("P3-16/P3-28 a clean Pi session can attach a validated catalog application", async () => {
   const value = await fixture();
   try {
@@ -191,19 +215,41 @@ test("P3-16/P3-28 a clean Pi session can attach a validated catalog application"
   }
 });
 
-test("P3-29/P3-54 public attach rejects another UUID on active and non-active branches and offers explicit replacement", async () => {
+test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement", async () => {
   for (const claimLocation of ["active", "non-active"]) {
     const value = await fixture();
     try {
+      value.fake.entries.push(branchMarker("branch-root", null, "common-ancestor"));
       await runApplications(value, {
         selects: [OPTION, "Attach", "Close"],
         confirms: [true],
       });
-      assert.deepEqual(value.fake.entries.map(({ customType, data }) => [customType, data.application_id]), [
-        ["career.application_attachment", APPLICATION_ID],
+      assert.deepEqual(value.fake.entries.map(({ customType, data, id, parentId }) => [
+        customType, data.application_id ?? data.marker, id, parentId,
+      ]), [
+        ["synthetic.branch_marker", "common-ancestor", "branch-root", null],
+        ["career.application_attachment", APPLICATION_ID, "e2", "branch-root"],
       ]);
+      if (claimLocation === "non-active") {
+        value.fake.entries.push(branchMarker("active-fork", "branch-root", "active-sibling"));
+      }
       const originalEntries = structuredClone(value.fake.entries);
-      const branchEntries = claimLocation === "active" ? originalEntries : [];
+      const branchEntries = replayBranch(
+        originalEntries,
+        claimLocation === "active" ? "e2" : "active-fork",
+      );
+      assert.deepEqual(branchEntries.map(({ id }) => id), claimLocation === "active"
+        ? ["branch-root", "e2"]
+        : ["branch-root", "active-fork"]);
+      assert.equal(
+        branchEntries.some((entry) => entry.customType === "career.application_attachment"),
+        claimLocation === "active",
+      );
+      assert.equal(
+        originalEntries.some((entry) => entry.id === "e2" && !branchEntries.some(({ id }) => id === entry.id)),
+        claimLocation === "non-active",
+        "the non-active case must retain A only on a replayable sibling branch",
+      );
       const originalTree = await snapshot(value.temp);
       let sends = 0;
       const submitted = () => { sends += 1; throw new Error("automatic model send forbidden"); };

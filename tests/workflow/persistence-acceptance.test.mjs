@@ -44,7 +44,7 @@ const behavioral = {
   26: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   27: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   28: ["session-attachment-commands", "P3-27/P3-28 attach appends only the identity pointer after confirmation"],
-  29: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and non-active branches and offers explicit replacement"],
+  29: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
@@ -52,7 +52,7 @@ const behavioral = {
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
-  54: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and non-active branches and offers explicit replacement"],
+  54: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
 };
 
