@@ -108,6 +108,8 @@ interface WorkspaceOptions {
   now: () => Date;
   uuid: () => string;
   appendEntry?: (customType: string, data: unknown) => void;
+  withMutationQueues?: <T>(paths: readonly string[], operation: () => Promise<T>) => Promise<T>;
+  afterWorkspaceLockAcquired?: (operation: "initialize_application" | "record_state", mutationId: string) => Promise<void>;
 }
 
 interface RootMarker {
@@ -2363,6 +2365,17 @@ function prepareSelectedOriginalRevision(
 export class ApplicationWorkspaceWorkflow {
   constructor(private readonly options: WorkspaceOptions) {}
 
+  private withMutationQueues<T>(paths: readonly string[], operation: () => Promise<T>): Promise<T> {
+    return this.options.withMutationQueues?.(paths, operation) ?? withQueues(paths, operation);
+  }
+
+  private afterWorkspaceLockAcquired(
+    operation: "initialize_application" | "record_state",
+    mutationId: string,
+  ): Promise<void> {
+    return this.options.afterWorkspaceLockAcquired?.(operation, mutationId) ?? Promise.resolve();
+  }
+
   async run(args: string, ctx: ExtensionCommandContext): Promise<void> {
     if (args.trim() !== "") throw workflowError("invalid_command_arguments");
     if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
@@ -3305,11 +3318,12 @@ export class ApplicationWorkspaceWorkflow {
     );
     if (!(await approve(plan, ctx))) return;
     assertSessionPlan(plan, ctx);
-    await withQueues([directoryPath, ...files.map((file) => file.final)], async () => {
+    await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
       const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
       const published: PublishedFile[] = [];
       let createdDirectory: Stats | undefined;
       try {
+        await this.afterWorkspaceLockAcquired("initialize_application", mutationId);
         const currentIdentity = assertSessionPlan(plan, ctx);
         if (currentIdentity === undefined) throw workflowError("workspace_identity_conflict");
         await assertConfigSnapshotCurrent(attachment.snapshot);
@@ -3525,12 +3539,13 @@ export class ApplicationWorkspaceWorkflow {
         application.directoryPath, configured.root_id, path.basename(application.directoryPath), storedIdentity,
       );
     };
-    await withQueues(files.map((file) => file.final), async () => {
+    await this.withMutationQueues(files.map((file) => file.final), async () => {
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path), "workspace_mutation_lock", plan.envelope.mutation_id, plan.createdAt,
       );
       const published: PublishedFile[] = [];
       try {
+        await this.afterWorkspaceLockAcquired("record_state", plan.envelope.mutation_id);
         const current = assertSessionPlan(plan, ctx);
         if ((identity === undefined) !== (current === undefined) ||
           (identity !== undefined && current?.identity.application_id !== identity.identity.application_id) ||

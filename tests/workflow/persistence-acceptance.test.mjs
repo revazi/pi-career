@@ -48,6 +48,8 @@ const behavioral = {
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
+  38: ["application-concurrency-acceptance", "P3-38 two same-UUID creators commit concurrently with one exact no-retry winner"],
+  39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
   45: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
@@ -75,8 +77,6 @@ const deferred = {
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
   36: "Installed-extension and workflow session_start/session_tree plus /career print/JSON traps cover session getters and registration-scoped loader, UI, append, send and Core boundaries. Direct filesystem reads, host lifecycle ordering, and future read routes lack independent interception.",
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
-  38: "Two concurrent creators need a deterministic no-clobber race test.",
-  39: "Two concurrent revision plans need a deterministic no-fork race test.",
   40: "An orphan fixture is not a reconciliation/fault-settlement test.",
   41: "Exact committed-state settlement after ambiguous failure needs a fault-injected test.",
   42: "Crash-left lock needs an attempted mutation with no polling/removal assertion.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 31, "reviewed map has exactly 31 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 27, "reviewed map retains exactly 27 deferrals");
-  assert.match(markdown, /Currently 31 have scoped witnesses and 27 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 33, "reviewed map has exactly 33 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 25, "reviewed map retains exactly 25 deferrals");
+  assert.match(markdown, /Currently 33 have scoped witnesses and 25 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
