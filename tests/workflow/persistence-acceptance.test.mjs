@@ -32,6 +32,11 @@ const behavioral = {
   8: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   9: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   10: ["application-state-v2-reader", "P3-04/P3-10: complete-chain validation rejects downgrade, gap, mismatch, fork, and future schema"],
+  11: ["legacy-overlay-migration-acceptance", "P3-11/P3-14 legacy Applications browse and open are read-only without session identity"],
+  12: ["legacy-overlay-migration-acceptance", "P3-12 legacy Applications migration cancellation and post-preview byte race create nothing"],
+  13: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
+  14: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
+  15: ["legacy-overlay-migration-acceptance", "P3-15 independently prepared legacy migration plans have one no-clobber winner"],
   17: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   18: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   19: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
@@ -55,6 +60,7 @@ const behavioral = {
   43: ["application-concurrency-acceptance", "P3-43 post-preview referenced-byte drift blocks commit without blessing or side effects"],
   45: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
+  47: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   52: ["lifecycle-restore-acceptance", "P3-52 fresh installed extension resumes exact persisted activation with compact managed surface"],
@@ -69,11 +75,6 @@ const deferred = {
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
-  11: "Opening a legacy application through the overlay needs a no-write integration test.",
-  12: "Migration preview cancellation and changed-byte race need a workflow test.",
-  13: "Migration confirmation needs a no-clobber identity and byte-preservation test.",
-  14: "Legacy overlay and migration without matching session need end-to-end evidence.",
-  15: "Concurrent migration plans need a fault-injected no-clobber test.",
   16: "Pure 0/3 derivation does not test creation or absence of automatic attachment.",
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
@@ -82,7 +83,6 @@ const deferred = {
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
   40: "Existing state-publication settlement does not inject the distinct artifact-published/state-absent fault or prove orphan reconciliation.",
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
-  47: "Read-time v1 byte preservation is not a migration commit test.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
   58: "Transient replay does not prove reload and process-shutdown handle loss.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 36, "reviewed map has exactly 36 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 22, "reviewed map retains exactly 22 deferrals");
-  assert.match(markdown, /Currently 36 have scoped witnesses and 22 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 42, "reviewed map has exactly 42 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 16, "reviewed map retains exactly 16 deferrals");
+  assert.match(markdown, /Currently 42 have scoped witnesses and 16 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

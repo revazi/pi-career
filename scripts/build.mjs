@@ -30,6 +30,7 @@ export async function buildBundle(outputFile = path.join(repositoryRoot, "dist",
     ...commonBuildOptions,
     entryPoints: [path.join(repositoryRoot, "src", "index.ts")],
     outfile: outputFile,
+    minifySyntax: true,
     external: [
       "@earendil-works/pi-ai",
       "@earendil-works/pi-coding-agent",
