@@ -37,6 +37,8 @@ const behavioral = {
   19: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   20: ["application-readiness-integration", "P3-20/P3-21/P3-24: validated transitions stale a bound letter and lifecycle never bypasses completeness"],
   21: ["application-readiness-integration", "P3-20/P3-21/P3-24: validated transitions stale a bound letter and lifecycle never bypasses completeness"],
+  22: ["command-authority", "P3-22 public attached-source validation blocks missing or changed selected original without choosing another eligible original"],
+  23: ["command-authority", "P3-23 public attached-source validation rejects a valid tailored artifact bound to another original without fallback"],
   24: ["application-readiness-integration", "P3-20/P3-21/P3-24: validated transitions stale a bound letter and lifecycle never bypasses completeness"],
   25: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   26: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
@@ -53,13 +55,11 @@ const behavioral = {
 };
 
 const deferred = {
-  22: "Pure readiness verifies an eligible scan record but does not block binding an assisted variant in a workflow action.",
   29: "Opening another application in a replacement session does not test rejection of attach on a used session or its fresh-session offer.",
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Detach and reload do not establish navigate-before-activation behavior or absence of provider/Core calls and handles.",
   54: "Invalid replay for a second claim does not demonstrate attach-command rejection and an explicit replacement-session offer on every branch.",
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
-  23: "Drifted artifact evidence does not establish rejection of a valid artifact bound to a different original.",
   52: "An activated in-memory session is not a restarted saved activation with revalidated exact pointer.",
   56: "Pointer validation failures alone do not establish that invalid transitions append and mutate nothing.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 25, "reviewed map has exactly 25 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 33, "reviewed map retains exactly 33 deferrals");
-  assert.match(markdown, /Currently 25 have scoped witnesses and 33 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 27, "reviewed map has exactly 27 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 31, "reviewed map retains exactly 31 deferrals");
+  assert.match(markdown, /Currently 27 have scoped witnesses and 31 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
