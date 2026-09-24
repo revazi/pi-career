@@ -13,14 +13,15 @@ import { rootId } from "../../src/workflow/config.ts";
 import {
   APPLICATION_ASSISTANCE_CUSTOM_TYPE,
   APPLICATION_ATTACHMENT_CUSTOM_TYPE,
-  createApplicationAssistanceActivationEntry,
-  createApplicationAttachmentEntry,
 } from "../../src/workflow/session-attachment.ts";
-import { makeContext, makeFakePi, uuidSequence } from "./helpers.mjs";
+import { makeContext, makeFakePi } from "./helpers.mjs";
 
 const APPLICATION_ID = "00000000-0000-4000-8000-000000000077";
 const OTHER_APPLICATION_ID = "00000000-0000-4000-8000-000000000078";
 const ROOT_ID = "00000000-0000-4000-8000-000000000099";
+const ATTACHMENT_ID = "00000000-0000-4000-8000-000000000001";
+const ACTIVATION_ID = "00000000-0000-4000-8000-000000000002";
+const OTHER_RECORD_ID = "00000000-0000-4000-8000-000000000009";
 const ROOT_CREATED_AT = "2026-08-01T00:00:00.000Z";
 const APPLICATION_CREATED_AT = "2026-08-02T00:00:00.000Z";
 const WORKSPACE_CREATED_AT = "2026-08-03T00:00:00.000Z";
@@ -114,12 +115,25 @@ async function fixture(t, options = {}) {
     resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
   if (options.sourceDrift) await unlink(resumePath);
-  const uuid = uuidSequence();
-  const attachment = createApplicationAttachmentEntry({
-    applicationId: APPLICATION_ID, rootId: ROOT_ID, rootCreatedAt: ROOT_CREATED_AT,
-    applicationCreatedAt: APPLICATION_CREATED_AT, workspaceCreatedAt: WORKSPACE_CREATED_AT,
-  }, { uuid });
-  const activation = createApplicationAssistanceActivationEntry(attachment, { uuid });
+  // Keep persisted lifecycle records independent of production record factories so the
+  // installed boundary must accept the exact canonical bytes an existing session supplies.
+  const attachment = {
+    schema_version: "pi.career.application_attachment.v1",
+    kind: "application_attachment",
+    attachment_id: ATTACHMENT_ID,
+    application_id: APPLICATION_ID,
+    root_id: ROOT_ID,
+    root_created_at: ROOT_CREATED_AT,
+    application_created_at: APPLICATION_CREATED_AT,
+    workspace_created_at: WORKSPACE_CREATED_AT,
+  };
+  const activation = {
+    schema_version: "pi.career.application_assistance.v1",
+    kind: "application_assistance_activation",
+    activation_id: ACTIVATION_ID,
+    attachment_id: ATTACHMENT_ID,
+    application_id: APPLICATION_ID,
+  };
   const entries = [
     sessionEntry(APPLICATION_ATTACHMENT_CUSTOM_TYPE, attachment, 1),
     sessionEntry(APPLICATION_ASSISTANCE_CUSTOM_TYPE, activation, 2),
@@ -224,10 +238,29 @@ const invalidCases = {
   "malformed attachment record": {
     invalid: (entries) => [{ ...entries[0], data: { schema_version: "malformed" } }, entries[1]],
   },
+  "malformed activation record": {
+    invalid: (entries) => [entries[0], { ...entries[1], data: { schema_version: "malformed" } }],
+  },
   "activation without attachment": { invalid: (entries) => [entries[1]] },
   "duplicate attachment transition": {
     invalid: (entries) => [entries[0], { ...entries[0], id: "persisted-entry-2", parentId: "persisted-entry-1",
-      data: { ...entries[0].data, attachment_id: "00000000-0000-4000-8000-000000000009" } }],
+      data: { ...entries[0].data, attachment_id: OTHER_RECORD_ID } }],
+  },
+  "detachment references another attachment": {
+    invalid: (entries) => [entries[0], sessionEntry(APPLICATION_ATTACHMENT_CUSTOM_TYPE, {
+      schema_version: "pi.career.application_attachment.v1", kind: "application_detachment",
+      detachment_id: OTHER_RECORD_ID, attachment_id: ACTIVATION_ID,
+    }, 2)],
+  },
+  "duplicate activation transition": {
+    invalid: (entries) => [...entries, { ...entries[1], id: "persisted-entry-3", parentId: "persisted-entry-2",
+      data: { ...entries[1].data, activation_id: OTHER_RECORD_ID } }],
+  },
+  "activation references another attachment": {
+    invalid: (entries) => [entries[0], { ...entries[1], data: { ...entries[1].data, attachment_id: OTHER_RECORD_ID } }],
+  },
+  "duplicate lifecycle record UUID": {
+    invalid: (entries) => [entries[0], { ...entries[1], data: { ...entries[1].data, activation_id: ATTACHMENT_ID } }],
   },
   "conflicting application UUID claim": {
     invalid: (entries) => [entries[0], { ...entries[1], data: { ...entries[1].data, application_id: OTHER_APPLICATION_ID } }],
