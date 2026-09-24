@@ -6,15 +6,15 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, unlink, w
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import careerCoreExtension from "../../src/index.ts";
-import { careerSkillsDirectory } from "../../src/career-paths.ts";
-import { rootId } from "../../src/workflow/config.ts";
-import {
-  APPLICATION_ASSISTANCE_CUSTOM_TYPE,
-  APPLICATION_ATTACHMENT_CUSTOM_TYPE,
-} from "../../src/workflow/session-attachment.ts";
+import careerCoreExtension from "../../dist/index.js";
 import { makeContext, makeFakePi } from "./helpers.mjs";
+
+const APPLICATION_ASSISTANCE_CUSTOM_TYPE = "career.application_assistance";
+const APPLICATION_ATTACHMENT_CUSTOM_TYPE = "career.application_attachment";
+const careerSkillsDirectory = () => path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..", "skills");
+const rootId = (canonicalPath) => createHash("sha256").update(canonicalPath).digest("hex");
 
 const APPLICATION_ID = "00000000-0000-4000-8000-000000000077";
 const OTHER_APPLICATION_ID = "00000000-0000-4000-8000-000000000078";
@@ -171,7 +171,7 @@ function registerInstalled(fake, agentDir) {
 }
 
 function boundarySpies(fake) {
-  const calls = { appends: 0, sends: 0, reloads: 0, newSessions: 0 };
+  const calls = { appends: 0, sends: 0, reloads: 0 };
   const appendEntry = fake.api.appendEntry;
   fake.api.appendEntry = (...args) => {
     calls.appends += 1;
@@ -196,9 +196,10 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   first.entries.push(...await persistedEntries(item));
   const firstSpies = boundarySpies(first);
   registerInstalled(first, item.agentDir);
+  const firstNewSessions = [];
   const firstContext = makeContext(first, {
     reload: () => { firstSpies.reloads += 1; },
-    newSessions: [],
+    newSessions: firstNewSessions,
   });
 
   await withCoreTrap(item, async () => {
@@ -216,9 +217,10 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   resumed.entries.push(...await persistedEntries(item));
   const resumedSpies = boundarySpies(resumed);
   registerInstalled(resumed, item.agentDir);
+  const resumedNewSessions = [];
   const resumedContext = makeContext(resumed, {
     reload: () => { resumedSpies.reloads += 1; },
-    newSessions: [],
+    newSessions: resumedNewSessions,
   });
   await withCoreTrap(item, async () => {
     for (const handler of resumed.events.get("session_start") ?? []) await handler({}, resumedContext.ctx);
@@ -229,8 +231,10 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   const projection = JSON.stringify({ activeTools: resumed.activeTools, discovered, notifications: resumedContext.notifications });
   for (const sentinel of PRIVATE_SENTINELS) assert.doesNotMatch(projection, new RegExp(sentinel));
   assert.deepEqual(resumed.entries, item.entries);
-  assert.deepEqual(resumedSpies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
-  assert.deepEqual(firstSpies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
+  assert.deepEqual(resumedSpies, { appends: 0, sends: 0, reloads: 0 });
+  assert.deepEqual(firstSpies, { appends: 0, sends: 0, reloads: 0 });
+  assert.deepEqual(resumedNewSessions, []);
+  assert.deepEqual(firstNewSessions, []);
   assert.deepEqual(await treeSnapshot(item.base), before);
 });
 
@@ -315,7 +319,7 @@ test("P3-56 installed invalid restore/action matrix fails closed without append 
         { message: "Career assistance is inactive in this session.", type: "warning" },
       ]);
       assert.deepEqual(fake.entries, entriesBefore);
-      assert.deepEqual(spies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
+      assert.deepEqual(spies, { appends: 0, sends: 0, reloads: 0 });
       assert.deepEqual(newSessions, []);
       assert.deepEqual(await treeSnapshot(item.base), before);
       const observed = JSON.stringify({ activeTools: fake.activeTools, notifications: rpc.notifications, action });
