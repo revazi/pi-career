@@ -13,10 +13,15 @@ import {
 } from "../workflow/result-projection.ts";
 import {
   loadAttachedApplicationSources,
+  validateApplicationAttachment,
   type AttachedApplicationSources,
 } from "../workflow/application-workspace.ts";
 import { eligibleOriginals, scanLibrary } from "../workflow/scan.ts";
-import { replayApplicationSessionRecords } from "../workflow/session-attachment.ts";
+import {
+  APPLICATION_ASSISTANCE_CUSTOM_TYPE,
+  APPLICATION_ATTACHMENT_CUSTOM_TYPE,
+  replayApplicationSessionRecords,
+} from "../workflow/session-attachment.ts";
 import { createConsentEntry, reconstructWorkflowState } from "../workflow/session-state.ts";
 import {
   CareerWorkflowError,
@@ -230,6 +235,26 @@ function mapAttachedCareerError(error: unknown): never {
     if (error.code === "workspace_drift") throw careerRunError("resume_not_found");
   }
   throw error;
+}
+
+async function preflightCareerSessionRecords(agentDir: string, ctx: ExtensionContext): Promise<void> {
+  const allEntries = typeof ctx.sessionManager.getEntries === "function"
+    ? ctx.sessionManager.getEntries()
+    : ctx.sessionManager.getBranch();
+  const hasApplicationRecord = allEntries.some((entry) => entry.type === "custom" &&
+    (entry.customType === APPLICATION_ATTACHMENT_CUSTOM_TYPE ||
+      entry.customType === APPLICATION_ASSISTANCE_CUSTOM_TYPE));
+  if (!hasApplicationRecord) return;
+  const branch = ctx.sessionManager.getBranch();
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid") throw careerRunError("assistance_required");
+  if (records.attachment === undefined) return;
+  if (records.activation === undefined) throw careerRunError("assistance_required");
+  try {
+    await validateApplicationAttachment(agentDir, records.attachment);
+  } catch (error) {
+    return mapAttachedCareerError(error);
+  }
 }
 
 async function attachedCareerSources(
@@ -568,6 +593,7 @@ export class CareerRunEngine {
     try {
       this.registry.enterSession(ctx.sessionManager.getSessionId());
       exactDefinedKeys(params, ["command", "handle", "payload"]);
+      await preflightCareerSessionRecords(this.options.agentDir, ctx);
       const managed = await this.contracts.load(this.options.invoke, signal);
       switch (params.command) {
         case "context": return await this.context(params, ctx, managed.coreVersion);

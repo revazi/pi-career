@@ -52,16 +52,16 @@ const behavioral = {
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
+  52: ["lifecycle-restore-acceptance", "P3-52 fresh installed extension resumes exact persisted activation with compact managed surface"],
   54: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
+  56: ["lifecycle-restore-acceptance", "P3-56 installed invalid restore/action matrix fails closed without append or mutation"],
 };
 
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Detach and reload do not establish navigate-before-activation behavior or absence of provider/Core calls and handles.",
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
-  52: "An activated in-memory session is not a restarted saved activation with revalidated exact pointer.",
-  56: "Pointer validation failures alone do not establish that invalid transitions append and mutate nothing.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
   11: "Opening a legacy application through the overlay needs a no-write integration test.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 29, "reviewed map has exactly 29 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 29, "reviewed map retains exactly 29 deferrals");
-  assert.match(markdown, /Currently 29 have scoped witnesses and 29 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 31, "reviewed map has exactly 31 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 27, "reviewed map retains exactly 27 deferrals");
+  assert.match(markdown, /Currently 31 have scoped witnesses and 27 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
