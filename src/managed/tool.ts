@@ -45,16 +45,22 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
   const agentDir = options.agentDir ?? getAgentDir();
   const now = options.now ?? (() => new Date());
   const uuid = options.uuid ?? randomUUID;
+  let surfaceState: CareerModelSurface = INACTIVE_CAREER_MODEL_SURFACE;
+  let rawRequested = false;
+  const deactivateSurface = () => {
+    surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+    rawRequested = false;
+    setCareerToolSurface(pi, surfaceState);
+  };
   const engine = new CareerRunEngine({
     pi,
     agentDir,
     invoke: options.invoke ?? invokeCareerCli,
     now,
     uuid,
+    onUnavailable: deactivateSurface,
   });
   const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
-  let surfaceState: CareerModelSurface = INACTIVE_CAREER_MODEL_SURFACE;
-  let rawRequested = false;
 
   pi.registerTool({
     name: MANAGED_TOOL_NAME,

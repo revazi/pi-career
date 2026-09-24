@@ -6396,6 +6396,79 @@ var ApplicationWorkspaceWorkflow = class {
   }
 };
 
+// src/managed/schema.ts
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+var RAW_TOOL_NAMES = [
+  "career_core_discover",
+  "career_core_resume",
+  "career_core_job"
+];
+var MANAGED_TOOL_NAME = "career_run";
+var CAREER_RUN_COMMANDS = [
+  "context",
+  "consent",
+  "analyze",
+  "match",
+  "suggestion-review",
+  "replacement-review",
+  "variant-review",
+  "materialize",
+  "detail"
+];
+var DETAIL_SECTIONS = [
+  "summary",
+  "warnings",
+  "checks",
+  "evidence",
+  "changes",
+  "document",
+  "raw"
+];
+var careerRunParameters = Type.Object({
+  command: StringEnum(CAREER_RUN_COMMANDS),
+  handle: Type.Optional(Type.String({
+    pattern: "^(resume|result|review|variant):[a-f0-9-]{8,64}$",
+    maxLength: 80
+  })),
+  payload: Type.Optional(Type.Unknown({
+    description: "Native command payload; never a JSON string or complete Core envelope."
+  }))
+}, { additionalProperties: false });
+
+// src/workflow/session-model-surface.ts
+var CAREER_MODEL_TOOL_NAMES = [MANAGED_TOOL_NAME, ...RAW_TOOL_NAMES];
+var INACTIVE_CAREER_MODEL_SURFACE = {
+  careerRunActive: false,
+  skillDiscoverable: false
+};
+var ACTIVE_MANAGED_CAREER_MODEL_SURFACE = {
+  careerRunActive: true,
+  skillDiscoverable: true
+};
+async function resolveCareerModelSurface(branchEntries, allEntries = branchEntries, validateAttachment) {
+  const records = replayApplicationSessionRecords(branchEntries, allEntries);
+  if (records.integrity !== "valid" || records.attachment === void 0 || records.activation === void 0) {
+    return INACTIVE_CAREER_MODEL_SURFACE;
+  }
+  if (validateAttachment === void 0) return INACTIVE_CAREER_MODEL_SURFACE;
+  try {
+    await validateAttachment(records.attachment);
+  } catch {
+    return INACTIVE_CAREER_MODEL_SURFACE;
+  }
+  return ACTIVE_MANAGED_CAREER_MODEL_SURFACE;
+}
+function applyCareerToolSurface(getActiveTools, setActiveTools, surface, includeRaw = false) {
+  const retained = getActiveTools().filter(
+    (name) => !CAREER_MODEL_TOOL_NAMES.includes(name)
+  );
+  const next = [...retained];
+  if (surface.careerRunActive) next.push(MANAGED_TOOL_NAME);
+  if (surface.careerRunActive && includeRaw) next.push(...RAW_TOOL_NAMES);
+  setActiveTools([...new Set(next)]);
+}
+
 // src/managed/errors.ts
 var MESSAGES = {
   invalid_request: "The career_run request is invalid.",
@@ -6662,46 +6735,6 @@ var ManagedRegistry = class {
   }
 };
 
-// src/managed/schema.ts
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
-var RAW_TOOL_NAMES = [
-  "career_core_discover",
-  "career_core_resume",
-  "career_core_job"
-];
-var MANAGED_TOOL_NAME = "career_run";
-var CAREER_RUN_COMMANDS = [
-  "context",
-  "consent",
-  "analyze",
-  "match",
-  "suggestion-review",
-  "replacement-review",
-  "variant-review",
-  "materialize",
-  "detail"
-];
-var DETAIL_SECTIONS = [
-  "summary",
-  "warnings",
-  "checks",
-  "evidence",
-  "changes",
-  "document",
-  "raw"
-];
-var careerRunParameters = Type.Object({
-  command: StringEnum(CAREER_RUN_COMMANDS),
-  handle: Type.Optional(Type.String({
-    pattern: "^(resume|result|review|variant):[a-f0-9-]{8,64}$",
-    maxLength: 80
-  })),
-  payload: Type.Optional(Type.Unknown({
-    description: "Native command payload; never a JSON string or complete Core envelope."
-  }))
-}, { additionalProperties: false });
-
 // src/managed/engine.ts
 var MODEL_DETAIL_MAX_BYTES = 5e4;
 function isRecord9(value) {
@@ -6823,6 +6856,24 @@ function mapAttachedCareerError(error) {
     if (error.code === "workspace_drift") throw careerRunError("resume_not_found");
   }
   throw error;
+}
+async function preflightCareerSessionRecords(agentDir, ctx) {
+  const allEntries = typeof ctx.sessionManager.getEntries === "function" ? ctx.sessionManager.getEntries() : ctx.sessionManager.getBranch();
+  const hasApplicationRecord = allEntries.some((entry) => entry.type === "custom" && (entry.customType === APPLICATION_ATTACHMENT_CUSTOM_TYPE || entry.customType === APPLICATION_ASSISTANCE_CUSTOM_TYPE));
+  if (!hasApplicationRecord) return;
+  const branch = ctx.sessionManager.getBranch();
+  const records = replayApplicationSessionRecords(branch, allEntries);
+  if (records.integrity !== "valid") throw careerRunError("assistance_required");
+  if (records.attachment === void 0) return;
+  if (records.activation === void 0) throw careerRunError("assistance_required");
+  try {
+    await loadAttachedApplicationSources(agentDir, records.attachment);
+  } catch (error) {
+    if (error instanceof CareerWorkflowError && (error.code === "attachment_unavailable" || error.code === "workspace_identity_conflict" || error.code === "workspace_drift")) {
+      throw careerRunError("assistance_required");
+    }
+    throw error;
+  }
 }
 async function attachedCareerSources(agentDir, ctx) {
   const branch = ctx.sessionManager.getBranch();
@@ -7107,6 +7158,18 @@ var CareerRunEngine = class {
     try {
       this.registry.enterSession(ctx.sessionManager.getSessionId());
       exactDefinedKeys(params, ["command", "handle", "payload"]);
+      try {
+        await preflightCareerSessionRecords(this.options.agentDir, ctx);
+      } catch (error) {
+        this.registry.resetSession(ctx.sessionManager.getSessionId());
+        applyCareerToolSurface(
+          () => this.options.pi.getActiveTools(),
+          (names) => this.options.pi.setActiveTools(names),
+          INACTIVE_CAREER_MODEL_SURFACE
+        );
+        this.options.onUnavailable?.();
+        throw error;
+      }
       const managed = await this.contracts.load(this.options.invoke, signal);
       switch (params.command) {
         case "context":
@@ -7685,39 +7748,6 @@ function materializeEditorText(reviewHandle, selectedChangeIds) {
   ].join("\n");
 }
 
-// src/workflow/session-model-surface.ts
-var CAREER_MODEL_TOOL_NAMES = [MANAGED_TOOL_NAME, ...RAW_TOOL_NAMES];
-var INACTIVE_CAREER_MODEL_SURFACE = {
-  careerRunActive: false,
-  skillDiscoverable: false
-};
-var ACTIVE_MANAGED_CAREER_MODEL_SURFACE = {
-  careerRunActive: true,
-  skillDiscoverable: true
-};
-async function resolveCareerModelSurface(branchEntries, allEntries = branchEntries, validateAttachment) {
-  const records = replayApplicationSessionRecords(branchEntries, allEntries);
-  if (records.integrity !== "valid" || records.attachment === void 0 || records.activation === void 0) {
-    return INACTIVE_CAREER_MODEL_SURFACE;
-  }
-  if (validateAttachment === void 0) return INACTIVE_CAREER_MODEL_SURFACE;
-  try {
-    await validateAttachment(records.attachment);
-  } catch {
-    return INACTIVE_CAREER_MODEL_SURFACE;
-  }
-  return ACTIVE_MANAGED_CAREER_MODEL_SURFACE;
-}
-function applyCareerToolSurface(getActiveTools, setActiveTools, surface, includeRaw = false) {
-  const retained = getActiveTools().filter(
-    (name) => !CAREER_MODEL_TOOL_NAMES.includes(name)
-  );
-  const next = [...retained];
-  if (surface.careerRunActive) next.push(MANAGED_TOOL_NAME);
-  if (surface.careerRunActive && includeRaw) next.push(...RAW_TOOL_NAMES);
-  setActiveTools([...new Set(next)]);
-}
-
 // src/workflow/variant-save.ts
 import { createHash as createHash5 } from "node:crypto";
 import { constants as constants3 } from "node:fs";
@@ -8208,16 +8238,22 @@ function registerCareerRun(pi, options = {}) {
   const agentDir = options.agentDir ?? getAgentDir();
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const uuid = options.uuid ?? randomUUID2;
+  let surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+  let rawRequested = false;
+  const deactivateSurface = () => {
+    surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
+    rawRequested = false;
+    setCareerToolSurface(pi, surfaceState);
+  };
   const engine = new CareerRunEngine({
     pi,
     agentDir,
     invoke: options.invoke ?? invokeCareerCli,
     now,
-    uuid
+    uuid,
+    onUnavailable: deactivateSurface
   });
   const variantSave = new VariantSaveWorkflow({ agentDir, now, uuid });
-  let surfaceState = INACTIVE_CAREER_MODEL_SURFACE;
-  let rawRequested = false;
   pi.registerTool({
     name: MANAGED_TOOL_NAME,
     label: "Career",
