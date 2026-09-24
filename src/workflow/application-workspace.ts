@@ -109,7 +109,9 @@ interface WorkspaceOptions {
   uuid: () => string;
   appendEntry?: (customType: string, data: unknown) => void;
   withMutationQueues?: <T>(paths: readonly string[], operation: () => Promise<T>) => Promise<T>;
+  beforeWorkspaceLockAcquire?: (operation: "initialize_application" | "record_state", mutationId: string) => Promise<void>;
   afterWorkspaceLockAcquired?: (operation: "initialize_application" | "record_state", mutationId: string) => Promise<void>;
+  afterRevisionPublished?: (mutationId: string) => Promise<void>;
 }
 
 interface RootMarker {
@@ -3319,7 +3321,10 @@ export class ApplicationWorkspaceWorkflow {
     if (!(await approve(plan, ctx))) return;
     assertSessionPlan(plan, ctx);
     await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
-      const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
+      await this.options.beforeWorkspaceLockAcquire?.("initialize_application", mutationId);
+      const rootLock = await acquireMutationLock(
+        workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt,
+      );
       const published: PublishedFile[] = [];
       let createdDirectory: Stats | undefined;
       try {
@@ -3540,6 +3545,7 @@ export class ApplicationWorkspaceWorkflow {
       );
     };
     await this.withMutationQueues(files.map((file) => file.final), async () => {
+      await this.options.beforeWorkspaceLockAcquire?.("record_state", plan.envelope.mutation_id);
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path), "workspace_mutation_lock", plan.envelope.mutation_id, plan.createdAt,
       );
@@ -3570,6 +3576,7 @@ export class ApplicationWorkspaceWorkflow {
         assertApplicationCapacity(currentApplication, files, revisionAdditions);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        await this.options.afterRevisionPublished?.(plan.envelope.mutation_id);
         const verified = await inspectCommitted();
         if (verified.headFile.sha256 !== hashBytes(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {

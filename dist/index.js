@@ -6140,7 +6140,13 @@ var ApplicationWorkspaceWorkflow = class {
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
     await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
-      const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
+      await this.options.beforeWorkspaceLockAcquire?.("initialize_application", mutationId);
+      const rootLock = await acquireMutationLock(
+        workspaceLockPath(configured.root_path),
+        "workspace_mutation_lock",
+        mutationId,
+        createdAt
+      );
       const published = [];
       let createdDirectory;
       try {
@@ -6358,6 +6364,7 @@ var ApplicationWorkspaceWorkflow = class {
       );
     };
     await this.withMutationQueues(files.map((file) => file.final), async () => {
+      await this.options.beforeWorkspaceLockAcquire?.("record_state", plan.envelope.mutation_id);
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path),
         "workspace_mutation_lock",
@@ -6389,6 +6396,7 @@ var ApplicationWorkspaceWorkflow = class {
         assertApplicationCapacity(currentApplication, files, revisionAdditions);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        await this.options.afterRevisionPublished?.(plan.envelope.mutation_id);
         const verified = await inspectCommitted();
         if (verified.headFile.sha256 !== hashBytes2(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {
