@@ -5212,6 +5212,12 @@ var ApplicationWorkspaceWorkflow = class {
     this.options = options;
   }
   options;
+  withMutationQueues(paths, operation) {
+    return this.options.withMutationQueues?.(paths, operation) ?? withQueues2(paths, operation);
+  }
+  afterWorkspaceLockAcquired(operation, mutationId) {
+    return this.options.afterWorkspaceLockAcquired?.(operation, mutationId) ?? Promise.resolve();
+  }
   async run(args, ctx) {
     if (args.trim() !== "") throw workflowError("invalid_command_arguments");
     if (ctx.mode !== "tui" && ctx.mode !== "rpc") throw workflowError("interactive_mode_required");
@@ -6133,11 +6139,12 @@ var ApplicationWorkspaceWorkflow = class {
     );
     if (!await approve(plan, ctx)) return;
     assertSessionPlan(plan, ctx);
-    await withQueues2([directoryPath, ...files.map((file) => file.final)], async () => {
+    await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
       const rootLock = await acquireMutationLock(workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt);
       const published = [];
       let createdDirectory;
       try {
+        await this.afterWorkspaceLockAcquired("initialize_application", mutationId);
         const currentIdentity = assertSessionPlan(plan, ctx);
         if (currentIdentity === void 0) throw workflowError("workspace_identity_conflict");
         await assertConfigSnapshotCurrent(attachment.snapshot);
@@ -6350,7 +6357,7 @@ var ApplicationWorkspaceWorkflow = class {
         storedIdentity
       );
     };
-    await withQueues2(files.map((file) => file.final), async () => {
+    await this.withMutationQueues(files.map((file) => file.final), async () => {
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path),
         "workspace_mutation_lock",
@@ -6359,6 +6366,7 @@ var ApplicationWorkspaceWorkflow = class {
       );
       const published = [];
       try {
+        await this.afterWorkspaceLockAcquired("record_state", plan.envelope.mutation_id);
         const current = assertSessionPlan(plan, ctx);
         if (identity2 === void 0 !== (current === void 0) || identity2 !== void 0 && current?.identity.application_id !== identity2.identity.application_id || target.applicationId !== application.manifest.application_id) {
           throw workflowError("workspace_identity_conflict");
