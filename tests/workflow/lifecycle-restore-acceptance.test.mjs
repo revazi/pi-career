@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -82,8 +82,10 @@ async function fixture(t, options = {}) {
     generated_variants_root: null,
     application_workspace: options.missingPointer ? null : { root_id: ROOT_ID, root_path: workspaceRoot },
   });
-  await writeFile(path.join(libraryRoot, "private-resume.md"), `${PRIVATE_SENTINELS.join("\n")}\n`, { mode: 0o600 });
-  await chmod(path.join(libraryRoot, "private-resume.md"), 0o600);
+  const resumePath = path.join(libraryRoot, "private-resume.md");
+  const resumeBytes = Buffer.from(`${PRIVATE_SENTINELS.join("\n")}\n`);
+  await writeFile(resumePath, resumeBytes, { mode: 0o600 });
+  await chmod(resumePath, 0o600);
   await privateJson(path.join(workspaceRoot, ".pi-career-applications.json"), {
     schema_version: "pi.career.application_root.v1", kind: "application_workspace_root",
     root_id: ROOT_ID, created_at: ROOT_CREATED_AT,
@@ -104,8 +106,14 @@ async function fixture(t, options = {}) {
   await privateJson(path.join(applicationDir, ".pi-career-state-000001.json"), {
     schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
     application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
+    vacancy: null,
+    selected_original: options.sourceDrift ? {
+      document_id: hash(Buffer.from(await realpath(resumePath))),
+      library_root_id: rootId(libraryRoot), text_sha256: hash(resumeBytes), format: "markdown",
+    } : null,
+    resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
+  if (options.sourceDrift) await unlink(resumePath);
   const uuid = uuidSequence();
   const attachment = createApplicationAttachmentEntry({
     applicationId: APPLICATION_ID, rootId: ROOT_ID, rootCreatedAt: ROOT_CREATED_AT,
@@ -149,7 +157,12 @@ function registerInstalled(fake, agentDir) {
 }
 
 function boundarySpies(fake) {
-  const calls = { sends: 0, reloads: 0, newSessions: 0 };
+  const calls = { appends: 0, sends: 0, reloads: 0, newSessions: 0 };
+  const appendEntry = fake.api.appendEntry;
+  fake.api.appendEntry = (...args) => {
+    calls.appends += 1;
+    return appendEntry(...args);
+  };
   fake.api.sendMessage = () => { calls.sends += 1; };
   fake.api.sendUserMessage = () => { calls.sends += 1; };
   return calls;
@@ -167,8 +180,8 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   const before = await treeSnapshot(item.base);
   const first = makeFakePi();
   first.entries.push(...await persistedEntries(item));
-  registerInstalled(first, item.agentDir);
   const firstSpies = boundarySpies(first);
+  registerInstalled(first, item.agentDir);
   const firstContext = makeContext(first, {
     reload: () => { firstSpies.reloads += 1; },
     newSessions: [],
@@ -187,8 +200,8 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   // A separately registered extension instance proves restart rather than closure/state reuse.
   const resumed = makeFakePi();
   resumed.entries.push(...await persistedEntries(item));
-  registerInstalled(resumed, item.agentDir);
   const resumedSpies = boundarySpies(resumed);
+  registerInstalled(resumed, item.agentDir);
   const resumedContext = makeContext(resumed, {
     reload: () => { resumedSpies.reloads += 1; },
     newSessions: [],
@@ -202,8 +215,8 @@ test("P3-52 fresh installed extension resumes exact persisted activation with co
   const projection = JSON.stringify({ activeTools: resumed.activeTools, discovered, notifications: resumedContext.notifications });
   for (const sentinel of PRIVATE_SENTINELS) assert.doesNotMatch(projection, new RegExp(sentinel));
   assert.deepEqual(resumed.entries, item.entries);
-  assert.deepEqual(resumedSpies, { sends: 0, reloads: 0, newSessions: 0 });
-  assert.deepEqual(firstSpies, { sends: 0, reloads: 0, newSessions: 0 });
+  assert.deepEqual(resumedSpies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
+  assert.deepEqual(firstSpies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
   assert.deepEqual(await treeSnapshot(item.base), before);
 });
 
@@ -223,6 +236,9 @@ const invalidCases = {
     invalid: (entries) => [{ ...entries[0], data: { ...entries[0].data, root_created_at: "2026-07-31T00:00:00.000Z" } }, entries[1]],
   },
   "missing configured pointer": { fixtureOptions: { missingPointer: true }, invalid: (entries) => entries },
+  "drifted selected source binding": {
+    fixtureOptions: { sourceDrift: true }, invalid: (entries) => entries, initiallyPointerValid: true,
+  },
 };
 
 test("P3-56 installed invalid restore/action matrix fails closed without append or mutation", async (t) => {
@@ -233,8 +249,8 @@ test("P3-56 installed invalid restore/action matrix fails closed without append 
       const fake = makeFakePi();
       fake.entries.push(...scenario.invalid(await persistedEntries(item)));
       const entriesBefore = structuredClone(fake.entries);
-      registerInstalled(fake, item.agentDir);
       const spies = boundarySpies(fake);
+      registerInstalled(fake, item.agentDir);
       const newSessions = [];
       const rpc = makeContext(fake, {
         reload: () => { spies.reloads += 1; }, newSessions,
@@ -261,10 +277,12 @@ test("P3-56 installed invalid restore/action matrix fails closed without append 
       });
       assert.deepEqual(fake.activeTools, []);
       assert.deepEqual(await fake.events.get("resources_discover")[0]({}), {});
-      assert.deepEqual(action, { action: "handled" });
-      assert.deepEqual(rpc.notifications, [{ message: "Career assistance is inactive in this session.", type: "warning" }]);
+      assert.deepEqual(action, { action: scenario.initiallyPointerValid ? "continue" : "handled" });
+      assert.deepEqual(rpc.notifications, scenario.initiallyPointerValid ? [] : [
+        { message: "Career assistance is inactive in this session.", type: "warning" },
+      ]);
       assert.deepEqual(fake.entries, entriesBefore);
-      assert.deepEqual(spies, { sends: 0, reloads: 0, newSessions: 0 });
+      assert.deepEqual(spies, { appends: 0, sends: 0, reloads: 0, newSessions: 0 });
       assert.deepEqual(newSessions, []);
       assert.deepEqual(await treeSnapshot(item.base), before);
       const observed = JSON.stringify({ activeTools: fake.activeTools, notifications: rpc.notifications, action });

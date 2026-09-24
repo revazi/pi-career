@@ -13,7 +13,6 @@ import {
 } from "../workflow/result-projection.ts";
 import {
   loadAttachedApplicationSources,
-  validateApplicationAttachment,
   type AttachedApplicationSources,
 } from "../workflow/application-workspace.ts";
 import { eligibleOriginals, scanLibrary } from "../workflow/scan.ts";
@@ -22,6 +21,10 @@ import {
   APPLICATION_ATTACHMENT_CUSTOM_TYPE,
   replayApplicationSessionRecords,
 } from "../workflow/session-attachment.ts";
+import {
+  applyCareerToolSurface,
+  INACTIVE_CAREER_MODEL_SURFACE,
+} from "../workflow/session-model-surface.ts";
 import { createConsentEntry, reconstructWorkflowState } from "../workflow/session-state.ts";
 import {
   CareerWorkflowError,
@@ -62,6 +65,7 @@ export interface CareerRunEngineOptions {
   invoke: ManagedInvoke;
   now: () => Date;
   uuid: () => string;
+  onUnavailable?: () => void;
 }
 
 export interface ManagedToolResult {
@@ -251,9 +255,14 @@ async function preflightCareerSessionRecords(agentDir: string, ctx: ExtensionCon
   if (records.attachment === undefined) return;
   if (records.activation === undefined) throw careerRunError("assistance_required");
   try {
-    await validateApplicationAttachment(agentDir, records.attachment);
+    await loadAttachedApplicationSources(agentDir, records.attachment);
   } catch (error) {
-    return mapAttachedCareerError(error);
+    if (error instanceof CareerWorkflowError &&
+      (error.code === "attachment_unavailable" || error.code === "workspace_identity_conflict" ||
+        error.code === "workspace_drift")) {
+      throw careerRunError("assistance_required");
+    }
+    throw error;
   }
 }
 
@@ -593,7 +602,18 @@ export class CareerRunEngine {
     try {
       this.registry.enterSession(ctx.sessionManager.getSessionId());
       exactDefinedKeys(params, ["command", "handle", "payload"]);
-      await preflightCareerSessionRecords(this.options.agentDir, ctx);
+      try {
+        await preflightCareerSessionRecords(this.options.agentDir, ctx);
+      } catch (error) {
+        this.registry.resetSession(ctx.sessionManager.getSessionId());
+        applyCareerToolSurface(
+          () => this.options.pi.getActiveTools(),
+          (names) => this.options.pi.setActiveTools(names),
+          INACTIVE_CAREER_MODEL_SURFACE,
+        );
+        this.options.onUnavailable?.();
+        throw error;
+      }
       const managed = await this.contracts.load(this.options.invoke, signal);
       switch (params.command) {
         case "context": return await this.context(params, ctx, managed.coreVersion);
