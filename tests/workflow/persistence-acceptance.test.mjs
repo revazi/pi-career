@@ -52,6 +52,7 @@ const behavioral = {
   39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
   41: ["application-concurrency-acceptance", "P3-41 exact durably published state settles success and equivalent retry is idempotent"],
   42: ["application-concurrency-acceptance", "P3-42 crash-left canonical lock blocks one public mutation attempt without replacement"],
+  43: ["application-concurrency-acceptance", "P3-43 post-preview referenced-byte drift blocks commit without blessing or side effects"],
   45: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
@@ -79,9 +80,8 @@ const deferred = {
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
   36: "Installed-extension and workflow session_start/session_tree plus /career print/JSON traps cover session getters and registration-scoped loader, UI, append, send and Core boundaries. Direct filesystem reads, host lifecycle ordering, and future read routes lack independent interception.",
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
-  40: "An orphan fixture is not a reconciliation/fault-settlement test.",
-  43: "Catalog drift detection alone does not test a mutation against edited referenced bytes.",
-  44: "Read-time state/cover bounds alone do not cover each plan/commit bound or preview race.",
+  40: "Existing state-publication settlement does not inject the distinct artifact-published/state-absent fault or prove orphan reconciliation.",
+  44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
   47: "Read-time v1 byte preservation is not a migration commit test.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 35, "reviewed map has exactly 35 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 23, "reviewed map retains exactly 23 deferrals");
-  assert.match(markdown, /Currently 35 have scoped witnesses and 23 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 36, "reviewed map has exactly 36 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 22, "reviewed map retains exactly 22 deferrals");
+  assert.match(markdown, /Currently 36 have scoped witnesses and 22 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
