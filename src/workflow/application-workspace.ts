@@ -109,8 +109,8 @@ interface WorkspaceOptions {
   uuid: () => string;
   appendEntry?: (customType: string, data: unknown) => void;
   withMutationQueues?: <T>(paths: readonly string[], operation: () => Promise<T>) => Promise<T>;
-  beforeWorkspaceLockAcquire?: (operation: "initialize_application" | "record_state", mutationId: string) => Promise<void>;
-  afterWorkspaceLockAcquired?: (operation: "initialize_application" | "record_state", mutationId: string) => Promise<void>;
+  beforeWorkspaceLockAcquire?: (operation: "initialize_application" | "finish_application_migration" | "record_state", mutationId: string) => Promise<void>;
+  afterWorkspaceLockAcquired?: (operation: "initialize_application" | "finish_application_migration" | "record_state", mutationId: string) => Promise<void>;
   afterRevisionPublished?: (mutationId: string) => Promise<void>;
 }
 
@@ -1494,7 +1494,9 @@ function attachmentValidationError(error: unknown): never {
   throw workflowError("attachment_unavailable");
 }
 
-function expectedIdentityBasename(identity: NonNullable<ApplicationCatalogRecord["identity"]>): string {
+type IdentityLabels = { application_id: string; company_label: string; role_label: string; created_at: string };
+
+function expectedIdentityBasename(identity: IdentityLabels): string {
   return `${slug(identity.company_label, "company")}--${slug(identity.role_label, "role")}--${identity.application_id}`;
 }
 
@@ -1791,16 +1793,16 @@ async function attachmentFor(
 }
 
 function applicationIdentityBytes(
-  identity: WorkspaceApplicationIdentity,
+  identity: IdentityLabels,
   manifest: ApplicationManifest,
 ): Buffer {
   const decoded = decodeApplicationIdentity(canonicalJson({
     schema_version: IDENTITY_SCHEMA,
     kind: "application_identity",
-    application_id: identity.identity.application_id,
-    company_label: identity.identity.company_label,
-    role_label: identity.identity.role_label,
-    created_at: identity.identity.created_at,
+    application_id: identity.application_id,
+    company_label: identity.company_label,
+    role_label: identity.role_label,
+    created_at: identity.created_at,
   }), manifest);
   if (decoded === undefined) throw workflowError("workspace_identity_conflict");
   return canonicalJson(decoded);
@@ -1916,8 +1918,12 @@ function buildPlan(
   };
 }
 
-function assertSessionPlan(plan: WorkspacePlan, ctx: ExtensionCommandContext): WorkspaceApplicationIdentity | undefined {
+function assertPlanContext(plan: WorkspacePlan, ctx: ExtensionCommandContext): void {
   if (ctx.sessionManager.getSessionId() !== plan.sessionId || !ctx.isIdle()) throw workflowError("workspace_unavailable");
+}
+
+function assertSessionPlan(plan: WorkspacePlan, ctx: ExtensionCommandContext): WorkspaceApplicationIdentity | undefined {
+  assertPlanContext(plan, ctx);
   const identity = sessionIdentity(ctx);
   if ((identity?.identity.state_id ?? null) !== plan.identityStateId ||
     (identity?.current.state_id ?? null) !== plan.currentStateId ||
@@ -2372,7 +2378,7 @@ export class ApplicationWorkspaceWorkflow {
   }
 
   private afterWorkspaceLockAcquired(
-    operation: "initialize_application" | "record_state",
+    operation: "initialize_application" | "finish_application_migration" | "record_state",
     mutationId: string,
   ): Promise<void> {
     return this.options.afterWorkspaceLockAcquired?.(operation, mutationId) ?? Promise.resolve();
@@ -3164,33 +3170,81 @@ export class ApplicationWorkspaceWorkflow {
       ctx.ui.notify("The application identity migration is already complete and valid.", "info");
       return;
     }
+    await this.publishIdentityMigration(ctx, attachment.snapshot, attachment.root, application, identity.identity, identity);
+  }
+
+  async migrateCatalogApplication(
+    ctx: ExtensionCommandContext,
+    applicationId: string,
+    companyLabel: string,
+    roleLabel: string,
+  ): Promise<"written" | "cancelled"> {
+    if ((ctx.mode !== "tui" && ctx.mode !== "rpc") || !ctx.isIdle() || !validUuid(applicationId) ||
+      !boundedLabel(companyLabel) || !boundedLabel(roleLabel)) throw workflowError("invalid_command_arguments");
+    const snapshot = await loadConfigSnapshot(this.options.agentDir).catch(() => { throw workflowError("workspace_config_invalid"); });
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("workspace_unavailable");
+    await assertApplicationWorkspaceDisjoint(snapshot.config);
+    const evidence = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+    const matches = evidence.validatedApplications.filter(({ record }) => record.application_id === applicationId);
+    if (evidence.applicationClaims.filter((id) => id === applicationId).length !== 1 || matches.length !== 1 ||
+      matches[0]!.record.classification !== "legacy") throw workflowError("workspace_identity_conflict");
+    const application = matches[0]!.inspected;
+    const identity = {
+      application_id: applicationId,
+      company_label: companyLabel,
+      role_label: roleLabel,
+      created_at: application.manifest.application_created_at,
+    };
+    if (path.basename(application.directoryPath) !== expectedIdentityBasename(identity)) {
+      throw workflowError("workspace_identity_conflict");
+    }
+    const target: CurrentApplicationTarget = {
+      directoryPath: application.directoryPath,
+      applicationId,
+      applicationCreatedAt: identity.created_at,
+      companyLabel,
+      roleLabel,
+    };
+    const root = await inspectRoot(configured.root_path, { expectedRootId: configured.root_id, currentApplication: target });
+    const current = root.currentApplication;
+    if (current === undefined || current.identity !== undefined || current.headFile.sha256 !== application.headFile.sha256) {
+      throw workflowError("workspace_drift");
+    }
+    return this.publishIdentityMigration(ctx, snapshot, root, current, identity);
+  }
+
+  private async publishIdentityMigration(
+    ctx: ExtensionCommandContext,
+    snapshot: ConfigSnapshot,
+    root: RootAudit,
+    application: InspectedApplication,
+    identity: IdentityLabels,
+    session?: WorkspaceApplicationIdentity,
+  ): Promise<"written" | "cancelled"> {
+    const configured = snapshot.config.application_workspace;
+    if (configured === null) throw workflowError("workspace_unavailable");
     const bytes = applicationIdentityBytes(identity, application.manifest);
     if (application.entries.length + 1 > APPLICATION_MAX_ENTRIES ||
-      application.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) {
-      throw workflowError("workspace_limit_reached");
-    }
+      application.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
     const mutationId = this.options.uuid().toLowerCase();
     const createdAt = this.options.now().toISOString();
     const final = path.join(application.directoryPath, IDENTITY_NAME);
     const temporary = path.join(application.directoryPath, `.pi-career-${mutationId}-identity.tmp`);
     await requireAbsent(final);
     const transient = ctx.sessionManager.getSessionFile() === undefined;
-    if (transient) {
-      ctx.ui.notify("Transient session warning: the approved identity file outlives this Pi process.", "warning");
-    }
+    if (transient) ctx.ui.notify("Transient session warning: the approved identity file outlives this Pi process.", "warning");
     const plan = buildPlan(
-      this.options, ctx, "finish_application_migration", identity.identity.application_id, identity,
-      attachment.snapshot.sha256, application.headFile.sha256,
-      [createPreview(final, bytes)], [], [workspaceLockPath(configured.root_path), temporary],
-      [
-        "Migration adds only the exact display-identity file; manifest, states, artifacts, and directory names remain unchanged.",
-        ...(transient ? ["Transient session: the identity file outlives this process."] : []),
-      ],
-      mutationId, createdAt,
+      this.options, ctx, "finish_application_migration", identity.application_id, session,
+      snapshot.sha256, application.headFile.sha256, [createPreview(final, bytes)], [],
+      [workspaceLockPath(configured.root_path), temporary],
+      ["Migration adds only the exact display-identity file; manifest, states, artifacts, and directory names remain unchanged.",
+        ...(transient ? ["Transient session: the identity file outlives this process."] : [])], mutationId, createdAt,
     );
-    if (!(await approve(plan, ctx))) return;
-    assertSessionPlan(plan, ctx);
-    await withQueues([final], async () => {
+    if (!(await approve(plan, ctx))) return "cancelled";
+    session === undefined ? assertPlanContext(plan, ctx) : assertSessionPlan(plan, ctx);
+    await this.withMutationQueues([final], async () => {
+      await this.options.beforeWorkspaceLockAcquire?.("finish_application_migration", mutationId);
       const rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path), "workspace_mutation_lock", mutationId, createdAt,
       );
@@ -3204,27 +3258,30 @@ export class ApplicationWorkspaceWorkflow {
         return inspected.headFile.sha256 === application.headFile.sha256;
       };
       try {
-        const currentIdentity = assertSessionPlan(plan, ctx);
-        if (currentIdentity === undefined || currentIdentity.identity.application_id !== identity.identity.application_id) {
-          throw workflowError("workspace_identity_conflict");
+        await this.afterWorkspaceLockAcquired("finish_application_migration", mutationId);
+        if (session === undefined) assertPlanContext(plan, ctx);
+        else {
+          const currentIdentity = assertSessionPlan(plan, ctx);
+          if (currentIdentity?.identity.application_id !== identity.application_id) throw workflowError("workspace_identity_conflict");
         }
-        await assertConfigSnapshotCurrent(attachment.snapshot);
-        await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
-        const target = currentApplicationTarget(configured.root_path, currentIdentity);
-        if (target === undefined) throw workflowError("workspace_identity_conflict");
+        await assertConfigSnapshotCurrent(snapshot);
+        await assertApplicationWorkspaceDisjoint(snapshot.config);
+        const target: CurrentApplicationTarget = {
+          directoryPath: application.directoryPath,
+          applicationId: identity.application_id,
+          applicationCreatedAt: identity.created_at,
+          companyLabel: identity.company_label,
+          roleLabel: identity.role_label,
+        };
         const currentRoot = await inspectRoot(configured.root_path, {
-          expectedRootId: configured.root_id,
-          ownedLock: rootLock.path,
-          currentApplication: target,
+          expectedRootId: configured.root_id, ownedLock: rootLock.path, currentApplication: target,
         });
-        assertRootPlanCurrent(attachment.root, currentRoot);
+        assertRootPlanCurrent(root, currentRoot);
         const current = currentRoot.currentApplication;
         if (current === undefined || current.identity !== undefined ||
           current.headFile.sha256 !== application.headFile.sha256) throw workflowError("workspace_drift");
         if (current.entries.length + 1 > APPLICATION_MAX_ENTRIES ||
-          current.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) {
-          throw workflowError("workspace_limit_reached");
-        }
+          current.managedBytes + bytes.length > APPLICATION_MAX_MANAGED_BYTES) throw workflowError("workspace_limit_reached");
         await requireAbsent(final);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         published = await publishFile(final, temporary, bytes);
@@ -3232,7 +3289,7 @@ export class ApplicationWorkspaceWorkflow {
         await syncDirectory(configured.root_path);
         if (!(await migrationIsComplete())) throw workflowError("workspace_status_unknown");
       } catch (error) {
-        if (await migrationIsComplete().catch(() => false)) return;
+        if (published !== undefined && await migrationIsComplete().catch(() => false)) return;
         if (published !== undefined) {
           await unlinkOwned(published);
           await syncDirectory(application.directoryPath);
@@ -3245,6 +3302,7 @@ export class ApplicationWorkspaceWorkflow {
       }
     });
     ctx.ui.notify("Finished application identity migration. Existing workspace bytes remain unchanged.", "info");
+    return "written";
   }
 
   private async initialize(ctx: ExtensionCommandContext): Promise<void> {
@@ -3272,7 +3330,7 @@ export class ApplicationWorkspaceWorkflow {
       workspace_created_at: createdAt,
     };
     const manifestBytes = canonicalJson(manifest);
-    const identityBytes = applicationIdentityBytes(identity, manifest);
+    const identityBytes = applicationIdentityBytes(identity.identity, manifest);
     const currentVacancyBytes = vacancyBytes(identity.vacancy, identity.identity.application_id);
     const vacancyName = "vacancy.md";
     const state: ApplicationStateRevisionV1 = {

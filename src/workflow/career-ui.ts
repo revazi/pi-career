@@ -67,6 +67,7 @@ export const CAREER_UI_RPC_ACTIONS = {
   close: "Close",
   back: "Back",
   attach: "Attach",
+  migrate: "Finish migration",
   addRoot: "Add root",
   removeRoot: "Remove root",
   rescan: "Rescan",
@@ -88,6 +89,7 @@ export interface CareerUiItem {
   label: string;
   detail: string;
   pointer?: ApplicationAttachmentPointer;
+  legacyMigration?: boolean;
   /** In-memory identity only; never rendered in list/detail or persisted. */
   preview?: { source: "library" | "vacancy" | "original" | "effective"; digest: string; id: string; rootId?: string; format?: string };
 }
@@ -102,6 +104,7 @@ export type CareerUiModel = Record<CareerUiView, CareerUiPane>;
 
 export interface CareerUiActions {
   attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
+  migrate?: (applicationId: string) => Promise<boolean>;
   addRoot?: () => Promise<boolean>;
   removeRoot?: (rootId: string) => Promise<boolean>;
   rescan?: () => Promise<boolean>;
@@ -271,7 +274,9 @@ export async function buildCareerUiModel(
           const detail = application.identity === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
             : `${application.identity.company_label} — ${application.identity.role_label}\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
-          return item(application.application_id, label, detail, pointer);
+          const row = item(application.application_id, label, detail, pointer);
+          if (application.classification === "legacy") row.legacyMigration = true;
+          return row;
         }),
       };
     }
@@ -443,6 +448,11 @@ export class CareerUiSession {
     return this.selected?.pointer !== undefined && this.actions.attach !== undefined && !this.busyFlag;
   }
 
+  get canMigrate(): boolean {
+    return this.current === "applications" && this.selected?.legacyMigration === true &&
+      this.actions.migrate !== undefined && !this.busyFlag;
+  }
+
   get canAddRoot(): boolean {
     return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== undefined && !this.busyFlag;
   }
@@ -498,6 +508,7 @@ export class CareerUiSession {
   private actionEntries(): Array<[string, boolean, () => Promise<boolean>]> {
     return [
       [CAREER_UI_RPC_ACTIONS.attach, this.canAttach, () => this.attach()],
+      [CAREER_UI_RPC_ACTIONS.migrate, this.canMigrate, () => this.migrate()],
       [CAREER_UI_RPC_ACTIONS.create, this.canCreate, () => this.createApplication()],
       [CAREER_UI_RPC_ACTIONS.addRoot, this.canAddRoot, () => this.addRoot()],
       [CAREER_UI_RPC_ACTIONS.removeRoot, this.canRemoveRoot, () => this.removeRoot()],
@@ -609,6 +620,13 @@ export class CareerUiSession {
     const action = this.actions.attach;
     if (pointer === undefined || action === undefined) return false;
     return this.runBound(true, () => action(pointer));
+  }
+
+  async migrate(): Promise<boolean> {
+    const action = this.actions.migrate;
+    const applicationId = this.selected?.id;
+    if (action === undefined || applicationId === undefined) return false;
+    return this.runBound(this.canMigrate, () => action(applicationId));
   }
 
   async addRoot(): Promise<boolean> {
@@ -877,6 +895,7 @@ export class CareerOverlay implements Component {
     const entries: Array<[string, boolean, () => Promise<boolean>]> = [
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
+      ["i", this.session.canMigrate, () => this.session.migrate()],
       ["n", this.session.canAddRoot, () => this.session.addRoot()],
       ["x", this.session.canRemoveRoot, () => this.session.removeRoot()],
       ["r", this.session.canRescan, () => this.session.rescan()],
@@ -956,6 +975,7 @@ export class CareerOverlay implements Component {
     if (this.session.preview !== undefined) hints.push("↑↓ preview pages · soft-wrapped");
     const actions: Array<[boolean, string]> = [
       [this.session.preview === undefined && this.session.canAttach, "a attach"],
+      [this.session.canMigrate, "i migrate"],
       [this.session.canCreate, "c create"],
       [this.session.canAddRoot, "n add root"],
       [this.session.canRemoveRoot, "x remove"],

@@ -336,6 +336,14 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
   const openUi = async (ctx: ExtensionCommandContext, view: CareerUiView): Promise<void> => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
+      migrate: async (applicationId) => {
+        const company = await ctx.ui.input("Exact company label", "Company name");
+        if (company === undefined) return false;
+        const role = await ctx.ui.input("Exact role label", "Role title");
+        if (role === undefined) return false;
+        if (!validApplicationLabel(company) || !validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
+        return (await applicationWorkspace.migrateCatalogApplication(ctx, applicationId, company, role)) === "written";
+      },
       addRoot: async () => {
         const rootPath = await ctx.ui.input("Resume root", "Absolute path");
         if (rootPath === undefined) return false;
