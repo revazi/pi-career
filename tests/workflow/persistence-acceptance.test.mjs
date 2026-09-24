@@ -44,6 +44,7 @@ const behavioral = {
   26: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   27: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   28: ["session-attachment-commands", "P3-27/P3-28 attach appends only the identity pointer after confirmation"],
+  29: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
@@ -51,14 +52,13 @@ const behavioral = {
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
+  54: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
 };
 
 const deferred = {
-  29: "Opening another application in a replacement session does not test rejection of attach on a used session or its fresh-session offer.",
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Detach and reload do not establish navigate-before-activation behavior or absence of provider/Core calls and handles.",
-  54: "Invalid replay for a second claim does not demonstrate attach-command rejection and an explicit replacement-session offer on every branch.",
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
   52: "An activated in-memory session is not a restarted saved activation with revalidated exact pointer.",
   56: "Pointer validation failures alone do not establish that invalid transitions append and mutate nothing.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 27, "reviewed map has exactly 27 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 31, "reviewed map retains exactly 31 deferrals");
-  assert.match(markdown, /Currently 27 have scoped witnesses and 31 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 29, "reviewed map has exactly 29 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 29, "reviewed map retains exactly 29 deferrals");
+  assert.match(markdown, /Currently 29 have scoped witnesses and 29 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

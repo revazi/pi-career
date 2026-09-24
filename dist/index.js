@@ -5551,6 +5551,16 @@ var ApplicationWorkspaceWorkflow = class {
     return listCatalogApplications(this.options.agentDir);
   }
   async attachCatalogPointer(ctx, pointer) {
+    const records = this.sessionRecords(ctx);
+    if (records.used_application_id !== void 0 && records.used_application_id !== pointer.applicationId) {
+      const entry = createApplicationAttachmentEntry(pointer, this.options);
+      await validateApplicationAttachment(this.options.agentDir, entry);
+      ctx.ui.notify(
+        "This session already belongs to another application. The selected application was not attached.",
+        "warning"
+      );
+      return this.openEntryInNewSession(ctx, entry);
+    }
     return this.commitAttachment(
       ctx,
       pointer,
@@ -5604,13 +5614,15 @@ var ApplicationWorkspaceWorkflow = class {
   async openInNewSession(ctx) {
     const pointer = await this.selectAttachable(ctx, "Open application in new Pi session");
     if (pointer === void 0) return;
-    const entry = createApplicationAttachmentEntry(pointer, this.options);
+    await this.openEntryInNewSession(ctx, createApplicationAttachmentEntry(pointer, this.options));
+  }
+  async openEntryInNewSession(ctx, entry) {
     await validateApplicationAttachment(this.options.agentDir, entry);
     const confirmed = await ctx.ui.confirm(
       "Open application in new Pi session",
       "Open this application in a new Pi session? The current session is unchanged."
     );
-    if (confirmed !== true) return;
+    if (confirmed !== true) return false;
     await validateApplicationAttachment(this.options.agentDir, entry);
     const parentSession = ctx.sessionManager.getSessionFile();
     const result = await ctx.newSession({
@@ -5624,7 +5636,9 @@ var ApplicationWorkspaceWorkflow = class {
     });
     if (result.cancelled) {
       ctx.ui.notify("New session cancelled. This session was not changed.", "info");
+      return false;
     }
+    return true;
   }
   async attachCurrent(ctx) {
     const identity2 = sessionIdentity(ctx);
