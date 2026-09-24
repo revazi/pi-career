@@ -36,9 +36,13 @@ function sessionEntry(data) {
   };
 }
 
-async function privateJson(file, value) {
-  await writeFile(file, canonical(value), { mode: 0o600 });
+async function privateFile(file, bytes) {
+  await writeFile(file, bytes, { mode: 0o600 });
   await chmod(file, 0o600);
+}
+
+async function privateJson(file, value) {
+  await privateFile(file, canonical(value));
 }
 
 async function snapshot(directory) {
@@ -98,6 +102,92 @@ async function fixture() {
   const fake = makeFakePi();
   fake.entries.push(sessionEntry(identity));
   return { temp, agentDir, root, library, sessions, identity, fake };
+}
+
+async function referencedPackageFixture() {
+  const value = await fixture();
+  const directory = path.join(value.root, DIRECTORY_NAME);
+  await mkdir(directory, { mode: 0o700 });
+  await chmod(directory, 0o700);
+  const manifest = canonical({
+    schema_version: "pi.career.application_manifest.v1", kind: "career_application",
+    application_id: APPLICATION_ID, root_id: ROOT_ID,
+    application_created_at: APPLICATION_CREATED_AT, workspace_created_at: APPLICATION_CREATED_AT,
+  });
+  const identity = canonical({
+    schema_version: "pi.career.application_identity.v1", kind: "application_identity",
+    application_id: APPLICATION_ID, company_label: "Synthetic Company",
+    role_label: "Synthetic Engineer", created_at: APPLICATION_CREATED_AT,
+  });
+  const vacancy = Buffer.from("Synthetic referenced vacancy bytes.\n");
+  const originalPath = path.join(value.library, "synthetic-resume.md");
+  const original = await readFile(originalPath);
+  const selected = {
+    document_id: hash(Buffer.from(await realpath(originalPath))),
+    library_root_id: hash(Buffer.from(await realpath(value.library))),
+    text_sha256: hash(original), format: "markdown",
+  };
+  assert.equal(selected.library_root_id, rootId(value.library));
+  const resume = Buffer.from("# Synthetic tailored resume bytes\n");
+  const sidecar = canonical({
+    schema_version: "pi.career.assisted_variant_meta.v2", kind: "assisted_variant",
+    authority: "assisted_non_authoritative", base_document_id: selected.document_id,
+    base_text_sha256: selected.text_sha256, artifact_sha256: hash(resume),
+    created_at: "2026-09-01T00:00:02.000Z",
+  });
+  const cover = Buffer.from("Synthetic referenced cover letter.\n");
+  const vacancyBinding = {
+    relative_path: "vacancy.md", content_sha256: hash(vacancy), utf8_bytes: vacancy.length,
+    source_state_id: "00000000-0000-4000-8000-000000000093",
+  };
+  const resumeBinding = {
+    relative_path: "resume.md", artifact_sha256: hash(resume),
+    sidecar_relative_path: "resume.pi-career.json", sidecar_sha256: hash(sidecar),
+  };
+  const state1 = canonical({
+    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
+    vacancy: vacancyBinding, selected_original: selected, resume_artifact: resumeBinding,
+    updated_at: "2026-09-01T00:00:02.000Z",
+  });
+  const state2Value = {
+    schema_version: "pi.career.application_state.v2", kind: "application_state_revision",
+    application_id: APPLICATION_ID, sequence: 2, parent_sha256: hash(state1), status: "preparing",
+    vacancy: vacancyBinding, selected_original: selected, resume_artifact: resumeBinding,
+    cover_letter_artifact: null, updated_at: "2026-09-01T00:00:03.000Z",
+  };
+  const state2 = canonical(state2Value);
+  const state3 = canonical({
+    ...state2Value, sequence: 3, parent_sha256: hash(state2),
+    cover_letter_artifact: {
+      relative_path: "cover-letter.md", artifact_sha256: hash(cover), utf8_bytes: cover.length,
+      format: "markdown", authority: "user_authored",
+      job_description_sha256: hash(vacancy), effective_resume_sha256: hash(resume),
+    },
+    updated_at: "2026-09-01T00:00:04.000Z",
+  });
+  const files = {
+    vacancy: [path.join(directory, "vacancy.md"), vacancy, Buffer.from("Synthetic user-edited vacancy bytes\n")],
+    original: [originalPath, original, Buffer.from(`# Synthetic Resume\n\n${"X".repeat(PRIVATE_SENTINEL.length)}\n`)],
+    resume: [path.join(directory, "resume.md"), resume, Buffer.from("# Synthetic user-edited resume!\n")],
+    sidecar: [path.join(directory, "resume.pi-career.json"), sidecar, Buffer.from(sidecar.toString().replace("2026-09-01T00:00:02.000Z", "2026-09-01T00:00:05.000Z"))],
+    cover: [path.join(directory, "cover-letter.md"), cover, Buffer.from("Synthetic user-edited cover letter\n")],
+  };
+  for (const [name, bytes] of [
+    ["application.json", manifest], [".pi-career-identity.json", identity],
+    [".pi-career-state-000001.json", state1], [".pi-career-state-000002.json", state2],
+    [".pi-career-state-000003.json", state3], ["vacancy.md", vacancy], ["resume.md", resume],
+    ["resume.pi-career.json", sidecar], ["cover-letter.md", cover],
+  ]) await privateFile(path.join(directory, name), bytes);
+  const attachment = createApplicationAttachmentEntry({
+    applicationId: APPLICATION_ID, rootId: ROOT_ID, rootCreatedAt: ROOT_CREATED_AT,
+    applicationCreatedAt: APPLICATION_CREATED_AT, workspaceCreatedAt: APPLICATION_CREATED_AT,
+  }, { uuid: fixed("00000000-0000-4000-8000-000000000094") });
+  value.fake.entries.splice(0, value.fake.entries.length, {
+    type: "custom", customType: "career.application_attachment", data: attachment,
+    id: "synthetic-attachment", parentId: null, timestamp: APPLICATION_CREATED_AT,
+  });
+  return { ...value, directory, files };
 }
 
 function concurrentWorkflow(value, { mutationId, createdAt, locked, releaseLock }) {
@@ -388,6 +478,79 @@ test("P3-42 crash-left canonical lock blocks one public mutation attempt without
     assert.ok(context.notifications.every(({ message }) => !message.includes(PRIVATE_SENTINEL)));
   } finally {
     await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("P3-43 post-preview referenced-byte drift blocks commit without blessing or side effects", async () => {
+  for (const [index, reference] of ["vacancy", "original", "resume", "sidecar", "cover"].entries()) {
+    const value = await referencedPackageFixture();
+    try {
+      const [target, originalBytes, editedBytes] = value.files[reference];
+      assert.notEqual(hash(editedBytes), hash(originalBytes), `${reference}: edit must change the digest`);
+      const before = await snapshot(value.temp);
+      const entriesBefore = structuredClone(value.fake.entries);
+      const mutationId = `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`;
+      const previews = [];
+      let hookCalls = 0;
+      const workflow = new ApplicationWorkspaceWorkflow({
+        agentDir: value.agentDir, uuid: fixed(mutationId),
+        now: fixed(new Date(`2026-09-01T00:00:${String(10 + index).padStart(2, "0")}.000Z`)),
+        afterWorkspaceLockAcquired: async (operation, observedMutationId) => {
+          hookCalls += 1;
+          assert.equal(operation, "record_state");
+          assert.equal(observedMutationId, mutationId);
+          assert.equal(previews.length, 1, `${reference}: public preview must precede the edit`);
+          const lock = await lstat(path.join(value.root, ".pi-career-workspace.lock"));
+          assert.equal(lock.mode & 0o777, 0o600, `${reference}: edit occurs while the real lock is held`);
+          await privateFile(target, editedBytes);
+        },
+      });
+      const context = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        editors: [(_title, preview) => { previews.push(JSON.parse(preview)); return preview; }],
+        confirms: [true],
+      });
+      context.ctx.sendMessage = () => assert.fail(`${reference}: mutation cannot send`);
+      context.ctx.sendUserMessage = () => assert.fail(`${reference}: mutation cannot send`);
+      const error = await workflow.writeAttachedStatus(context.ctx, "applied").then(
+        () => assert.fail(`${reference}: edited referenced bytes must block commit`),
+        (caught) => caught,
+      );
+      assert.equal(error?.name, "CareerWorkflowError");
+      assert.equal(error?.code, "workspace_drift");
+      assert.equal(error.message, JSON.stringify({
+        schema_version: "pi.career.workflow_error.v1", code: "workspace_drift",
+        message: "The application workspace changed or contains inconsistent package state.",
+      }));
+      assert.doesNotMatch(error.message, /SYNTHETIC|applications|resume|vacancy|cover|session/i);
+      assert.equal(hookCalls, 1);
+      assert.equal(previews.length, 1);
+      assert.equal(previews[0].expected_state_sha256,
+        hash(await readFile(path.join(value.directory, ".pi-career-state-000003.json"))));
+      assert.deepEqual(await readFile(target), editedBytes, `${reference}: preserve the user's edit`);
+      assert.equal((await lstat(target)).mode & 0o777, 0o600);
+      assert.deepEqual(value.fake.entries, entriesBefore);
+      assert.deepEqual(await snapshot(value.sessions), before.sessions.entries);
+      const after = await snapshot(value.temp);
+      const expected = structuredClone(before);
+      const relativeParts = path.relative(value.temp, target).split(path.sep);
+      let expectedParent = expected;
+      for (const part of relativeParts.slice(0, -1)) expectedParent = expectedParent[part].entries;
+      expectedParent[relativeParts.at(-1)].bytes = editedBytes.toString("hex");
+      assert.deepEqual(after, expected, `${reference}: only the intentional user edit may remain`);
+      assert.equal((await readdir(value.root)).includes(".pi-career-workspace.lock"), false);
+      assert.deepEqual((await readdir(value.directory)).sort(), [
+        ".pi-career-identity.json", ".pi-career-state-000001.json", ".pi-career-state-000002.json",
+        ".pi-career-state-000003.json", "application.json", "cover-letter.md", "resume.md",
+        "resume.pi-career.json", "vacancy.md",
+      ]);
+      for (const stateName of [".pi-career-state-000001.json", ".pi-career-state-000002.json", ".pi-career-state-000003.json"]) {
+        assert.doesNotMatch((await readFile(path.join(value.directory, stateName), "utf8")), new RegExp(hash(editedBytes)));
+      }
+      assert.ok(context.notifications.every(({ message }) => !message.includes(PRIVATE_SENTINEL)));
+    } finally {
+      await rm(value.temp, { recursive: true, force: true });
+    }
   }
 });
 
