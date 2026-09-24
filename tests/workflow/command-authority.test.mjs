@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -68,9 +68,12 @@ async function materializePackage({ tailored = false } = {}) {
   const library = path.join(temp, "library");
   const root = path.join(temp, "applications");
   await prepareConfigDirectory(agentDir);
-  await mkdir(library);
-  await writeFile(path.join(library, "original.md"), ORIGINAL_TEXT);
-  await writeFile(path.join(library, "other.md"), OTHER_TEXT);
+  await mkdir(library, { mode: 0o700 });
+  await chmod(library, 0o700);
+  await writeFile(path.join(library, "original.md"), ORIGINAL_TEXT, { mode: 0o600 });
+  await chmod(path.join(library, "original.md"), 0o600);
+  await writeFile(path.join(library, "other.md"), OTHER_TEXT, { mode: 0o600 });
+  await chmod(path.join(library, "other.md"), 0o600);
   const libraryPath = await realpath(library);
   const libraryRootId = createHash("sha256").update(libraryPath).digest("hex");
   await mkdir(root, { mode: 0o700 });
@@ -91,6 +94,7 @@ async function materializePackage({ tailored = false } = {}) {
   assert.equal(original.id, hash(Buffer.from(await realpath(path.join(library, "original.md")))));
   assert.equal(original.text_sha256, hash(Buffer.from(ORIGINAL_TEXT)));
   assert.equal(other.id, hash(Buffer.from(await realpath(path.join(library, "other.md")))));
+  assert.equal(other.text_sha256, hash(Buffer.from(OTHER_TEXT)));
   await privateJson(path.join(root, ".pi-career-applications.json"), {
     schema_version: "pi.career.application_root.v1",
     kind: "application_workspace_root",
@@ -195,6 +199,19 @@ async function materializePackage({ tailored = false } = {}) {
     });
   } else await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
   return { temp, agentDir, library, root, directory, original, other, tailored: resumeArtifact };
+}
+
+async function assertPrivateFile(file) {
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+}
+
+async function authoritySnapshot(value, fake) {
+  return {
+    config: await snapshot(value.agentDir),
+    library: await snapshot(value.library),
+    applications: await snapshot(value.root),
+    entries: structuredClone(fake.entries),
+  };
 }
 
 function attach(fake, { activate = false } = {}) {
@@ -411,6 +428,143 @@ test("P3-48 attached match command opens the shared UI without running Core", as
     assert.deepEqual(payloads, []);
     assert.equal(rpc.customCalls, 0);
     assert.equal(fake.entries.some((entry) => entry.data?.kind === "vacancy"), false);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("P3-22 public attached-source validation blocks missing or changed selected original without choosing another eligible original", async (t) => {
+  for (const classification of ["missing", "drifted"]) {
+    await t.test(classification, async () => {
+      const value = await materializePackage();
+      try {
+        const originalPath = path.join(value.library, "original.md");
+        const otherPath = path.join(value.library, "other.md");
+        if (classification === "missing") await unlink(originalPath);
+        else {
+          await writeFile(originalPath, `${ORIGINAL_TEXT}DRIFT_SENTINEL_22\n`);
+          await chmod(originalPath, 0o600);
+        }
+        await assertPrivateFile(otherPath);
+        if (classification === "drifted") await assertPrivateFile(originalPath);
+
+        const config = await loadConfig(value.agentDir);
+        const scan = await scanLibrary(config);
+        const originals = eligibleOriginals(scan);
+        const candidateA = originals.find((record) => record.id === value.original.id);
+        const candidateB = originals.find((record) => record.id === value.other.id);
+        assert.ok(candidateB, "independent eligible original B remains available");
+        assert.equal(candidateB.text, OTHER_TEXT);
+        if (classification === "missing") assert.equal(candidateA, undefined);
+        else {
+          assert.ok(candidateA);
+          assert.notEqual(candidateA.text_sha256, value.original.text_sha256);
+          assert.match(candidateA.text, /DRIFT_SENTINEL_22/);
+        }
+
+        const fake = makeFakePi();
+        const attachment = attach(fake);
+        const coreCalls = [];
+        const sends = [];
+        fake.api.sendMessage = (...args) => sends.push(args);
+        fake.api.sendUserMessage = (...args) => sends.push(args);
+        registerCommands(fake, value.agentDir, async (invocation) => {
+          coreCalls.push(invocation);
+          throw new Error("invalid source must not reach Career Core");
+        });
+        const before = await authoritySnapshot(value, fake);
+        const match = makeContext(fake, { mode: "rpc", persisted: false,
+          selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+        match.ctx.sendMessage = (...args) => sends.push(args);
+        match.ctx.sendUserMessage = (...args) => sends.push(args);
+        await fake.commands.get("career-match").handler("", match.ctx);
+
+        assert.deepEqual(coreCalls, []);
+        assert.deepEqual(sends, []);
+        assert.deepEqual(match.notifications, []);
+        await assert.rejects(loadAttachedApplicationSources(value.agentDir, attachment),
+          (error) => error.code === "workspace_drift" && error.message === JSON.stringify({
+            schema_version: "pi.career.workflow_error.v1",
+            code: "workspace_drift",
+            message: "The application workspace changed or contains inconsistent package state.",
+          }) && !/Synthetic Original|Synthetic Other|DRIFT_SENTINEL_22|original\.md|other\.md/.test(error.message));
+        assert.deepEqual(await authoritySnapshot(value, fake), before);
+      } finally {
+        await rm(value.temp, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("P3-23 public attached-source validation rejects a valid tailored artifact bound to another original without fallback", async () => {
+  const value = await materializePackage({ tailored: true });
+  try {
+    const artifactPath = path.join(value.directory, "resume.md");
+    const sidecarPath = path.join(value.directory, "resume.pi-career.json");
+    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const artifactBytes = Buffer.from(TAILORED_TEXT);
+    const sidecar = {
+      schema_version: "pi.career.assisted_variant_meta.v2",
+      kind: "assisted_variant",
+      authority: "assisted_non_authoritative",
+      base_document_id: value.other.id,
+      base_text_sha256: value.other.text_sha256,
+      artifact_sha256: hash(artifactBytes),
+      created_at: "2026-08-03T00:00:01.000Z",
+    };
+    const sidecarBytes = canonical(sidecar);
+    await writeFile(artifactPath, artifactBytes);
+    await writeFile(sidecarPath, sidecarBytes);
+    const head = JSON.parse(await readFile(headPath, "utf8"));
+    head.resume_artifact.artifact_sha256 = hash(artifactBytes);
+    head.resume_artifact.sidecar_sha256 = hash(sidecarBytes);
+    await writeFile(headPath, canonical(head));
+    for (const file of [artifactPath, sidecarPath, headPath,
+      path.join(value.library, "original.md"), path.join(value.library, "other.md")]) {
+      await assertPrivateFile(file);
+    }
+    assert.deepEqual(await readFile(artifactPath), artifactBytes);
+    assert.deepEqual(await readFile(sidecarPath), sidecarBytes);
+    assert.equal(sidecar.artifact_sha256, hash(await readFile(artifactPath)));
+    assert.equal(head.resume_artifact.sidecar_sha256, hash(await readFile(sidecarPath)));
+    assert.equal(head.selected_original.document_id, value.original.id);
+    assert.equal(head.selected_original.text_sha256, value.original.text_sha256);
+    assert.notEqual(sidecar.base_document_id, head.selected_original.document_id);
+    assert.equal(sidecar.base_document_id, value.other.id);
+    assert.equal(sidecar.base_text_sha256, value.other.text_sha256);
+    const scan = await scanLibrary(await loadConfig(value.agentDir));
+    assert.deepEqual(eligibleOriginals(scan).map((record) => record.id).sort(),
+      [value.original.id, value.other.id].sort());
+
+    const fake = makeFakePi();
+    const attachment = attach(fake);
+    const coreCalls = [];
+    const sends = [];
+    fake.api.sendMessage = (...args) => sends.push(args);
+    fake.api.sendUserMessage = (...args) => sends.push(args);
+    registerCommands(fake, value.agentDir, async (invocation) => {
+      coreCalls.push(invocation);
+      throw new Error("binding mismatch must not reach Career Core");
+    });
+    const before = await authoritySnapshot(value, fake);
+    const match = makeContext(fake, { mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true] });
+    match.ctx.sendMessage = (...args) => sends.push(args);
+    match.ctx.sendUserMessage = (...args) => sends.push(args);
+    await fake.commands.get("career-match").handler("", match.ctx);
+
+    assert.deepEqual(coreCalls, []);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(match.notifications, []);
+    assert.deepEqual((await readApplicationCatalog(value.root, ROOT_ID)).reconciliation,
+      { interrupted: 0, drifted: 1, duplicate_id: 0, unsupported: 0, over_limit: 0 });
+    await assert.rejects(loadAttachedApplicationSources(value.agentDir, attachment),
+      (error) => error.code === "attachment_unavailable" && error.message === JSON.stringify({
+        schema_version: "pi.career.workflow_error.v1",
+        code: "attachment_unavailable",
+        message: "The attached career application is unavailable.",
+      }) && !/Synthetic Original|Synthetic Other|Synthetic Tailored|original\.md|other\.md|resume\.md/.test(error.message));
+    assert.deepEqual(await authoritySnapshot(value, fake), before);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
