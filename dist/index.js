@@ -7942,7 +7942,7 @@ var CareerOverlay = class {
   keyedAction(key) {
     return [
       ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
-      ["c", this.session.canClearApplicationFilter, async () => (this.session.clearApplicationFilter(), !0)],
+      ["k", this.session.canClearApplicationFilter, async () => (this.session.clearApplicationFilter(), !0)],
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
       ["i", this.session.canMigrate, () => this.session.migrate()],
@@ -8005,7 +8005,7 @@ var CareerOverlay = class {
   }
   footerHints() {
     let hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
-    this.session.canFilterApplications && hints.push("/ filter"), this.session.canClearApplicationFilter && hints.push("c clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
+    this.session.canFilterApplications && hints.push("/ filter"), this.session.canClearApplicationFilter && hints.push("k clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
     let actions = [
       [this.session.preview === void 0 && this.session.canAttach, "a attach"],
       [this.session.canMigrate, "i migrate"],

@@ -72,7 +72,7 @@ const behavioral = {
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   47: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
-  49: ["overlay", "valid catalog browse/open/filter/clear has empty and repeated reads without attachment or model/provider effects"],
+  49: ["no-automatic-provider-submission", "P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep all five forbidden effects absent"],
   50: ["inactive-model-context", "P3-50 attached inactive session ordinary model turn omits Career Skill metadata, Skill content, and Career tool schemas"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   52: ["lifecycle-restore-acceptance", "P3-52 fresh installed extension resumes exact persisted activation with compact managed surface"],

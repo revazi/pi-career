@@ -469,6 +469,58 @@ async function directoryNames(root) {
     .sort();
 }
 
+test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep all five forbidden effects absent", { timeout: 180_000 }, async (t) => {
+  const trap = await new ProviderTrap().start();
+  t.after(() => trap.stop());
+  const item = await fixture(t, trap);
+  const before = {
+    config: await treeSnapshot(path.join(item.agentDir, "career")),
+    library: await treeSnapshot(item.libraryRoot),
+    catalog: await treeSnapshot(item.catalogDir),
+    workspace: await treeSnapshot(item.workspaceRoot),
+  };
+  const live = new RpcProcess(item).start();
+  t.after(() => {
+    if (live.child.exitCode === null && live.child.signalCode === null) live.child.kill("SIGKILL");
+  });
+  await assertBoundary(live, item, trap);
+
+  const filtered = await live.prompt("/career", [
+    { method: "select", value: CATALOG_LABEL },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.back },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.filterApplications },
+    { method: "input", value: "Synthetic Catalog" },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.clearApplicationFilter },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.filterApplications },
+    { method: "input", value: "no such application" },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.clearApplicationFilter },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
+  ]);
+  assert.equal(filtered.some((request) => request.method === "select" && String(request.title).includes("Opening does not attach")), true);
+  const empty = filtered.find((request) => request.method === "select" && String(request.title).includes("Filter: no such application"));
+  assert.ok(empty, "empty filtered catalog must be rendered publicly");
+  assert.deepEqual(empty.options.includes(CAREER_UI_RPC_ACTIONS.clearApplicationFilter), true);
+
+  const repeated = await live.prompt("/career", [
+    { method: "select", value: CATALOG_LABEL },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.back },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
+  ]);
+  assert.equal(repeated.some((request) => request.method === "select" && String(request.title).includes("Opening does not attach")), true);
+  const entries = await live.request({ type: "get_entries" });
+  assert.deepEqual(careerEntries(entries.data.entries), []);
+  assert.deepEqual(live.localEvents, []);
+  assert.deepEqual(await treeSnapshot(path.join(item.agentDir, "career")), before.config);
+  assert.deepEqual(await treeSnapshot(item.libraryRoot), before.library);
+  assert.deepEqual(await treeSnapshot(item.catalogDir), before.catalog);
+  assert.deepEqual(await treeSnapshot(item.workspaceRoot), before.workspace);
+  assert.equal(trap.requests.length, 0);
+  await assertBoundary(live, item, trap);
+
+  const tools = await live.prompt("/career-tools status", []);
+  assert.equal(tools.some((request) => request.message === "Career tools inactive."), true);
+});
+
 test("P3-32 installed browsing and confirmed no-Core application mutations make no provider request", { timeout: 180_000 }, async (t) => {
   const trap = await new ProviderTrap().start();
   t.after(() => trap.stop());

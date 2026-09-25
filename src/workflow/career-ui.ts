@@ -971,7 +971,7 @@ export class CareerOverlay implements Component {
   private keyedAction(key: string): Promise<boolean> | undefined {
     const entries: Array<[string, boolean, () => Promise<boolean>]> = [
       ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
-      ["c", this.session.canClearApplicationFilter, async () => { this.session.clearApplicationFilter(); return true; }],
+      ["k", this.session.canClearApplicationFilter, async () => { this.session.clearApplicationFilter(); return true; }],
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
       ["i", this.session.canMigrate, () => this.session.migrate()],
@@ -1051,7 +1051,7 @@ export class CareerOverlay implements Component {
   private footerHints(): string[] {
     const hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
     if (this.session.canFilterApplications) hints.push("/ filter");
-    if (this.session.canClearApplicationFilter) hints.push("c clear filter");
+    if (this.session.canClearApplicationFilter) hints.push("k clear filter");
     if (this.session.canPreview) hints.push("v preview locally");
     if (this.session.preview !== undefined) hints.push("↑↓ preview pages · soft-wrapped");
     const actions: Array<[boolean, string]> = [
