@@ -56,6 +56,7 @@ const behavioral = {
   29: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
   30: ["transient-process-shutdown-acceptance", "P3-30 live transient process loses the in-memory attachment after shutdown while approved workspace bytes remain"],
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
+  32: ["no-automatic-provider-submission", "P3-32 installed browsing and confirmed no-Core application mutations make no provider request"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
   36: ["noninteractive-private-read-boundary", "P3-36 installed print and JSON /career reject before denied private config, session, root, library, and document reads"],
@@ -79,7 +80,6 @@ const behavioral = {
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
-  32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 49, "reviewed map has exactly 49 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 9, "reviewed map retains exactly 9 deferrals");
-  assert.match(markdown, /Currently 49 have scoped witnesses and 9 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 50, "reviewed map has exactly 50 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 8, "reviewed map retains exactly 8 deferrals");
+  assert.match(markdown, /Currently 50 have scoped witnesses and 8 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
