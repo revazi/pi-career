@@ -120,15 +120,42 @@ function probeTrap(port) {
 class ProviderTrap {
   constructor() {
     this.requests = [];
+    this.modelTurns = [];
     this.server = http.createServer((request, response) => {
       const chunks = [];
       request.on("data", (chunk) => chunks.push(chunk));
       request.on("end", () => {
-        this.requests.push({
-          method: request.method,
-          url: request.url,
-          bytes: Buffer.concat(chunks).length,
-        });
+        const body = Buffer.concat(chunks);
+        if (body.toString("utf8") === "synthetic-provider-probe") {
+          this.requests.push({ method: request.method, url: request.url, bytes: body.length });
+          response.writeHead(204);
+          response.end();
+          return;
+        }
+        let parsed;
+        try { parsed = JSON.parse(body.toString("utf8")); } catch { parsed = undefined; }
+        if (parsed?.stream === true && Array.isArray(parsed.messages)) {
+          this.modelTurns.push({
+            method: request.method,
+            url: request.url,
+            model: parsed.model,
+            toolNames: Array.isArray(parsed.tools)
+              ? parsed.tools.map((tool) => tool?.function?.name ?? tool?.custom?.name)
+                .filter((name) => typeof name === "string").sort()
+              : [],
+            systemText: parsed.messages.filter((message) => message?.role === "system" || message?.role === "developer")
+              .map((message) => typeof message.content === "string" ? message.content : "").join("\\n"),
+          });
+          const chunk = (payload) => `data: ${JSON.stringify(payload)}\\n\\n`;
+          response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+          response.end([
+            chunk({ id: "chatcmpl-synthetic", object: "chat.completion.chunk", model: parsed.model ?? "synthetic-loopback-model", choices: [{ index: 0, delta: { role: "assistant", content: "synthetic acknowledgement" }, finish_reason: null }] }),
+            chunk({ id: "chatcmpl-synthetic", object: "chat.completion.chunk", model: parsed.model ?? "synthetic-loopback-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
+            "data: [DONE]\\n\\n",
+          ].join(""));
+          return;
+        }
+        this.requests.push({ method: request.method, url: request.url, bytes: body.length });
         response.writeHead(204);
         response.end();
       });
@@ -469,6 +496,10 @@ async function directoryNames(root) {
     .sort();
 }
 
+function selectRequests(ui) {
+  return ui.filter((request) => request.method === "select");
+}
+
 test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep all five forbidden effects absent", { timeout: 180_000 }, async (t) => {
   const trap = await new ProviderTrap().start();
   t.after(() => trap.stop());
@@ -497,9 +528,16 @@ test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep 
     { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
   ]);
   assert.equal(filtered.some((request) => request.method === "select" && String(request.title).includes("Opening does not attach")), true);
+  const listReads = selectRequests(filtered).filter((request) => request.options.includes(CATALOG_LABEL) || String(request.title).includes("Filter:"));
+  assert.ok(listReads.some((request) => request.options.includes(CATALOG_LABEL) && !request.options.includes(LEGACY_LABEL)),
+    "matching filter must retain the matching row and remove the non-matching row");
   const empty = filtered.find((request) => request.method === "select" && String(request.title).includes("Filter: no such application"));
   assert.ok(empty, "empty filtered catalog must be rendered publicly");
-  assert.deepEqual(empty.options.includes(CAREER_UI_RPC_ACTIONS.clearApplicationFilter), true);
+  assert.equal(empty.options.includes(CATALOG_LABEL), false);
+  assert.equal(empty.options.includes(LEGACY_LABEL), false);
+  assert.equal(empty.options.includes(CAREER_UI_RPC_ACTIONS.clearApplicationFilter), true);
+  assert.ok(listReads.some((request) => request.options.includes(CATALOG_LABEL) && request.options.includes(LEGACY_LABEL)),
+    "clearing the filter must restore both distinct catalog rows");
 
   const repeated = await live.prompt("/career", [
     { method: "select", value: CATALOG_LABEL },
@@ -516,6 +554,33 @@ test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep 
   assert.deepEqual(await treeSnapshot(item.workspaceRoot), before.workspace);
   assert.equal(trap.requests.length, 0);
   await assertBoundary(live, item, trap);
+
+  // Deliberately inspect one ordinary turn in a separate process. This proves
+  // inactive model context without attributing that inspection request to the
+  // local browse/filter flow above.
+  const contextProbe = new RpcProcess(item).start();
+  t.after(() => {
+    if (contextProbe.child.exitCode === null && contextProbe.child.signalCode === null) contextProbe.child.kill("SIGKILL");
+  });
+  await assertBoundary(contextProbe, item, trap);
+  await contextProbe.prompt("synthetic context inspection", []);
+  await new Promise((resolve, reject) => {
+    const deadline = Date.now() + 30_000;
+    const check = () => {
+      if (contextProbe.events.includes("agent_settled")) return resolve();
+      if (Date.now() >= deadline) return reject(new Error("ordinary context inspection did not settle"));
+      setTimeout(check, 10);
+    };
+    check();
+  });
+  assert.ok(trap.modelTurns.length > 0);
+  for (const turn of trap.modelTurns) {
+    assert.deepEqual(turn.toolNames.filter((name) =>
+      ["career_run", "career_core_discover", "career_core_resume", "career_core_job"].includes(name)), []);
+    assert.equal(turn.systemText.includes("career-core"), false);
+    assert.equal(turn.systemText.includes("career_run"), false);
+  }
+  await contextProbe.close();
 
   const tools = await live.prompt("/career-tools status", []);
   assert.equal(tools.some((request) => request.message === "Career tools inactive."), true);
