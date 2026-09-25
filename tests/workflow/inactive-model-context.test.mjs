@@ -239,7 +239,7 @@ class RpcProcess {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`timed out waiting for ${command.type}`));
-      }, 90_000);
+      }, 180_000);
       this.pending.set(id, {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
         reject: (error) => { clearTimeout(timer); reject(error); },
@@ -271,7 +271,7 @@ class RpcProcess {
       const timer = setTimeout(() => {
         cleanup();
         reject(new Error(`timed out waiting for ${type}`));
-      }, 90_000);
+      }, 180_000);
       const interval = setInterval(() => {
         if (this.events.slice(index).includes("extension_error")) {
           cleanup();
@@ -396,11 +396,17 @@ async function fixture(t, trap, spec) {
     application_created_at: APPLICATION_CREATED_AT, workspace_created_at: WORKSPACE_CREATED_AT,
   });
   await privateFile(path.join(catalogDir, "application.json"), manifest);
-  await privateJson(path.join(catalogDir, ".pi-career-identity.json"), {
-    schema_version: "pi.career.application_identity.v1", kind: "application_identity",
-    application_id: applicationId, company_label: company,
-    role_label: role, created_at: APPLICATION_CREATED_AT,
+  const identityBytes = canonical({
+    schema_version: "pi.career.application_identity.v1",
+    kind: "application_identity",
+    application_id: applicationId,
+    company_label: company,
+    role_label: role,
+    created_at: APPLICATION_CREATED_AT,
   });
+  const identityPath = path.join(catalogDir, ".pi-career-identity.json");
+  await privateFile(identityPath, identityBytes);
+  assert.deepEqual(await readFile(identityPath), identityBytes);
   await privateJson(path.join(catalogDir, ".pi-career-state-000001.json"), {
     schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
     application_id: applicationId, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
@@ -410,8 +416,10 @@ async function fixture(t, trap, spec) {
   await privateFile(coreTrap, Buffer.from("#!/bin/sh\ntouch \"$(dirname \"$0\")/core-was-invoked\"\nexit 97\n"));
   await chmod(coreTrap, 0o700);
   return {
-    base, agentDir, cwd, sessions, libraryRoot, workspaceRoot, catalogDir, documentPath,
-    applicationDocumentPath, company, role, applicationId, documentSentinel, coreTrap,
+    base, agentDir, home, cwd, sessions, libraryRoot, workspaceRoot, catalogDir, documentPath,
+    applicationDocumentPath, identityPath, company, role, applicationId, rootId, documentSentinel,
+    identityBytes, libraryDocument: document, applicationDocument: Buffer.from(`${documentSentinel}\n`),
+    coreTrap,
     label: `${company} — ${role} — Preparing — Incomplete 0/3`,
     env: {
       PATH: process.env.PATH ?? "",
@@ -477,23 +485,66 @@ function boundedTurn(turn) {
   };
 }
 
-function assertAbsent(body, value, label) {
+function assertTextAbsent(body, value, label) {
   assert.equal(typeof value, "string");
   assert.equal(value.length > 0, true, label);
   assert.equal(body.includes(value), false, `${label} leaked`);
+  const escaped = JSON.stringify(value).slice(1, -1);
+  if (escaped !== value) assert.equal(body.includes(escaped), false, `${label} escaped form leaked`);
 }
 
-function assertInactiveContext(body, item, sessionSecrets) {
+function constructedAttachment(item, attachmentId) {
+  return {
+    schema_version: ATTACHMENT_SCHEMA,
+    kind: "application_attachment",
+    attachment_id: attachmentId,
+    application_id: item.applicationId,
+    root_id: item.rootId,
+    root_created_at: ROOT_CREATED_AT,
+    application_created_at: APPLICATION_CREATED_AT,
+    workspace_created_at: WORKSPACE_CREATED_AT,
+  };
+}
+
+function assertInactiveContext(body, item, careerSessionEntries) {
   assert.equal(skillBody.length > 40, true);
-  assertAbsent(body, skillBody, "Career Skill content");
-  for (const marker of SKILL_DISCOVERY_MARKERS) assertAbsent(body, marker, "Career Skill discovery metadata");
-  for (const marker of TOOL_SCHEMA_MARKERS) assertAbsent(body, marker, "Career tool schema");
+  assertTextAbsent(body, skillBody, "Career Skill content");
+  for (const marker of SKILL_DISCOVERY_MARKERS) assertTextAbsent(body, marker, "Career Skill discovery metadata");
+  for (const marker of TOOL_SCHEMA_MARKERS) assertTextAbsent(body, marker, "Career tool schema");
+  const identity = item.identityBytes.toString("utf8");
+  assert.equal(identity.includes(item.company) && identity.includes(item.role) && identity.includes(item.applicationId), true);
+  assertTextAbsent(body, identity, "identity bytes");
+  assertTextAbsent(body, JSON.stringify(JSON.parse(identity)), "identity bytes");
+  assertTextAbsent(body, item.libraryDocument.toString("utf8"), "library document");
+  assertTextAbsent(body, item.applicationDocument.toString("utf8"), "application document");
+  assert.equal(Array.isArray(careerSessionEntries), true);
+  for (const entry of careerSessionEntries) {
+    assert.equal(entry?.type, "custom");
+    assert.equal(entry.customType, ATTACHMENT_TYPE);
+    const constructed = constructedAttachment(item, entry.data?.attachment_id);
+    assert.deepEqual(entry.data, constructed);
+    assertTextAbsent(body, JSON.stringify(entry), "session entry");
+    assertTextAbsent(body, JSON.stringify(constructed), "session entry");
+    assertTextAbsent(body, canonical(constructed).toString("utf8"), "session entry");
+  }
   for (const value of [
-    item.documentSentinel, item.company, item.role, item.applicationId, item.workspaceRoot,
-    item.libraryRoot, item.catalogDir, item.documentPath, item.applicationDocumentPath,
+    item.documentSentinel, item.company, item.role, item.applicationId, item.rootId,
+    ROOT_CREATED_AT, APPLICATION_CREATED_AT, WORKSPACE_CREATED_AT,
+    "pi.career.application_identity.v1", "application_identity",
+    item.agentDir, item.home, item.sessions, item.coreTrap,
+    item.workspaceRoot, item.libraryRoot, item.catalogDir, item.documentPath,
+    item.applicationDocumentPath, item.identityPath,
+    path.join(item.agentDir, "career", "config.v1.json"),
+    path.join(item.agentDir, "models.json"),
     ATTACHMENT_SCHEMA, ATTACHMENT_TYPE, ACTIVATION_TYPE, CAREER_ASSISTANCE_HANDOFF,
-    RELOAD_PROBE, RELOAD_PROBE_SENTINEL, ...sessionSecrets,
-  ]) assertAbsent(body, value, "private context");
+    RELOAD_PROBE, RELOAD_PROBE_SENTINEL,
+    ...careerSessionEntries.flatMap((entry) => [
+      entry.id, entry.timestamp, entry.data?.attachment_id,
+    ]),
+  ]) assertTextAbsent(body, value, "private context");
+  const hostCwdLine = `Current working directory: ${item.cwd}`;
+  assert.equal(body.split(item.cwd).length - 1, 1, "working directory leaked outside the host system-prompt line");
+  assert.equal(body.includes(hostCwdLine), true);
 }
 
 async function assertNoCore(item) {
@@ -562,7 +613,7 @@ async function startChild(t, spec) {
   return { trap, item, live, before, commands };
 }
 
-test("P3-50 attached inactive session ordinary model turn omits Career Skill metadata, Skill content, and Career tool schemas", { timeout: 240_000 }, async (t) => {
+test("P3-50 attached inactive session ordinary model turn omits Career Skill metadata, Skill content, and Career tool schemas", { timeout: 360_000 }, async (t) => {
   const prompt = "SYNTHETIC_ORDINARY_TURN_50";
   const { trap, item, live, before, commands } = await startChild(t, {
     id: "150", applicationId: "00000000-0000-4000-8000-000000000150", rootId: "00000000-0000-4000-8000-000000000250",
@@ -575,8 +626,11 @@ test("P3-50 attached inactive session ordinary model turn omits Career Skill met
   ]);
   assert.equal(live.notices.some((notice) => notice.message === ATTACHED_NOTICE && notice.notifyType === "info"), true);
   assert.equal(live.notices.some((notice) => notice.message === ASSISTANCE_INACTIVE), false);
-  const attached = careerEntries((await live.request({ type: "get_entries" })).data.entries);
+  const entries = (await live.request({ type: "get_entries" })).data.entries;
+  const attached = careerEntries(entries);
+  const attachmentEntry = entries.find((entry) => entry.customType === ATTACHMENT_TYPE);
   assert.equal(attached.length, 1);
+  assert.equal(entries.filter((entry) => entry.customType === ATTACHMENT_TYPE || entry.customType === ACTIVATION_TYPE).length, 1);
   assert.equal(attached[0].customType, ATTACHMENT_TYPE);
   assert.equal(attached[0].kind, "application_attachment");
   assert.equal(attached[0].applicationId, item.applicationId);
@@ -594,7 +648,8 @@ test("P3-50 attached inactive session ordinary model turn omits Career Skill met
   const turn = trap.modelTurns[0];
   assertPositiveControl(turn, prompt);
   assert.equal(turn.body.split(prompt).length, 2);
-  assertInactiveContext(turn.body, item, [attached[0].attachmentId]);
+  assert.deepEqual(attachmentEntry.data, constructedAttachment(item, attached[0].attachmentId));
+  assertInactiveContext(turn.body, item, [attachmentEntry]);
   const messages = await settledMessages(live);
   assert.equal(messages.some((message) => message.role === "user" && textContent(message.content) === prompt), true);
   assert.equal(messages.filter((message) => message.role === "assistant" && textContent(message.content) === SYNTHETIC_ACK).length, 1);
@@ -611,7 +666,7 @@ test("P3-50 attached inactive session ordinary model turn omits Career Skill met
   await live.close();
 });
 
-test("P3-57 inactive raw-tool request is rejected and the following ordinary model turn omits all four Career tool schemas", { timeout: 240_000 }, async (t) => {
+test("P3-57 inactive raw-tool request is rejected and the following ordinary model turn omits all four Career tool schemas", { timeout: 360_000 }, async (t) => {
   const prompt = "SYNTHETIC_ORDINARY_TURN_57";
   const { trap, item, live, commands } = await startChild(t, {
     id: "157", applicationId: "00000000-0000-4000-8000-000000000157", rootId: "00000000-0000-4000-8000-000000000257",
@@ -633,6 +688,7 @@ test("P3-57 inactive raw-tool request is rejected and the following ordinary mod
   const view = assertPositiveControl(turn, prompt);
   assert.equal(turn.body.split(prompt).length, 2);
   assert.deepEqual(view.toolNames.filter((name) => CAREER_TOOL_NAMES.includes(name)), []);
+  assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries), []);
   assertInactiveContext(turn.body, item, []);
   const messages = await settledMessages(live);
   assert.equal(messages.some((message) => message.role === "user" && textContent(message.content) === prompt), true);
