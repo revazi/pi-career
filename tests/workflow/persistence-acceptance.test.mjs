@@ -72,6 +72,7 @@ const behavioral = {
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
   47: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
+  49: ["overlay", "valid catalog browse/open/filter/clear has empty and repeated reads without attachment or model/provider effects"],
   50: ["inactive-model-context", "P3-50 attached inactive session ordinary model turn omits Career Skill metadata, Skill content, and Career tool schemas"],
   51: ["session-attachment-commands", "P3-51 activation prepares a document-free handoff and does not submit"],
   52: ["lifecycle-restore-acceptance", "P3-52 fresh installed extension resumes exact persisted activation with compact managed surface"],
@@ -84,15 +85,14 @@ const behavioral = {
 const deferred = {
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
   44: "Capacity matrix covers root entries, application entries, revisions, managed bytes, document reads, metadata size classification, and 80-character config labels at public plan/commit/read boundaries, including under-lock entry, revision, document, and metadata crossings. Still missing: canonical mutation-preview exactly-at/just-above 5,242,880 and an under-lock preview recheck, because public planners cannot emit that encoding and commit does not remeasure it; a schema-valid 16,384-byte metadata success; a 262,144-byte vacancy write, which invalid_command_arguments rejects before the byte ceiling; and config/label under-lock injection, which has no existing hook.",
-  49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   58: "Pinned RPC get_commands omits built-in TUI /reload, and prompting it is not a host reload. Activation ctx.reload() retained entries in the same pid, but that is not an independent post-activation reload, so shutdown loss alone cannot witness P3-58.",
 };
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 54, "reviewed map has exactly 54 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 4, "reviewed map retains exactly 4 deferrals");
-  assert.match(markdown, /Currently 54 have scoped witnesses and 4 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 55, "reviewed map has exactly 55 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 3, "reviewed map retains exactly 3 deferrals");
+  assert.match(markdown, /Currently 55 have scoped witnesses and 3 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

@@ -287,6 +287,7 @@ test("P3-05 registered configure-root and Applications discovery/attach leave an
     const listOptions = [
       VALID_LABEL,
       LEGACY_LABEL,
+      CAREER_UI_RPC_ACTIONS.filterApplications,
       CAREER_UI_RPC_ACTIONS.attach,
       CAREER_UI_RPC_ACTIONS.create,
       CAREER_UI_RPC_ACTIONS.updateStatus,

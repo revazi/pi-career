@@ -7319,7 +7319,9 @@ var CAREER_UI_VIEW_LABELS = {
   detach: "Detach",
   clearVacancy: "Clear job description",
   selectOriginal: "Select original resume",
-  preview: "Preview document (local only)"
+  preview: "Preview document (local only)",
+  filterApplications: "Filter applications",
+  clearApplicationFilter: "Clear application filter"
 };
 function unavailablePane() {
   return { intro: "Local career data is unavailable.", items: [] };
@@ -7546,13 +7548,21 @@ Current session · Not persisted. Opening does not attach this application.`
 `)[0] ?? card.resume_label, plainResultCard(card)))
   ]), empty;
 }
+var MAX_APPLICATION_FILTER_CHARACTERS = 200;
+function filterApplicationItems(items, filter) {
+  return filter.length === 0 ? items : items.filter((entry) => `${entry.label}
+${entry.detail}`.includes(filter));
+}
+function validApplicationFilter(value) {
+  return value.length <= MAX_APPLICATION_FILTER_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
+}
 var CareerUiSession = class {
   constructor(view, model, actions = {}, reloadModel, loadPreview, onFailure) {
     this.actions = actions;
     this.reloadModel = reloadModel;
     this.loadPreview = loadPreview;
     this.onFailure = onFailure;
-    this.current = view, this.model = model, this.cursors = emptyCursors();
+    this.current = view, this.model = model, this.applicationCatalog = [...model.applications.items], this.applicationIntro = model.applications.intro, this.cursors = emptyCursors();
   }
   actions;
   reloadModel;
@@ -7565,6 +7575,9 @@ var CareerUiSession = class {
   previewFailed = !1;
   previewGeneration = 0;
   busyFlag = !1;
+  filterText = "";
+  applicationCatalog;
+  applicationIntro;
   model;
   get view() {
     return this.current;
@@ -7595,6 +7608,24 @@ var CareerUiSession = class {
   }
   get busy() {
     return this.busyFlag;
+  }
+  get applicationFilter() {
+    return this.filterText;
+  }
+  get canFilterApplications() {
+    return this.current === "applications" && this.actions.filterApplications !== void 0 && !this.busyFlag;
+  }
+  get canClearApplicationFilter() {
+    return this.current === "applications" && this.filterText.length > 0 && !this.busyFlag;
+  }
+  applyApplicationFilter() {
+    if (this.current !== "applications") return;
+    let pane = this.model.applications;
+    this.model = { ...this.model, applications: {
+      ...pane,
+      intro: this.applicationIntro + (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
+      items: filterApplicationItems(this.applicationCatalog, this.filterText)
+    } }, this.pane.items.length === 0 ? this.cursors.applications = 0 : this.cursors.applications = Math.min(this.cursors.applications, this.pane.items.length - 1);
   }
   get canAttach() {
     return this.selected?.pointer !== void 0 && this.actions.attach !== void 0 && !this.busyFlag;
@@ -7643,6 +7674,8 @@ var CareerUiSession = class {
   }
   actionEntries() {
     return [
+      [CAREER_UI_RPC_ACTIONS.filterApplications, this.canFilterApplications, () => this.filterApplications()],
+      [CAREER_UI_RPC_ACTIONS.clearApplicationFilter, this.canClearApplicationFilter, async () => (this.clearApplicationFilter(), !0)],
       [CAREER_UI_RPC_ACTIONS.attach, this.canAttach, () => this.attach()],
       [CAREER_UI_RPC_ACTIONS.migrate, this.canMigrate, () => this.migrate()],
       [CAREER_UI_RPC_ACTIONS.create, this.canCreate, () => this.createApplication()],
@@ -7689,7 +7722,7 @@ var CareerUiSession = class {
     this.busyFlag = !0;
     try {
       let ok = await operation();
-      return ok === !0 && this.reloadModel !== void 0 && (this.model = await this.reloadModel()), ok === !0;
+      return ok === !0 && this.reloadModel !== void 0 && (this.model = await this.reloadModel(), this.applicationCatalog = [...this.model.applications.items], this.applicationIntro = this.model.applications.intro, this.applyApplicationFilter()), ok === !0;
     } catch (error) {
       return error instanceof CareerWorkflowError || this.onFailure?.(error), !1;
     } finally {
@@ -7710,6 +7743,15 @@ var CareerUiSession = class {
     } finally {
       this.busyFlag = !1;
     }
+  }
+  async filterApplications() {
+    let action = this.actions.filterApplications;
+    if (!this.canFilterApplications || action === void 0) return !1;
+    let value = await action();
+    return value === void 0 || !validApplicationFilter(value) ? !1 : (this.filterText = value, this.applyApplicationFilter(), !0);
+  }
+  clearApplicationFilter() {
+    this.filterText = "", this.applyApplicationFilter();
   }
   async attach() {
     let pointer = this.selected?.pointer, action = this.actions.attach;
@@ -7899,6 +7941,8 @@ var CareerOverlay = class {
   }
   keyedAction(key) {
     return [
+      ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
+      ["c", this.session.canClearApplicationFilter, async () => (this.session.clearApplicationFilter(), !0)],
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
       ["i", this.session.canMigrate, () => this.session.migrate()],
@@ -7961,7 +8005,7 @@ var CareerOverlay = class {
   }
   footerHints() {
     let hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
-    this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
+    this.session.canFilterApplications && hints.push("/ filter"), this.session.canClearApplicationFilter && hints.push("c clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
     let actions = [
       [this.session.preview === void 0 && this.session.canAttach, "a attach"],
       [this.session.canMigrate, "i migrate"],
@@ -8042,7 +8086,10 @@ async function openCareerUi(ctx, view, agentDir, actions = {}) {
   let reload = () => buildCareerUiModel(agentDir, ctx), session = new CareerUiSession(
     view,
     await reload(),
-    actions,
+    {
+      ...actions,
+      filterApplications: actions.filterApplications ?? (async () => await ctx.ui.input("Application filter", "Case-sensitive text from company, role, status, readiness, or classification"))
+    },
     reload,
     careerPreviewLoader(agentDir, ctx),
     (error) => notifyCareerUiFailure(ctx, error)

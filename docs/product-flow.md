@@ -4,6 +4,10 @@ The cross-repository migration plan and measured findings are recorded in [`care
 
 ## Approved target: `/career` as a local Pi application
 
+### Application catalog filter (P3-49)
+
+The shared Applications view supports a bounded, transient filter in both TUI (`/`, then clear with `c`) and RPC (`Filter applications`, then `Clear application filter`). Matching is a deterministic, case-sensitive substring over the already-safe displayed company/role labels, lifecycle status, readiness text, and aggregate classification. It performs no Unicode normalization and never inspects paths, document bodies, hashes, raw errors, or invalid-child details; UUID row identity remains distinct when labels match. Filter state exists only in the current UI process/session, is clearable, and creates no config, workspace, session, or model/provider entry. Browsing, opening, filtering, and clearing do not attach, activate, call Career Core, submit messages, or expose Career Skill/tool metadata.
+
 The application-centric roadmap treats `/career` as a user-invoked modal application inside Pi. It is not a chat prompt, model command, or full-screen replacement for Pi. Its execution model has three separate planes:
 
 | Plane | User trigger | Execution boundary | Model/session effect |

@@ -44,6 +44,43 @@ async function register(temp) {
   return { fake, calls };
 }
 
+test("valid catalog browse/open/filter/clear has empty and repeated reads without attachment or model/provider effects", async () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const model = {
+    setup: pane("setup"), library: pane("library"),
+    applications: pane("applications", [
+      { id: "uuid-a", label: "Acme · Engineer", detail: "Applied · Ready · persistent" },
+      { id: "uuid-b", label: "Acme · Engineer", detail: "Interviewing · Not ready · persistent" },
+    ]),
+    vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("workbench"), workspace: pane("workspace"),
+  };
+  const effects = [];
+  const session = new CareerUiSession("applications", model, {
+    filterApplications: async () => "Acme",
+    attach: async () => { effects.push("attach"); return true; },
+  });
+  assert.equal(session.pane.items.length, 2);
+  assert.equal(session.open(), true);
+  assert.equal(session.back(), "list");
+  assert.equal(await session.filterApplications(), true);
+  assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
+  assert.equal(session.open(), true);
+  assert.equal(session.back(), "list");
+  session.clearApplicationFilter();
+  assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
+  assert.equal(await session.filterApplications(), true);
+  // A query with no matches is safe and does not destroy the catalog snapshot.
+  const empty = new CareerUiSession("applications", model, { filterApplications: async () => "absent" });
+  assert.equal(await empty.filterApplications(), true);
+  assert.equal(empty.pane.items.length, 0);
+  empty.clearApplicationFilter();
+  assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
+  empty.clearApplicationFilter();
+  assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
+  assert.deepEqual(effects, []);
+});
+
 async function openAndClose(fake, command, view) {
   const components = [];
   const before = fake.entries.length;
