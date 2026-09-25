@@ -76,7 +76,7 @@ const deferred = {
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
-  16: "Pure 0/3 derivation does not test creation or absence of automatic attachment.",
+  16: "Pure 0/3 derivation and session-only creation do not prove configured-root creation, exact preview/confirmation, private canonical package bytes, restart overlay readiness, or absence of extra attachment, activation, Core, session, and residue effects.",
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
