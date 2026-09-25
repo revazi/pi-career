@@ -3504,13 +3504,12 @@ async function inspectStateChain(application, stateNames) {
   }
   return { revisions, referencedFiles };
 }
+function isManagedArtifactBasename(entry) {
+  return VACANCY_BASENAME.test(entry) || COVER_LETTER_BASENAME.test(entry) || ["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry);
+}
 function assertNoOrphanManagedFiles(entries, referencedFiles) {
-  for (let entry of entries) {
-    if ((VACANCY_BASENAME.test(entry) || COVER_LETTER_BASENAME.test(entry)) && !referencedFiles.has(entry))
-      throw workflowError("workspace_drift");
-    if (["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry) && !referencedFiles.has(entry))
-      throw workflowError("workspace_drift");
-  }
+  for (let entry of entries)
+    if (isManagedArtifactBasename(entry) && !referencedFiles.has(entry)) throw workflowError("workspace_drift");
 }
 async function inspectApplicationDirectory(directoryPath, rootId2, expectedBasename, identity2, identityFile) {
   let application = await inspectApplicationManifest(directoryPath, rootId2, expectedBasename), entries = await boundedEntries(directoryPath, APPLICATION_MAX_ENTRIES);
@@ -4213,7 +4212,7 @@ function sameSessionVacancy(state, vacancy) {
 async function reconciliationClassification(rootPath) {
   try {
     await validateApplicationRootPath(rootPath);
-    let entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
+    let rootMarker = await inspectBoundRootMarker(rootPath, void 0), entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
     if (entries.includes(path6.basename(workspaceLockPath(rootPath))))
       return "Crash-left workspace lock detected. Mutations are blocked; reconciliation made no change.";
     if (entries.some((entry) => entry.includes(".tmp") || entry.startsWith(".pi-career-") && entry !== ROOT_MARKER_NAME))
@@ -4240,6 +4239,17 @@ async function reconciliationClassification(rootPath) {
         return "Interrupted initialization: a manifest has no committed first state. Reconciliation made no change.";
       if (children.some((name) => VACANCY_BASENAME.test(name)) && states.length === 0)
         return "Orphan vacancy file detected without a committed state. Reconciliation made no change.";
+      if (states.length > 0 && children.some(isManagedArtifactBasename))
+        try {
+          let application = await inspectApplicationManifest(applicationPath, rootMarker.marker.root_id, entry), { referencedFiles } = await inspectStateChain(application, orderedStateNames(children)), orphans = children.filter((name) => isManagedArtifactBasename(name) && !referencedFiles.has(name));
+          for (let orphan of orphans) {
+            let metadata2 = await lstat4(path6.join(applicationPath, orphan));
+            if (!privateMetadata(metadata2, 384, "file")) throw workflowError("workspace_drift");
+          }
+          if (orphans.length > 0)
+            return "Orphan managed artifact detected. It is not current, attached, selected, effective, or implicitly adopted; reconciliation made no change.";
+        } catch {
+        }
       if (children.includes("resume.pi-career.json") && !children.some((name) => name === "resume.md" || name === "resume.txt"))
         return "Assisted sidecar orphan detected. It is not attached or authoritative; reconciliation made no change.";
       if (children.includes("resume.pi-career.json") && children.some((name) => name === "resume.md" || name === "resume.txt") && states.length === 0)
@@ -5383,7 +5393,7 @@ var ApplicationWorkspaceWorkflow = class {
         "workspace_mutation_lock",
         plan.envelope.mutation_id,
         plan.createdAt
-      ), published = [];
+      ), published = [], artifactCheckpointFailed = !1;
       try {
         await this.afterWorkspaceLockAcquired("record_state", plan.envelope.mutation_id);
         let current = assertSessionPlan(plan, ctx);
@@ -5403,11 +5413,19 @@ var ApplicationWorkspaceWorkflow = class {
         for (let file of files) await requireAbsent(file.final);
         let revisionAdditions = files.filter((file) => STATE_BASENAME.test(path6.basename(file.final))).length;
         if (assertApplicationCapacity(currentApplication, files, revisionAdditions), ctx.signal?.aborted) throw workflowError("workflow_cancelled");
-        for (let file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        let commitStateIndex = files.findIndex((file) => STATE_BASENAME.test(path6.basename(file.final)) && file.bytes === stateBuffer);
+        for (let [index, file] of files.entries())
+          if (published.push(await publishFile(file.final, file.temp, file.bytes)), index < commitStateIndex && isManagedArtifactBasename(path6.basename(file.final)) && this.options.afterArtifactPublishedBeforeState !== void 0)
+            try {
+              await this.options.afterArtifactPublishedBeforeState(plan.envelope.mutation_id);
+            } catch {
+              throw artifactCheckpointFailed = !0, workflowError("workspace_status_unknown");
+            }
         if (await this.options.afterRevisionPublished?.(plan.envelope.mutation_id), (await inspectCommitted()).headFile.sha256 !== hashBytes2(stateBuffer)) throw workflowError("workspace_status_unknown");
       } catch (error) {
         if (await inspectCommitted().then((value) => value.headFile.sha256 === hashBytes2(stateBuffer), () => !1)) return;
-        for (let item2 of [...published].reverse()) await unlinkOwned(item2);
+        if (!artifactCheckpointFailed)
+          for (let item2 of [...published].reverse()) await unlinkOwned(item2);
         throw error instanceof Error && error.name === "CareerWorkflowError" ? error : workflowError(published.length > 0 ? "workspace_status_unknown" : "workspace_verification_failed");
       } finally {
         await releaseMutationLock(rootLock);
@@ -8070,7 +8088,10 @@ function registerCareerCommands(pi, options = {}) {
     agentDir: dependencies.agentDir,
     now: dependencies.now,
     uuid: dependencies.uuid,
-    appendEntry: (customType, data) => pi.appendEntry(customType, data)
+    appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    ...options.afterArtifactPublishedBeforeState === void 0 ? {} : {
+      afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState
+    }
   }), transientNoticeSession, renderedData = /* @__PURE__ */ new Map(), renderedTieStateIds = /* @__PURE__ */ new Set(), attachedSources = (ctx) => attachedApplicationSourcesForSession(
     dependencies.agentDir,
     ctx.sessionManager.getBranch(),

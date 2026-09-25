@@ -78,6 +78,8 @@ interface CommandRuntimeOptions {
   invoke?: WorkflowDependencies["invoke"];
   now?: () => Date;
   uuid?: () => string;
+  // Registration-scoped checkpoints remain instance-local; production leaves them undefined.
+  afterArtifactPublishedBeforeState?: (mutationId: string) => Promise<void>;
   // Registration-scoped loader seam for early-guard tests; production uses loadLibrary.
   loadLibrary?: typeof loadLibrary;
 }
@@ -291,6 +293,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     now: dependencies.now,
     uuid: dependencies.uuid,
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    ...(options.afterArtifactPublishedBeforeState === undefined ? {} : {
+      afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState,
+    }),
   });
   let transientNoticeSession: string | undefined;
   const renderedData = new Map<string, WorkflowEntryData>();

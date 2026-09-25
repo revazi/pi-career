@@ -111,6 +111,7 @@ interface WorkspaceOptions {
   withMutationQueues?: <T>(paths: readonly string[], operation: () => Promise<T>) => Promise<T>;
   beforeWorkspaceLockAcquire?: (operation: "initialize_application" | "finish_application_migration" | "record_state", mutationId: string) => Promise<void>;
   afterWorkspaceLockAcquired?: (operation: "initialize_application" | "finish_application_migration" | "record_state", mutationId: string) => Promise<void>;
+  afterArtifactPublishedBeforeState?: (mutationId: string) => Promise<void>;
   afterRevisionPublished?: (mutationId: string) => Promise<void>;
 }
 
@@ -1038,14 +1039,14 @@ async function inspectStateChain(
   return { revisions, referencedFiles };
 }
 
+function isManagedArtifactBasename(entry: string): boolean {
+  return VACANCY_BASENAME.test(entry) || COVER_LETTER_BASENAME.test(entry) ||
+    ["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry);
+}
+
 function assertNoOrphanManagedFiles(entries: readonly string[], referencedFiles: ReadonlyMap<string, ExactFile>): void {
   for (const entry of entries) {
-    if ((VACANCY_BASENAME.test(entry) || COVER_LETTER_BASENAME.test(entry)) && !referencedFiles.has(entry)) {
-      throw workflowError("workspace_drift");
-    }
-    if (["resume.md", "resume.txt", "resume.pi-career.json"].includes(entry) && !referencedFiles.has(entry)) {
-      throw workflowError("workspace_drift");
-    }
+    if (isManagedArtifactBasename(entry) && !referencedFiles.has(entry)) throw workflowError("workspace_drift");
   }
 }
 
@@ -2086,6 +2087,7 @@ function sameSessionVacancy(state: ApplicationStateRevision, vacancy: VacancyEnt
 async function reconciliationClassification(rootPath: string): Promise<string> {
   try {
     await validateApplicationRootPath(rootPath);
+    const rootMarker = await inspectBoundRootMarker(rootPath, undefined);
     const entries = await boundedEntries(rootPath, ROOT_MAX_ENTRIES);
     if (entries.includes(path.basename(workspaceLockPath(rootPath)))) {
       return "Crash-left workspace lock detected. Mutations are blocked; reconciliation made no change.";
@@ -2123,6 +2125,22 @@ async function reconciliationClassification(rootPath: string): Promise<string> {
       }
       if (children.some((name) => VACANCY_BASENAME.test(name)) && states.length === 0) {
         return "Orphan vacancy file detected without a committed state. Reconciliation made no change.";
+      }
+      if (states.length > 0 && children.some(isManagedArtifactBasename)) {
+        try {
+          const application = await inspectApplicationManifest(applicationPath, rootMarker.marker.root_id, entry);
+          const { referencedFiles } = await inspectStateChain(application, orderedStateNames(children));
+          const orphans = children.filter((name) => isManagedArtifactBasename(name) && !referencedFiles.has(name));
+          for (const orphan of orphans) {
+            const metadata = await lstat(path.join(applicationPath, orphan));
+            if (!privateMetadata(metadata, 0o600, "file")) throw workflowError("workspace_drift");
+          }
+          if (orphans.length > 0) {
+            return "Orphan managed artifact detected. It is not current, attached, selected, effective, or implicitly adopted; reconciliation made no change.";
+          }
+        } catch {
+          // Only a fully validated committed chain can classify an extra managed file as an orphan.
+        }
       }
       if (children.includes("resume.pi-career.json") && !children.some((name) => name === "resume.md" || name === "resume.txt")) {
         return "Assisted sidecar orphan detected. It is not attached or authoritative; reconciliation made no change.";
@@ -3608,6 +3626,7 @@ export class ApplicationWorkspaceWorkflow {
         workspaceLockPath(configured.root_path), "workspace_mutation_lock", plan.envelope.mutation_id, plan.createdAt,
       );
       const published: PublishedFile[] = [];
+      let artifactCheckpointFailed = false;
       try {
         await this.afterWorkspaceLockAcquired("record_state", plan.envelope.mutation_id);
         const current = assertSessionPlan(plan, ctx);
@@ -3633,7 +3652,21 @@ export class ApplicationWorkspaceWorkflow {
         const revisionAdditions = files.filter((file) => STATE_BASENAME.test(path.basename(file.final))).length;
         assertApplicationCapacity(currentApplication, files, revisionAdditions);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
-        for (const file of files) published.push(await publishFile(file.final, file.temp, file.bytes));
+        const commitStateIndex = files.findIndex((file) =>
+          STATE_BASENAME.test(path.basename(file.final)) && file.bytes === stateBuffer);
+        for (const [index, file] of files.entries()) {
+          published.push(await publishFile(file.final, file.temp, file.bytes));
+          if (index < commitStateIndex && isManagedArtifactBasename(path.basename(file.final)) &&
+            this.options.afterArtifactPublishedBeforeState !== undefined) {
+            // publishFile has synchronized and privately re-read the exact final artifact; the commit-record state is still absent.
+            try {
+              await this.options.afterArtifactPublishedBeforeState(plan.envelope.mutation_id);
+            } catch {
+              artifactCheckpointFailed = true;
+              throw workflowError("workspace_status_unknown");
+            }
+          }
+        }
         await this.options.afterRevisionPublished?.(plan.envelope.mutation_id);
         const verified = await inspectCommitted();
         if (verified.headFile.sha256 !== hashBytes(stateBuffer)) throw workflowError("workspace_status_unknown");
@@ -3641,7 +3674,9 @@ export class ApplicationWorkspaceWorkflow {
         const committed = await inspectCommitted()
           .then((value) => value.headFile.sha256 === hashBytes(stateBuffer), () => false);
         if (committed) return;
-        for (const item of [...published].reverse()) await unlinkOwned(item);
+        if (!artifactCheckpointFailed) {
+          for (const item of [...published].reverse()) await unlinkOwned(item);
+        }
         if (error instanceof Error && error.name === "CareerWorkflowError") throw error;
         throw workflowError(published.length > 0 ? "workspace_status_unknown" : "workspace_verification_failed");
       } finally {
