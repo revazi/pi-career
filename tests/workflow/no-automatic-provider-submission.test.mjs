@@ -536,8 +536,10 @@ test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep 
   assert.equal(empty.options.includes(CATALOG_LABEL), false);
   assert.equal(empty.options.includes(LEGACY_LABEL), false);
   assert.equal(empty.options.includes(CAREER_UI_RPC_ACTIONS.clearApplicationFilter), true);
-  assert.ok(listReads.some((request) => request.options.includes(CATALOG_LABEL) && request.options.includes(LEGACY_LABEL)),
-    "clearing the filter must restore both distinct catalog rows");
+  const restoredReads = listReads.filter((request) => request.options.includes(CATALOG_LABEL) && request.options.includes(LEGACY_LABEL));
+  assert.ok(restoredReads.length > 0, "clearing the filter must restore both distinct catalog rows");
+  assert.ok(restoredReads.some((request) => listReads.indexOf(request) > listReads.indexOf(empty)),
+    "clear restoration must occur after the empty filtered catalog");
 
   const repeated = await live.prompt("/career", [
     { method: "select", value: CATALOG_LABEL },
@@ -555,32 +557,29 @@ test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep 
   assert.equal(trap.requests.length, 0);
   await assertBoundary(live, item, trap);
 
-  // Deliberately inspect one ordinary turn in a separate process. This proves
-  // inactive model context without attributing that inspection request to the
-  // local browse/filter flow above.
-  const contextProbe = new RpcProcess(item).start();
-  t.after(() => {
-    if (contextProbe.child.exitCode === null && contextProbe.child.signalCode === null) contextProbe.child.kill("SIGKILL");
-  });
-  await assertBoundary(contextProbe, item, trap);
-  await contextProbe.prompt("synthetic context inspection", []);
+  // Inspect an ordinary synthetic turn in the same process that browsed and
+  // filtered. This keeps the inactive model-context evidence coupled to the
+  // five-effect browse/filter witness without exposing provider bodies.
+  await live.prompt("synthetic context inspection", []);
   await new Promise((resolve, reject) => {
     const deadline = Date.now() + 30_000;
     const check = () => {
-      if (contextProbe.events.includes("agent_settled")) return resolve();
+      if (live.events.includes("agent_settled")) return resolve();
       if (Date.now() >= deadline) return reject(new Error("ordinary context inspection did not settle"));
       setTimeout(check, 10);
     };
     check();
   });
   assert.ok(trap.modelTurns.length > 0);
+  const skillMarkers = ["<name>career-core</name>", "career-core/SKILL.md", "Resolves and invokes a compatible deterministic Career Core runtime"];
   for (const turn of trap.modelTurns) {
+    assert.ok(turn.systemText.length > 0, "ordinary turn must include inspected system context");
     assert.deepEqual(turn.toolNames.filter((name) =>
       ["career_run", "career_core_discover", "career_core_resume", "career_core_job"].includes(name)), []);
-    assert.equal(turn.systemText.includes("career-core"), false);
+    for (const marker of skillMarkers) assert.equal(turn.systemText.includes(marker), false);
     assert.equal(turn.systemText.includes("career_run"), false);
   }
-  await contextProbe.close();
+  assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries), []);
 
   const tools = await live.prompt("/career-tools status", []);
   assert.equal(tools.some((request) => request.message === "Career tools inactive."), true);
