@@ -44,7 +44,7 @@
     "test": "npm run test:process && npm run test:runtime && npm run test:workflow && npm run test:audit",
     "test:process": "node --import tsx --test tests/process/process.test.mjs",
     "test:runtime": "node --import tsx --test tests/runtime/runtime.test.mjs",
-    "test:workflow": "node --import tsx --test tests/workflow/*.test.mjs",
+    "test:workflow": "node --import tsx --test --test-concurrency=1 tests/workflow/*.test.mjs",
     "test:audit": "node --test tests/audit/*.test.mjs",
     "test:runtime-resolution": "node --import tsx --test tests/runtime/runtime.test.mjs",
     "test:career-package": "node scripts/test-career-package.mjs",
