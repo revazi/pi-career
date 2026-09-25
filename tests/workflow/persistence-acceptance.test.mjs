@@ -54,6 +54,7 @@ const behavioral = {
   27: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   28: ["session-attachment-commands", "P3-27/P3-28 attach appends only the identity pointer after confirmation"],
   29: ["session-catalog-attach", "P3-29/P3-54 public attach rejects another UUID on active and replayed non-active branches and offers explicit replacement"],
+  30: ["transient-process-shutdown-acceptance", "P3-30 live transient process loses the in-memory attachment after shutdown while approved workspace bytes remain"],
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
@@ -77,7 +78,6 @@ const behavioral = {
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
-  30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
   36: "Installed-extension and workflow session_start/session_tree plus /career print/JSON traps cover session getters and registration-scoped loader, UI, append, send and Core boundaries. Direct filesystem reads, host lifecycle ordering, and future read routes lack independent interception.",
@@ -85,14 +85,14 @@ const deferred = {
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
-  58: "Transient replay does not prove reload and process-shutdown handle loss.",
+  58: "Pinned RPC get_commands omits built-in TUI /reload, and prompting it is not a host reload. Activation ctx.reload() retained entries in the same pid, but that is not an independent post-activation reload, so shutdown loss alone cannot witness P3-58.",
 };
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 47, "reviewed map has exactly 47 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 11, "reviewed map retains exactly 11 deferrals");
-  assert.match(markdown, /Currently 47 have scoped witnesses and 11 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 48, "reviewed map has exactly 48 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 10, "reviewed map retains exactly 10 deferrals");
+  assert.match(markdown, /Currently 48 have scoped witnesses and 10 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
