@@ -78,6 +78,14 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
   empty.clearApplicationFilter();
   assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
+  const detailSession = new CareerUiSession("applications", model, { filterApplications: async () => "Interviewing" });
+  assert.equal(detailSession.open(), true);
+  assert.equal(detailSession.selected.id, "uuid-a");
+  assert.equal(await detailSession.filterApplications(), true);
+  assert.deepEqual(detailSession.pane.items.map((item) => item.id), ["uuid-b"]);
+  assert.equal(detailSession.selected.id, "uuid-a", "filtering an open detail preserves its UUID identity");
+  detailSession.clearApplicationFilter();
+  assert.equal(detailSession.selected.id, "uuid-a", "clearing an open detail preserves its UUID identity");
   assert.deepEqual(effects, []);
 });
 

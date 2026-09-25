@@ -139,6 +139,12 @@ class ProviderTrap {
             method: request.method,
             url: request.url,
             model: parsed.model,
+            toolsFieldPresent: Object.prototype.hasOwnProperty.call(parsed, "tools"),
+            toolCount: Array.isArray(parsed.tools) ? parsed.tools.length : -1,
+            careerToolMarkers: Array.isArray(parsed.tools)
+              ? ["career_run", "career_core_discover", "career_core_resume", "career_core_job"]
+                .filter((marker) => parsed.tools.some((tool) => JSON.stringify(tool).includes(`"${marker}"`)))
+              : [],
             toolNames: Array.isArray(parsed.tools)
               ? parsed.tools.map((tool) => tool?.function?.name ?? tool?.custom?.name)
                 .filter((name) => typeof name === "string").sort()
@@ -574,6 +580,9 @@ test("P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep 
   const skillMarkers = ["<name>career-core</name>", "career-core/SKILL.md", "Resolves and invokes a compatible deterministic Career Core runtime"];
   for (const turn of trap.modelTurns) {
     assert.ok(turn.systemText.length > 0, "ordinary turn must include inspected system context");
+    assert.equal(turn.toolsFieldPresent, true, "ordinary turn must expose an inspected tools field");
+    assert.ok(turn.toolCount > 0, "ordinary turn must include an inspected tool list");
+    assert.deepEqual(turn.careerToolMarkers, [], "ordinary turn must omit all Career tool schemas when Career tools are inactive");
     assert.deepEqual(turn.toolNames.filter((name) =>
       ["career_run", "career_core_discover", "career_core_resume", "career_core_job"].includes(name)), []);
     for (const marker of skillMarkers) assert.equal(turn.systemText.includes(marker), false);

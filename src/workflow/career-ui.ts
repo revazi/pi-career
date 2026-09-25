@@ -407,6 +407,7 @@ export class CareerUiSession {
   private current: CareerUiView;
   private readonly cursors: Record<CareerUiView, number>;
   private detail = false;
+  private detailApplicationId: string | undefined;
   private previewBody: string | undefined;
   private previewFailed = false;
   private previewGeneration = 0;
@@ -467,6 +468,9 @@ export class CareerUiSession {
   }
 
   get selected(): CareerUiItem | undefined {
+    if (this.detail && this.current === "applications" && this.detailApplicationId !== undefined) {
+      return this.applicationCatalog.find((entry) => entry.id === this.detailApplicationId);
+    }
     return this.pane.items[this.cursor];
   }
 
@@ -493,7 +497,10 @@ export class CareerUiSession {
       items: filterApplicationItems(this.applicationCatalog, this.filterText),
     } };
     if (this.pane.items.length === 0) this.cursors.applications = 0;
-    else this.cursors.applications = Math.min(this.cursors.applications, this.pane.items.length - 1);
+    else {
+      const detailIndex = this.detailApplicationId === undefined ? -1 : this.pane.items.findIndex((entry) => entry.id === this.detailApplicationId);
+      this.cursors.applications = detailIndex >= 0 ? detailIndex : Math.min(this.cursors.applications, this.pane.items.length - 1);
+    }
   }
 
   get canAttach(): boolean {
@@ -588,6 +595,7 @@ export class CareerUiSession {
     if (this.busyFlag) return;
     this.current = view;
     this.detail = false;
+    this.detailApplicationId = undefined;
     this.cancelPreview();
   }
 
@@ -603,8 +611,10 @@ export class CareerUiSession {
   }
 
   open(): boolean {
-    if (this.busyFlag || this.detail || this.selected === undefined) return false;
+    const selected = this.selected;
+    if (this.busyFlag || this.detail || selected === undefined) return false;
     this.detail = true;
+    this.detailApplicationId = this.current === "applications" ? selected.id : undefined;
     this.cancelPreview();
     return true;
   }
@@ -623,6 +633,7 @@ export class CareerUiSession {
     }
     if (this.detail) {
       this.detail = false;
+      this.detailApplicationId = undefined;
       this.cancelPreview();
       return "list";
     }

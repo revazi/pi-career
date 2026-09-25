@@ -7571,6 +7571,7 @@ var CareerUiSession = class {
   current;
   cursors;
   detail = !1;
+  detailApplicationId;
   previewBody;
   previewFailed = !1;
   previewGeneration = 0;
@@ -7604,7 +7605,7 @@ var CareerUiSession = class {
     return this.model[this.current];
   }
   get selected() {
-    return this.pane.items[this.cursor];
+    return this.detail && this.current === "applications" && this.detailApplicationId !== void 0 ? this.applicationCatalog.find((entry) => entry.id === this.detailApplicationId) : this.pane.items[this.cursor];
   }
   get busy() {
     return this.busyFlag;
@@ -7621,11 +7622,15 @@ var CareerUiSession = class {
   applyApplicationFilter() {
     if (this.current !== "applications") return;
     let pane = this.model.applications;
-    this.model = { ...this.model, applications: {
+    if (this.model = { ...this.model, applications: {
       ...pane,
       intro: this.applicationIntro + (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
       items: filterApplicationItems(this.applicationCatalog, this.filterText)
-    } }, this.pane.items.length === 0 ? this.cursors.applications = 0 : this.cursors.applications = Math.min(this.cursors.applications, this.pane.items.length - 1);
+    } }, this.pane.items.length === 0) this.cursors.applications = 0;
+    else {
+      let detailIndex = this.detailApplicationId === void 0 ? -1 : this.pane.items.findIndex((entry) => entry.id === this.detailApplicationId);
+      this.cursors.applications = detailIndex >= 0 ? detailIndex : Math.min(this.cursors.applications, this.pane.items.length - 1);
+    }
   }
   get canAttach() {
     return this.selected?.pointer !== void 0 && this.actions.attach !== void 0 && !this.busyFlag;
@@ -7698,7 +7703,7 @@ var CareerUiSession = class {
     return this.actionEntries().filter(([, enabled]) => enabled).map(([label]) => label);
   }
   switchView(view) {
-    this.busyFlag || (this.current = view, this.detail = !1, this.cancelPreview());
+    this.busyFlag || (this.current = view, this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview());
   }
   move(delta) {
     let items = this.pane.items;
@@ -7708,14 +7713,15 @@ var CareerUiSession = class {
     this.pane.items[index] !== void 0 && (this.cursors[this.current] = index);
   }
   open() {
-    return this.busyFlag || this.detail || this.selected === void 0 ? !1 : (this.detail = !0, this.cancelPreview(), !0);
+    let selected = this.selected;
+    return this.busyFlag || this.detail || selected === void 0 ? !1 : (this.detail = !0, this.detailApplicationId = this.current === "applications" ? selected.id : void 0, this.cancelPreview(), !0);
   }
   openItem(entry) {
     let index = this.pane.items.indexOf(entry);
     return index < 0 ? !1 : (this.cursors[this.current] = index, this.open());
   }
   back() {
-    return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.cancelPreview(), "list") : "close";
+    return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview(), "list") : "close";
   }
   async runBound(enabled, operation) {
     if (!enabled || this.busyFlag) return !1;
