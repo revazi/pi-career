@@ -270,6 +270,55 @@ async function fixture(t) {
     application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
     vacancy: null, selected_original: null, resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
+  const ptyHelper = path.join(base, "pty-helper.py");
+  await writeFile(ptyHelper, `import fcntl, os, select, signal, struct, subprocess, sys, termios
+master, slave = os.openpty()
+f = struct.pack('HHHH', 40, 120, 0, 0)
+fcntl.ioctl(slave, termios.TIOCSWINSZ, f)
+child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=slave, stderr=slave, start_new_session=True, preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+os.close(slave)
+def stop(signum, frame):
+    if child.poll() is None: child.send_signal(signal.SIGTERM)
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+while child.poll() is None:
+    ready, _, _ = select.select([sys.stdin.buffer, master], [], [], 0.1)
+    for fd in ready:
+        if fd is master:
+            data = os.read(master, 65536)
+            if data: sys.stdout.buffer.write(data); sys.stdout.buffer.flush()
+        else:
+            data = os.read(0, 65536)
+            if data:
+                for byte in data: os.write(master, bytes([byte]))
+            else:
+                os.kill(child.pid, signal.SIGTERM); break
+os.close(master)
+sys.exit(child.returncode if child.returncode is not None else 1)
+`);
+  const observer = path.join(base, "observer.mjs");
+  await writeFile(observer, `import { appendFile } from "node:fs/promises";
+const output = process.env.PI_CAREER_OBSERVER;
+let writes = Promise.resolve();
+const record = (event, pi, ctx) => {
+  if (!output) return;
+  let entries = [];
+  try { entries = ctx.sessionManager.getBranch().filter((entry) => entry.type === "custom").map((entry) => entry.customType); } catch {}
+  const tools = pi.getActiveTools();
+  writes = writes.then(() => appendFile(output, JSON.stringify({ pid: process.pid, event, hasAttachment: entries.includes("career.application_attachment"), hasActivation: entries.includes("career.application_assistance"), careerRun: tools.includes("career_run"), rawTools: tools.some((name) => name.startsWith("career_core_")), skill: pi.getCommands().some((command) => command.name === "skill:career-core") }) + "\\n"));
+  return writes;
+};
+const snapshot = (reason, pi, ctx) => setTimeout(() => record({ type: "surface_snapshot", reason }, pi, ctx), 150);
+export default (pi) => {
+  pi.on("session_start", (event, ctx) => { void record({ type: "session_start", reason: event.reason }, pi, ctx); snapshot(event.reason, pi, ctx); });
+  pi.on("resources_discover", (event, ctx) => record({ type: "resources_discover", reason: event.reason }, pi, ctx));
+  pi.on("session_shutdown", (event, ctx) => record({ type: "session_shutdown", reason: event.reason }, pi, ctx));
+  for (const name of ["agent_start", "turn_start", "message_start", "tool_execution_start", "before_provider_request"]) {
+    pi.on(name, (event, ctx) => record({ type: event.type }, pi, ctx));
+  }
+};\n`);
+  const observerOutput = path.join(base, "observer.jsonl");
+  await writeFile(observerOutput, "", { mode: 0o600 });
   const coreTrap = path.join(base, "core-trap");
   await privateFile(coreTrap, Buffer.from("#!/bin/sh\ntouch \"$(dirname \"$0\")/core-was-invoked\"\nexit 97\n"));
   await chmod(coreTrap, 0o700);
@@ -283,8 +332,12 @@ async function fixture(t) {
     PI_TELEMETRY: "0",
     PI_SKIP_VERSION_CHECK: "1",
     CAREER_CLI_PATH: coreTrap,
+    PI_CAREER_OBSERVER: observerOutput,
+    TERM: "xterm-256color",
+    COLUMNS: "120",
+    LINES: "40",
   };
-  return { base, agentDir, home, cwd, sessions, libraryRoot, workspaceRoot, coreTrap, env };
+  return { base, agentDir, home, cwd, sessions, libraryRoot, workspaceRoot, coreTrap, ptyHelper, observer, observerOutput, env };
 }
 
 async function approvedSnapshot(item) {
@@ -297,11 +350,11 @@ async function approvedSnapshot(item) {
 
 async function assertNoPersistedPrivateBytes(item) {
   const files = await filesUnder(item.base);
-  assert.equal(files.some((file) => file.endsWith(".jsonl")), false);
+  assert.equal(files.some((file) => file.endsWith(".jsonl") && file !== item.observerOutput), false);
   assert.equal(files.includes(path.join(item.base, "core-was-invoked")), false);
   const resume = path.join(item.libraryRoot, "private-resume.md");
   for (const file of files) {
-    if (file === resume || file === item.coreTrap) continue;
+    if (file === resume || file === item.coreTrap || file === item.observer || file === item.observerOutput) continue;
     const bytes = await readFile(file);
     const text = bytes.toString("utf8");
     assert.equal(text.includes(DOCUMENT_SENTINEL), false, path.basename(file));
@@ -313,6 +366,41 @@ async function assertNoPersistedPrivateBytes(item) {
 
 function skillPresent(commands) {
   return commands.some((command) => command.name === "skill:career-core" && command.source === "skill");
+}
+
+class TuiProcess {
+  constructor(item) { this.item = item; this.child = undefined; }
+  start() {
+    this.child = spawn("python3", [this.item.ptyHelper, process.execPath, piCli, "--mode", "tui", "--offline", "--no-session", "--no-approve", "-e", extensionPath, "-e", this.item.observer, "--session-dir", this.item.sessions], {
+      cwd: this.item.cwd, env: this.item.env, detached: true, stdio: ["pipe", "pipe", "pipe"],
+    });
+    this.stderr = "";
+    this.child.stdout.on("data", () => {});
+    this.child.stderr.on("data", (chunk) => { this.stderr += chunk.toString("utf8"); });
+    return this;
+  }
+  async keys(...chunks) {
+    for (const [text, delay] of chunks) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      for (const character of text) {
+        this.child.stdin.write(character);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+    }
+  }
+  async stop() {
+    const pid = this.child.pid;
+    const exited = new Promise((resolve) => this.child.once("exit", (code, signal) => resolve({ code, signal })));
+    try { process.kill(-pid, "SIGTERM"); } catch { this.child.kill("SIGTERM"); }
+    const result = await Promise.race([exited, new Promise((resolve) => setTimeout(() => resolve(undefined), 5_000))]);
+    if (result === undefined) { try { process.kill(-pid, "SIGKILL"); } catch { this.child.kill("SIGKILL"); } throw new Error("TUI process did not exit"); }
+    return { pid, ...result };
+  }
+}
+
+async function observerFacts(item) {
+  const lines = (await readFile(item.observerOutput, "utf8")).trim().split(/\r?\n/).filter(Boolean);
+  return lines.map((line) => JSON.parse(line));
 }
 
 test("P3-30 live transient process loses the in-memory attachment after shutdown while approved workspace bytes remain", { timeout: 60_000 }, async (t) => {
@@ -407,6 +495,46 @@ test("P3-30 live transient process loses the in-memory attachment after shutdown
   assert.deepEqual(freshMessages.data.messages, []);
   assert.deepEqual(fresh.events, []);
   assert.equal(fresh.stderr, "");
+  await fresh.stop();
+  await assertNoPersistedPrivateBytes(item);
+  assert.deepEqual(await approvedSnapshot(item), before);
+});
+
+test("P3-58 native TUI reload reconstructs the active surface, then a fresh transient process is empty", { timeout: 60_000 }, async (t) => {
+  const item = await fixture(t);
+  const before = await approvedSnapshot(item);
+  const live = new TuiProcess(item).start();
+  t.after(() => { if (live.child?.exitCode === null) live.child.kill("SIGKILL"); });
+  await live.keys(["/career-application", 2_000], ["\r", 500], ["\r", 500], ["a", 500], ["\r", 700], ["\x1b", 500], ["\x1b", 500], ["/career-workbench", 700], ["\r", 400], ["p", 1_000], ["\r", 1_000], ["\x1b", 700], ["\x1b", 700], ["\x1b", 700], ["\x15", 300], ["/reload", 500], ["\r", 1_200]);
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const facts = await observerFacts(item);
+  const reloadShutdowns = facts.filter((fact) => fact.event.type === "session_shutdown" && fact.event.reason === "reload");
+  const reloadStarts = facts.filter((fact) => fact.event.type === "session_start" && fact.event.reason === "reload");
+  const reloadResources = facts.filter((fact) => fact.event.type === "resources_discover" && fact.event.reason === "reload");
+  assert.ok(reloadShutdowns.length >= 2, "activation reload and independent editor reload required");
+  assert.ok(reloadStarts.length >= 2, "activation reload and independent editor reload required");
+  assert.ok(reloadResources.length >= 2, "each reload must rediscover resources");
+  const reload = reloadStarts.at(-1);
+  const reloadSurface = facts.filter((fact) => fact.event.type === "surface_snapshot" && fact.event.reason === "reload").at(-1);
+  assert.ok(reloadSurface && reloadSurface.skill && reloadSurface.careerRun && !reloadSurface.rawTools && reloadSurface.hasAttachment && reloadSurface.hasActivation);
+  const initial = facts.find((fact) => fact.event.type === "session_start" && fact.event.reason === "startup");
+  assert.ok(initial);
+  assert.equal(reloadSurface.pid, initial.pid);
+  assert.ok(reloadResources.length >= 2);
+  const forbiddenRuntimeEvents = new Set(["agent_start", "turn_start", "message_start", "tool_execution_start", "before_provider_request"]);
+  assert.equal(facts.some((fact) => forbiddenRuntimeEvents.has(fact.event.type)), false);
+  await live.stop();
+  const fresh = new TuiProcess(item).start();
+  t.after(() => { if (fresh.child?.exitCode === null) fresh.child.kill("SIGKILL"); });
+  await new Promise((resolve) => setTimeout(resolve, 2_500));
+  const startup = (await observerFacts(item)).filter((fact) => fact.event.type === "session_start").at(-1);
+  assert.ok(startup && startup.event.reason === "startup");
+  assert.notEqual(startup.pid, initial.pid);
+  assert.equal(startup.hasAttachment, false);
+  assert.equal(startup.hasActivation, false);
+  assert.equal(startup.skill, false);
+  assert.equal(startup.careerRun, false);
+  assert.equal(startup.rawTools, false);
   await fresh.stop();
   await assertNoPersistedPrivateBytes(item);
   assert.deepEqual(await approvedSnapshot(item), before);

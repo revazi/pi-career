@@ -80,19 +80,19 @@ const behavioral = {
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
   56: ["lifecycle-restore-acceptance", "P3-56 installed invalid restore/action matrix fails closed without append or mutation"],
   57: ["inactive-model-context", "P3-57 inactive raw-tool request is rejected and the following ordinary model turn omits all four Career tool schemas"],
+  58: ["transient-process-shutdown-acceptance", "P3-58 native TUI reload reconstructs the active surface, then a fresh transient process is empty"],
 };
 
 const deferred = {
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
   44: "Capacity matrix covers root entries, application entries, revisions, managed bytes, document reads, metadata size classification, and 80-character config labels at public plan/commit/read boundaries, including under-lock entry, revision, document, and metadata crossings. Still missing: canonical mutation-preview exactly-at/just-above 5,242,880 and an under-lock preview recheck, because public planners cannot emit that encoding and commit does not remeasure it; a schema-valid 16,384-byte metadata success; a 262,144-byte vacancy write, which invalid_command_arguments rejects before the byte ceiling; and config/label under-lock injection, which has no existing hook.",
-  58: "Pinned RPC get_commands omits built-in TUI /reload, and prompting it is not a host reload. Activation ctx.reload() retained entries in the same pid, but that is not an independent post-activation reload, so shutdown loss alone cannot witness P3-58.",
 };
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 55, "reviewed map has exactly 55 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 3, "reviewed map retains exactly 3 deferrals");
-  assert.match(markdown, /Currently 55 have scoped witnesses and 3 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 56, "reviewed map has exactly 56 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 2, "reviewed map retains exactly 2 deferrals");
+  assert.match(markdown, /Currently 56 have scoped witnesses and 2 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
