@@ -394,7 +394,7 @@ test("P3-26/P3-27/P3-34 unattached browse and open retain authority and hide pri
     });
     const lists = [];
     // Record the actual dialog titles as well as selectable list rows.
-    const choices = ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.back,
+    const choices = ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.back,
       CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_VIEW_LABELS.library, CAREER_UI_RPC_ACTIONS.close];
     rpc.ctx.ui.select = async (title, options) => { lists.push([title, ...options]); return choices.shift(); };
     await value.fake.commands.get("career").handler("", rpc.ctx);
@@ -435,7 +435,7 @@ test("P3-46 one Applications view distinguishes a session-only application from 
     const entries = structuredClone(value.fake.entries);
     const authority = reconstructWorkflowState(value.fake.entries).application;
     const sessionLabel = "Current session · Not persisted — Session Company — Session Engineer — preparing";
-    const persistentLabel = "Synthetic Company — Synthetic Engineer — preparing";
+    const persistentLabel = "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3";
     const dialogs = [];
     const rpc = makeContext(value.fake, { mode: "rpc", persisted: false });
     rpc.ctx.sendUserMessage = (...args) => sends.push(args);
@@ -534,7 +534,7 @@ test("session overlay deduplicates persistent UUID and rejects conflicted or att
     value.fake.entries[0].data.application_id = "00000000-0000-4000-8000-000000000077";
     const attached = makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     });
     await value.fake.commands.get("career").handler("", attached.ctx);
@@ -557,7 +557,7 @@ test("RPC hierarchical dialogs browse, switch views, and open detail without att
     const rpc = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: [
-        "Synthetic Company — Synthetic Engineer — preparing",
+        "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3",
         CAREER_UI_RPC_ACTIONS.back,
         CAREER_UI_RPC_ACTIONS.switchView,
         CAREER_UI_VIEW_LABELS.library,
@@ -579,7 +579,7 @@ test("RPC attach uses the same confirmation-gated action as the overlay", async 
     const cancelled = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: [
-        "Synthetic Company — Synthetic Engineer — preparing",
+        "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3",
         CAREER_UI_RPC_ACTIONS.attach,
         CAREER_UI_RPC_ACTIONS.close,
       ],
@@ -592,7 +592,7 @@ test("RPC attach uses the same confirmation-gated action as the overlay", async 
     const attached = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: [
-        "Synthetic Company — Synthetic Engineer — preparing",
+        "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3",
         CAREER_UI_RPC_ACTIONS.attach,
         CAREER_UI_RPC_ACTIONS.close,
       ],
@@ -728,7 +728,7 @@ test("RPC overlay binds an attached selected original without calling Core", asy
     const attached = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: [
-        "Synthetic Company — Synthetic Engineer — preparing",
+        "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3",
         CAREER_UI_RPC_ACTIONS.attach,
         CAREER_UI_RPC_ACTIONS.close,
       ],
@@ -802,7 +802,7 @@ test("attached original and effective original need explicit RPC preview after a
     });
     await value.fake.commands.get("career").handler("", makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     }).ctx);
     const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];
@@ -848,7 +848,7 @@ test("attached vacancy preview reads only the exact revalidated workspace text",
   try {
     await value.fake.commands.get("career").handler("", makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     }).ctx);
     const vacancyText = "Synthetic vacancy PRIVATE_VACANCY_BODY";
@@ -898,7 +898,7 @@ test("RPC attached analyze refuses a changed original before Core stdin", async 
   try {
     const attached = makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     });
     await value.fake.commands.get("career").handler("", attached.ctx);
@@ -942,7 +942,7 @@ test("RPC attached match refuses post-confirm selected-original drift before Cor
     });
     await value.fake.commands.get("career").handler("", makeContext(value.fake, {
       mode: "rpc", persisted: false,
-      selects: ["Synthetic Company — Synthetic Engineer — preparing", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     }).ctx);
     const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];

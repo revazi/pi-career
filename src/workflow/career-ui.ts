@@ -5,13 +5,12 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type 
 
 import {
   attachedApplicationSourcesForSession,
-  listCatalogApplications,
-  readApplicationCatalog,
+  readOverlayApplications,
 } from "./application-workspace.ts";
 import { loadConfig } from "./config.ts";
 import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.ts";
 import { scanLibrary } from "./scan.ts";
-import type { ResumeRecord } from "./types.ts";
+import type { ApplicationStatus, ResumeRecord } from "./types.ts";
 import { replayApplicationSessionRecords, type ApplicationAttachmentPointer } from "./session-attachment.ts";
 import { reconstructWorkflowState, workspaceApplicationIdentity } from "./session-state.ts";
 
@@ -131,6 +130,15 @@ function item(
   pointer?: ApplicationAttachmentPointer,
 ): CareerUiItem {
   return pointer === undefined ? { id, label, detail } : { id, label, detail, pointer };
+}
+
+function applicationStatusLabel(status: ApplicationStatus): string {
+  switch (status) {
+    case "preparing": return "Preparing";
+    case "applied": return "Applied";
+    case "interviewing": return "Interviewing";
+    case "closed": return "Closed";
+  }
 }
 
 function resumePreview(source: "library" | "original" | "effective", record: ResumeRecord): NonNullable<CareerUiItem["preview"]> {
@@ -258,23 +266,20 @@ export async function buildCareerUiModel(
     };
     const workspace = config.application_workspace;
     if (workspace !== null) {
-      const catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id);
-      const pointers = new Map(
-        (await listCatalogApplications(agentDir)).map((entry) => [entry.pointer.applicationId, entry.pointer]),
-      );
+      const catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
-        intro: catalog.applications.length === 0
+        intro: catalog.length === 0
           ? "No persistent applications. Press c to create one. Creating does not attach."
           : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
-        items: catalog.applications.map((application) => {
-          const pointer = pointers.get(application.application_id);
-          const label = application.identity === undefined
+        items: catalog.map((application) => {
+          const status = applicationStatusLabel(application.status);
+          const label = application.company_label === undefined
             ? `Legacy application — ${application.status}`
-            : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`;
-          const detail = application.identity === undefined
+            : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
+          const detail = application.company_label === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
-            : `${application.identity.company_label} — ${application.identity.role_label}\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
-          const row = item(application.application_id, label, detail, pointer);
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
+          const row = item(application.application_id, label, detail, application.pointer);
           if (application.classification === "legacy") row.legacyMigration = true;
           return row;
         }),

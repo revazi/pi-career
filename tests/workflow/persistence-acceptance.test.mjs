@@ -37,6 +37,7 @@ const behavioral = {
   13: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
   14: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
   15: ["legacy-overlay-migration-acceptance", "P3-15 independently prepared legacy migration plans have one no-clobber winner"],
+  16: ["persistent-overlay-creation", "P3-16 configured-root Applications create resolves consent before exact preview, commits one canonical package, and renders Preparing Incomplete 0/3 after restart-like reconstruction"],
   17: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   18: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   19: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
@@ -76,7 +77,6 @@ const deferred = {
   5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
   6: "Restart and exact label restoration across the overlay are not covered by catalog-only tests.",
   7: "Unicode-equivalent distinct labels across restart and listing need an overlay integration test.",
-  16: "Pure 0/3 derivation and session-only creation do not prove configured-root creation, exact preview/confirmation, private canonical package bytes, restart overlay readiness, or absence of extra attachment, activation, Core, session, and residue effects.",
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 43, "reviewed map has exactly 43 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 15, "reviewed map retains exactly 15 deferrals");
-  assert.match(markdown, /Currently 43 have scoped witnesses and 15 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 44, "reviewed map has exactly 44 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 14, "reviewed map retains exactly 14 deferrals");
+  assert.match(markdown, /Currently 44 have scoped witnesses and 14 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

@@ -79,6 +79,10 @@ interface CommandRuntimeOptions {
   now?: () => Date;
   uuid?: () => string;
   // Registration-scoped checkpoints remain instance-local; production leaves them undefined.
+  beforeWorkspaceLockAcquire?: (
+    operation: "initialize_application" | "finish_application_migration" | "record_state",
+    mutationId: string,
+  ) => Promise<void>;
   afterArtifactPublishedBeforeState?: (mutationId: string) => Promise<void>;
   // Registration-scoped loader seam for early-guard tests; production uses loadLibrary.
   loadLibrary?: typeof loadLibrary;
@@ -293,6 +297,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     now: dependencies.now,
     uuid: dependencies.uuid,
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    ...(options.beforeWorkspaceLockAcquire === undefined ? {} : {
+      beforeWorkspaceLockAcquire: options.beforeWorkspaceLockAcquire,
+    }),
     ...(options.afterArtifactPublishedBeforeState === undefined ? {} : {
       afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState,
     }),
@@ -392,26 +399,66 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const role = await ctx.ui.input("Role", "Role title");
         if (role === undefined) return false;
         if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
-        const confirmed = await ctx.ui.confirm(
-          "Create application",
-          "Create this application? It is not attached until you confirm attach. Career assistance stays inactive.",
-        );
-        if (confirmed !== true) return false;
-        const run = owner.start(ctx);
-        await ensureConsent(ctx, run);
-        const created = createApplicationEntry(company, role, "preparing", dependencies);
-        appendData(pi, owner, run, ctx, created);
-        if (pi.getSessionName() === undefined) pi.setSessionName(`${created.company_label} — ${created.role_label}`);
-        const config = await loadConfig(dependencies.agentDir);
-        if (config.application_workspace !== null) {
-          await applicationWorkspace.initializeCurrentApplication(ctx);
-        } else {
+        const notifyCreateFailure = (error: unknown): false => {
+          if (error instanceof CareerWorkflowError) {
+            const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+            ctx.ui.notify(workflowErrorMessage(error.code), type);
+            return false;
+          }
+          ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+          return false;
+        };
+        let config;
+        try {
+          config = await loadConfig(dependencies.agentDir);
+        } catch (error) {
+          return notifyCreateFailure(error);
+        }
+        if (config.application_workspace === null) {
+          const confirmed = await ctx.ui.confirm(
+            "Create application",
+            "Create this application? It is not attached until you confirm attach. Career assistance stays inactive.",
+          );
+          if (confirmed !== true) return false;
+          try {
+            const latest = await loadConfig(dependencies.agentDir);
+            if (latest.application_workspace !== null) throw workflowError("workspace_drift");
+          } catch (error) {
+            return notifyCreateFailure(error);
+          }
+          const run = owner.start(ctx);
+          await ensureConsent(ctx, run);
+          const created = createApplicationEntry(company, role, "preparing", dependencies);
+          appendData(pi, owner, run, ctx, created);
+          if (pi.getSessionName() === undefined) pi.setSessionName(`${created.company_label} — ${created.role_label}`);
           ctx.ui.notify(
             `${applicationSummary(created)}\nApplication context is session-scoped; no workspace files were created.`,
             "info",
           );
+          return true;
         }
-        return true;
+        const run = owner.start(ctx);
+        try {
+          // Persistence consent is a session precondition, not package approval. The existing
+          // consent entry may be appended here; the application entry and session name wait
+          // for durable initialize success. Denial aborts before preview or publication.
+          await ensureConsent(ctx, run);
+          const created = createApplicationEntry(company, role, "preparing", dependencies);
+          const outcome = await applicationWorkspace.initializePendingApplication(ctx, {
+            identity: created,
+            current: created,
+          });
+          if (outcome !== "written") return false;
+          const latest = reconstructWorkflowState(ctx.sessionManager.getBranch());
+          if (latest.application !== undefined || latest.application_context_seen === true) {
+            throw workflowError("workspace_identity_conflict");
+          }
+          appendData(pi, owner, run, ctx, created);
+          if (pi.getSessionName() === undefined) pi.setSessionName(`${created.company_label} — ${created.role_label}`);
+          return true;
+        } catch (error) {
+          return notifyCreateFailure(error);
+        }
       },
       updateStatus: async () => {
         const statuses = new Map<string, ApplicationStatus>([

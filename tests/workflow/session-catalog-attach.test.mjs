@@ -22,6 +22,8 @@ const WORKSPACE_CREATED_AT = "2026-08-03T00:00:00.000Z";
 const OTHER_WORKSPACE_CREATED_AT = "2026-08-05T00:00:00.000Z";
 const OPTION = "Synthetic Company — Synthetic Engineer — preparing";
 const OTHER_OPTION = "Other Synthetic Company — Other Synthetic Engineer — preparing";
+const OVERLAY_OPTION = "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3";
+const OVERLAY_OTHER_OPTION = "Other Synthetic Company — Other Synthetic Engineer — Preparing — Incomplete 0/3";
 const canonical = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -221,7 +223,7 @@ test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-
     try {
       value.fake.entries.push(branchMarker("branch-root", null, "common-ancestor"));
       await runApplications(value, {
-        selects: [OPTION, "Attach", "Close"],
+        selects: [OVERLAY_OPTION, "Attach", "Close"],
         confirms: [true],
       });
       assert.deepEqual(value.fake.entries.map(({ customType, data, id, parentId }) => [
@@ -260,7 +262,7 @@ test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-
       const rejectedNewSessions = [];
       const rejectedReplacementEntries = [];
       const rejected = await runApplications(value, {
-        selects: [OTHER_OPTION, "Attach", "Close"],
+        selects: [OVERLAY_OTHER_OPTION, "Attach", "Close"],
         confirms: [(title, message) => {
           offerTitles.push([title, message]);
           return false;
@@ -291,7 +293,7 @@ test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-
       const replacementEntries = [];
       const newSessions = [];
       const accepted = await runApplications(value, {
-        selects: [OTHER_OPTION, "Attach", "Close"],
+        selects: [OVERLAY_OTHER_OPTION, "Attach", "Close"],
         confirms: [(title, message) => {
           acceptedTitles.push([title, message]);
           return true;

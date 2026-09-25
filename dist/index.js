@@ -3798,17 +3798,50 @@ async function listCatalogApplications(agentDir) {
     return [];
   }
 }
-async function readApplicationCatalog(rootPath, expectedRootId, betweenSnapshots) {
-  let initial = await deriveApplicationCatalog(rootPath, expectedRootId);
-  await betweenSnapshots?.();
-  let current;
-  try {
-    current = await deriveApplicationCatalog(rootPath, expectedRootId);
-  } catch {
-    throw workflowError("workspace_drift");
-  }
+function catalogReadiness(inspected, scan) {
+  return deriveApplicationReadiness({
+    vacancy: inspected.head.vacancy === null ? null : { content_sha256: inspected.head.vacancy.content_sha256 },
+    selected_original: inspected.head.selected_original,
+    resume_artifact: inspected.head.resume_artifact === null ? null : { artifact_sha256: inspected.head.resume_artifact.artifact_sha256 },
+    cover_letter_artifact: inspected.head.schema_version === STATE_SCHEMA_V2 ? inspected.head.cover_letter_artifact : null
+  }, {
+    vacancy: "valid",
+    resume_artifact: "valid",
+    cover_letter_artifact: "valid",
+    library_scan: scan
+  }).readiness;
+}
+async function readOverlayApplications(agentDir, scan) {
+  let snapshot = await loadConfigSnapshot(agentDir), configured = snapshot.config.application_workspace;
+  if (configured === null) return [];
+  await assertApplicationWorkspaceDisjoint(snapshot.config);
+  let initial = await deriveApplicationCatalog(configured.root_path, configured.root_id), current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
   if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
-  return initial.projection;
+  let inspectedById = new Map(initial.validatedApplications.map((item2) => [item2.record.application_id, item2.inspected]));
+  return initial.projection.applications.map((record) => {
+    let inspected = inspectedById.get(record.application_id);
+    if (inspected === void 0) throw workflowError("workspace_drift");
+    let identity2 = record.identity;
+    return {
+      application_id: record.application_id,
+      classification: record.classification,
+      ...identity2 === void 0 ? {} : {
+        company_label: identity2.company_label,
+        role_label: identity2.role_label
+      },
+      status: record.status,
+      readiness: catalogReadiness(inspected, scan),
+      ...record.classification !== "valid" || identity2 === void 0 ? {} : {
+        pointer: {
+          applicationId: inspected.manifest.application_id,
+          rootId: inspected.manifest.root_id,
+          rootCreatedAt: initial.root.marker.created_at,
+          applicationCreatedAt: inspected.manifest.application_created_at,
+          workspaceCreatedAt: inspected.manifest.workspace_created_at
+        }
+      }
+    };
+  });
 }
 function attachmentValidationError(error) {
   throw error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict" ? error : workflowError("attachment_unavailable");
@@ -4109,6 +4142,20 @@ function assertSessionPlan(plan, ctx) {
   if ((identity2?.identity.state_id ?? null) !== plan.identityStateId || (identity2?.current.state_id ?? null) !== plan.currentStateId || (plan.envelope.operation === "initialize_application" || plan.envelope.operation === "record_state") && ((identity2?.vacancy?.state_id ?? null) !== plan.vacancyStateId || (identity2?.vacancy?.vacancy_text_sha256 ?? null) !== plan.vacancySha256))
     throw workflowError("workspace_identity_conflict");
   return identity2;
+}
+function assertCleanCreationSession(ctx) {
+  if (sessionIdentity(ctx) !== void 0) throw workflowError("workspace_identity_conflict");
+  let state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+  if (state.application !== void 0 || state.application_context_seen === !0)
+    throw workflowError("workspace_identity_conflict");
+}
+function assertPendingCreationIdentity(pending) {
+  if (pending.vacancy !== void 0 || pending.identity !== pending.current || pending.identity.status !== "preparing" || pending.identity.kind !== "application" || pending.identity.application_id !== pending.identity.application_id.toLowerCase() || !boundedLabel(pending.identity.company_label) || !boundedLabel(pending.identity.role_label))
+    throw workflowError("workspace_identity_conflict");
+}
+function assertPendingCreationPlan(plan, ctx, pending) {
+  if (assertPlanContext(plan, ctx), assertPendingCreationIdentity(pending), assertCleanCreationSession(ctx), plan.envelope.operation !== "initialize_application" || plan.envelope.application_id !== pending.identity.application_id || plan.identityStateId !== pending.identity.state_id || plan.currentStateId !== pending.current.state_id || plan.vacancyStateId !== null || plan.vacancySha256 !== null)
+    throw workflowError("workspace_identity_conflict");
 }
 async function approve(plan, ctx) {
   ctx.mode === "rpc" && ctx.ui.notify(
@@ -4451,7 +4498,10 @@ var ApplicationWorkspaceWorkflow = class {
       if (action === "Status and reconcile") return this.status(ctx);
       if (action === "Configure application root") return this.configureRoot(ctx);
       if (action === "Detach application root from config") return this.detachRoot(ctx);
-      if (action === "Initialize current application") return this.initialize(ctx);
+      if (action === "Initialize current application") {
+        await this.initialize(ctx);
+        return;
+      }
       if (action === "Finish application migration") return this.finishMigration(ctx);
       if (action === "Record current status and vacancy") return this.record(ctx);
       if (action === "Select original resume") return this.selectOriginal(ctx);
@@ -4732,7 +4782,11 @@ var ApplicationWorkspaceWorkflow = class {
     );
   }
   async initializeCurrentApplication(ctx) {
-    return this.initialize(ctx);
+    await this.initialize(ctx);
+  }
+  // Commits a not-yet-appended preparing identity. The caller appends that entry only after "written".
+  async initializePendingApplication(ctx, pending) {
+    return await this.initialize(ctx, pending) === "written" ? "written" : "cancelled";
   }
   async selectAttachable(ctx, title) {
     let items = await this.listAttachable();
@@ -5155,14 +5209,15 @@ var ApplicationWorkspaceWorkflow = class {
       }
     }), ctx.ui.notify("Finished application identity migration. Existing workspace bytes remain unchanged.", "info"), "written") : "cancelled";
   }
-  async initialize(ctx) {
-    let identity2 = sessionIdentity(ctx);
+  async initialize(ctx, pending) {
+    pending !== void 0 && (assertPendingCreationIdentity(pending), assertCleanCreationSession(ctx));
+    let identity2 = pending ?? sessionIdentity(ctx);
     if (identity2 === void 0) throw workflowError("workspace_unavailable");
     let attachment = await attachmentFor(this.options.agentDir, identity2), configured = attachment.snapshot.config.application_workspace;
     if (configured === null || attachment.expectedDirectoryPath === void 0) throw workflowError("workspace_unavailable");
     if (attachment.application !== void 0) {
-      ctx.ui.notify("The current application workspace is already initialized and valid.", "info");
-      return;
+      if (pending !== void 0) throw workflowError("workspace_identity_conflict");
+      return ctx.ui.notify("The current application workspace is already initialized and valid.", "info"), "unchanged";
     }
     if (attachment.root.entries.length + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
     let directoryPath = attachment.expectedDirectoryPath;
@@ -5212,7 +5267,7 @@ var ApplicationWorkspaceWorkflow = class {
       mutationId,
       createdAt
     );
-    await approve(plan, ctx) && (assertSessionPlan(plan, ctx), await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
+    return await approve(plan, ctx) ? (pending === void 0 ? assertSessionPlan(plan, ctx) : assertPendingCreationPlan(plan, ctx, pending), await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
       await this.options.beforeWorkspaceLockAcquire?.("initialize_application", mutationId);
       let rootLock = await acquireMutationLock(
         workspaceLockPath(configured.root_path),
@@ -5222,8 +5277,12 @@ var ApplicationWorkspaceWorkflow = class {
       ), published = [], createdDirectory;
       try {
         await this.afterWorkspaceLockAcquired("initialize_application", mutationId);
-        let currentIdentity = assertSessionPlan(plan, ctx);
-        if (currentIdentity === void 0) throw workflowError("workspace_identity_conflict");
+        let committedIdentity = identity2;
+        if (pending === void 0) {
+          let currentIdentity = assertSessionPlan(plan, ctx);
+          if (currentIdentity === void 0) throw workflowError("workspace_identity_conflict");
+          committedIdentity = currentIdentity;
+        } else assertPendingCreationPlan(plan, ctx, pending);
         await assertConfigSnapshotCurrent(attachment.snapshot), await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
         let root = await inspectRoot(configured.root_path, {
           expectedRootId: configured.root_id,
@@ -5239,7 +5298,7 @@ var ApplicationWorkspaceWorkflow = class {
         if (assertRootPlanCurrent(attachment.root, root), root.currentApplication !== void 0)
           throw workflowError("workspace_identity_conflict");
         if (root.entries.filter((entry) => entry !== path6.basename(rootLock.path)).length + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
-        if (await requireAbsent(directoryPath), vacancyBytes(currentIdentity.vacancy, currentIdentity.identity.application_id), ctx.signal?.aborted) throw workflowError("workflow_cancelled");
+        if (await requireAbsent(directoryPath), vacancyBytes(committedIdentity.vacancy, committedIdentity.identity.application_id), ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         if (await mkdir2(directoryPath, { recursive: !1, mode: 448 }), createdDirectory = await lstat4(directoryPath), await chmod(directoryPath, 448), createdDirectory = await lstat4(directoryPath), !privateMetadata(createdDirectory, 448, "directory") || await realpath4(directoryPath) !== directoryPath)
           throw workflowError("workspace_verification_failed");
         await syncDirectory2(configured.root_path);
@@ -5267,7 +5326,7 @@ var ApplicationWorkspaceWorkflow = class {
       } finally {
         await releaseMutationLock(rootLock);
       }
-    }), ctx.ui.notify(`Initialized application workspace: ${privacyDisplayPath(directoryPath)}. No resume artifact was saved.`, "info"));
+    }), ctx.ui.notify(`Initialized application workspace: ${privacyDisplayPath(directoryPath)}. No resume artifact was saved.`, "info"), "written") : "cancelled";
   }
   async record(ctx) {
     let identity2 = sessionIdentity(ctx);
@@ -7262,6 +7321,18 @@ function unavailablePane() {
 function item(id, label, detail, pointer) {
   return pointer === void 0 ? { id, label, detail } : { id, label, detail, pointer };
 }
+function applicationStatusLabel(status) {
+  switch (status) {
+    case "preparing":
+      return "Preparing";
+    case "applied":
+      return "Applied";
+    case "interviewing":
+      return "Interviewing";
+    case "closed":
+      return "Closed";
+  }
+}
 function resumePreview(source, record) {
   return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
 }
@@ -7339,7 +7410,7 @@ async function buildCareerUiModel(agentDir, ctx) {
   };
   try {
     let config = await loadConfig(agentDir), scan = await scanLibrary(config);
-    empty.setup = {
+    if (empty.setup = {
       intro: setupSummary(config, scan, persisted3),
       items: config.library_roots.map((root) => item(
         root.id,
@@ -7364,22 +7435,19 @@ Overlay browse does not analyze or attach this resume.`
         );
         return record.kind === "original" && record.too_large_for_core_input !== !0 && (row.preview = resumePreview("library", record)), row;
       })
-    };
-    let workspace = config.application_workspace;
-    if (workspace !== null) {
-      let catalog = await readApplicationCatalog(workspace.root_path, workspace.root_id), pointers = new Map(
-        (await listCatalogApplications(agentDir)).map((entry) => [entry.pointer.applicationId, entry.pointer])
-      );
+    }, config.application_workspace !== null) {
+      let catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
-        intro: catalog.applications.length === 0 ? "No persistent applications. Press c to create one. Creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
-        items: catalog.applications.map((application) => {
-          let pointer = pointers.get(application.application_id), label = application.identity === void 0 ? `Legacy application — ${application.status}` : `${application.identity.company_label} — ${application.identity.role_label} — ${application.status}`, detail = application.identity === void 0 ? `Legacy application
+        intro: catalog.length === 0 ? "No persistent applications. Press c to create one. Creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
+        items: catalog.map((application) => {
+          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}
 Classification: ${application.classification}
-Opening does not attach this application.` : `${application.identity.company_label} — ${application.identity.role_label}
-Status: ${application.status}
+Opening does not attach this application.` : `${application.company_label} — ${application.role_label}
+Status: ${status}
+Readiness: ${application.readiness}
 Classification: ${application.classification}
-Opening does not attach. Press a to attach this application without activating assistance.`, row = item(application.application_id, label, detail, pointer);
+Opening does not attach. Press a to attach this application without activating assistance.`, row = item(application.application_id, label, detail, application.pointer);
           return application.classification === "legacy" && (row.legacyMigration = !0), row;
         })
       };
@@ -8094,6 +8162,9 @@ function registerCareerCommands(pi, options = {}) {
     now: dependencies.now,
     uuid: dependencies.uuid,
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    ...options.beforeWorkspaceLockAcquire === void 0 ? {} : {
+      beforeWorkspaceLockAcquire: options.beforeWorkspaceLockAcquire
+    },
     ...options.afterArtifactPublishedBeforeState === void 0 ? {} : {
       afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState
     }
@@ -8159,18 +8230,52 @@ function registerCareerCommands(pi, options = {}) {
         let role = await ctx.ui.input("Role", "Role title");
         if (role === void 0) return !1;
         if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
-        if (await ctx.ui.confirm(
-          "Create application",
-          "Create this application? It is not attached until you confirm attach. Career assistance stays inactive."
-        ) !== !0) return !1;
-        let run = owner.start(ctx);
-        await ensureConsent(ctx, run);
-        let created = createApplicationEntry(company, role, "preparing", dependencies);
-        return appendData(pi, owner, run, ctx, created), pi.getSessionName() === void 0 && pi.setSessionName(`${created.company_label} — ${created.role_label}`), (await loadConfig(dependencies.agentDir)).application_workspace !== null ? await applicationWorkspace.initializeCurrentApplication(ctx) : ctx.ui.notify(
-          `${applicationSummary(created)}
+        let notifyCreateFailure = (error) => {
+          if (error instanceof CareerWorkflowError) {
+            let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+            return ctx.ui.notify(workflowErrorMessage(error.code), type), !1;
+          }
+          return ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error"), !1;
+        }, config;
+        try {
+          config = await loadConfig(dependencies.agentDir);
+        } catch (error) {
+          return notifyCreateFailure(error);
+        }
+        if (config.application_workspace === null) {
+          if (await ctx.ui.confirm(
+            "Create application",
+            "Create this application? It is not attached until you confirm attach. Career assistance stays inactive."
+          ) !== !0) return !1;
+          try {
+            if ((await loadConfig(dependencies.agentDir)).application_workspace !== null) throw workflowError("workspace_drift");
+          } catch (error) {
+            return notifyCreateFailure(error);
+          }
+          let run2 = owner.start(ctx);
+          await ensureConsent(ctx, run2);
+          let created = createApplicationEntry(company, role, "preparing", dependencies);
+          return appendData(pi, owner, run2, ctx, created), pi.getSessionName() === void 0 && pi.setSessionName(`${created.company_label} — ${created.role_label}`), ctx.ui.notify(
+            `${applicationSummary(created)}
 Application context is session-scoped; no workspace files were created.`,
-          "info"
-        ), !0;
+            "info"
+          ), !0;
+        }
+        let run = owner.start(ctx);
+        try {
+          await ensureConsent(ctx, run);
+          let created = createApplicationEntry(company, role, "preparing", dependencies);
+          if (await applicationWorkspace.initializePendingApplication(ctx, {
+            identity: created,
+            current: created
+          }) !== "written") return !1;
+          let latest = reconstructWorkflowState(ctx.sessionManager.getBranch());
+          if (latest.application !== void 0 || latest.application_context_seen === !0)
+            throw workflowError("workspace_identity_conflict");
+          return appendData(pi, owner, run, ctx, created), pi.getSessionName() === void 0 && pi.setSessionName(`${created.company_label} — ${created.role_label}`), !0;
+        } catch (error) {
+          return notifyCreateFailure(error);
+        }
       },
       updateStatus: async () => {
         let statuses = /* @__PURE__ */ new Map([

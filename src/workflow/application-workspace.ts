@@ -47,6 +47,7 @@ import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
 import { parseStrictJson } from "./strict-json.ts";
 import {
   boundedLabel,
+  reconstructWorkflowState,
   workspaceApplicationIdentity,
   type WorkspaceApplicationIdentity,
 } from "./session-state.ts";
@@ -66,6 +67,7 @@ import {
   type ApplicationStatus,
   type CareerConfig,
   CareerWorkflowError,
+  type LibraryScan,
   type ResumeFormat,
   type ResumeRecord,
   type VacancyEntry,
@@ -1498,6 +1500,73 @@ export async function readApplicationCatalog(
   return initial.projection;
 }
 
+export interface OverlayCatalogApplication {
+  application_id: string;
+  classification: "valid" | "legacy";
+  company_label?: string;
+  role_label?: string;
+  status: ApplicationStatus;
+  readiness: ApplicationReadinessProjection["readiness"];
+  pointer?: ApplicationAttachmentPointer;
+}
+
+function catalogReadiness(inspected: InspectedApplication, scan: LibraryScan): ApplicationReadinessProjection["readiness"] {
+  return deriveApplicationReadiness({
+    vacancy: inspected.head.vacancy === null ? null : { content_sha256: inspected.head.vacancy.content_sha256 },
+    selected_original: inspected.head.selected_original,
+    resume_artifact: inspected.head.resume_artifact === null
+      ? null
+      : { artifact_sha256: inspected.head.resume_artifact.artifact_sha256 },
+    cover_letter_artifact: inspected.head.schema_version === STATE_SCHEMA_V2
+      ? inspected.head.cover_letter_artifact
+      : null,
+  }, {
+    vacancy: "valid",
+    resume_artifact: "valid",
+    cover_letter_artifact: "valid",
+    library_scan: scan,
+  }).readiness;
+}
+
+// Display projection only. It does not change the catalog schema or adopt invalid children.
+export async function readOverlayApplications(
+  agentDir: string,
+  scan: LibraryScan,
+): Promise<OverlayCatalogApplication[]> {
+  const snapshot = await loadConfigSnapshot(agentDir);
+  const configured = snapshot.config.application_workspace;
+  if (configured === null) return [];
+  await assertApplicationWorkspaceDisjoint(snapshot.config);
+  const initial = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+  const current = await deriveApplicationCatalog(configured.root_path, configured.root_id);
+  if (!sameCatalogEvidence(initial, current)) throw workflowError("workspace_drift");
+  const inspectedById = new Map(initial.validatedApplications.map((item) => [item.record.application_id, item.inspected]));
+  return initial.projection.applications.map((record) => {
+    const inspected = inspectedById.get(record.application_id);
+    if (inspected === undefined) throw workflowError("workspace_drift");
+    const identity = record.identity;
+    return {
+      application_id: record.application_id,
+      classification: record.classification,
+      ...(identity === undefined ? {} : {
+        company_label: identity.company_label,
+        role_label: identity.role_label,
+      }),
+      status: record.status,
+      readiness: catalogReadiness(inspected, scan),
+      ...(record.classification !== "valid" || identity === undefined ? {} : {
+        pointer: {
+          applicationId: inspected.manifest.application_id,
+          rootId: inspected.manifest.root_id,
+          rootCreatedAt: initial.root.marker.created_at,
+          applicationCreatedAt: inspected.manifest.application_created_at,
+          workspaceCreatedAt: inspected.manifest.workspace_created_at,
+        },
+      }),
+    };
+  });
+}
+
 function attachmentValidationError(error: unknown): never {
   if (error instanceof CareerWorkflowError && error.code === "workspace_identity_conflict") throw error;
   throw workflowError("attachment_unavailable");
@@ -1942,6 +2011,40 @@ function assertSessionPlan(plan: WorkspacePlan, ctx: ExtensionCommandContext): W
     throw workflowError("workspace_identity_conflict");
   }
   return identity;
+}
+
+function assertCleanCreationSession(ctx: ExtensionCommandContext): void {
+  if (sessionIdentity(ctx) !== undefined) throw workflowError("workspace_identity_conflict");
+  const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+  if (state.application !== undefined || state.application_context_seen === true) {
+    throw workflowError("workspace_identity_conflict");
+  }
+}
+
+function assertPendingCreationIdentity(pending: WorkspaceApplicationIdentity): void {
+  if (pending.vacancy !== undefined || pending.identity !== pending.current ||
+    pending.identity.status !== "preparing" || pending.identity.kind !== "application" ||
+    pending.identity.application_id !== pending.identity.application_id.toLowerCase() ||
+    !boundedLabel(pending.identity.company_label) || !boundedLabel(pending.identity.role_label)) {
+    throw workflowError("workspace_identity_conflict");
+  }
+}
+
+function assertPendingCreationPlan(
+  plan: WorkspacePlan,
+  ctx: ExtensionCommandContext,
+  pending: WorkspaceApplicationIdentity,
+): void {
+  assertPlanContext(plan, ctx);
+  assertPendingCreationIdentity(pending);
+  assertCleanCreationSession(ctx);
+  if (plan.envelope.operation !== "initialize_application" ||
+    plan.envelope.application_id !== pending.identity.application_id ||
+    plan.identityStateId !== pending.identity.state_id ||
+    plan.currentStateId !== pending.current.state_id ||
+    plan.vacancyStateId !== null || plan.vacancySha256 !== null) {
+    throw workflowError("workspace_identity_conflict");
+  }
 }
 
 async function approve(plan: WorkspacePlan, ctx: ExtensionCommandContext): Promise<boolean> {
@@ -2435,7 +2538,10 @@ export class ApplicationWorkspaceWorkflow {
     if (action === "Status and reconcile") return this.status(ctx);
     if (action === "Configure application root") return this.configureRoot(ctx);
     if (action === "Detach application root from config") return this.detachRoot(ctx);
-    if (action === "Initialize current application") return this.initialize(ctx);
+    if (action === "Initialize current application") {
+      await this.initialize(ctx);
+      return;
+    }
     if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
@@ -2799,7 +2905,16 @@ export class ApplicationWorkspaceWorkflow {
   }
 
   async initializeCurrentApplication(ctx: ExtensionCommandContext): Promise<void> {
-    return this.initialize(ctx);
+    await this.initialize(ctx);
+  }
+
+  // Commits a not-yet-appended preparing identity. The caller appends that entry only after "written".
+  async initializePendingApplication(
+    ctx: ExtensionCommandContext,
+    pending: WorkspaceApplicationIdentity,
+  ): Promise<"written" | "cancelled"> {
+    const outcome = await this.initialize(ctx, pending);
+    return outcome === "written" ? "written" : "cancelled";
   }
 
   private async selectAttachable(
@@ -3331,15 +3446,23 @@ export class ApplicationWorkspaceWorkflow {
     return "written";
   }
 
-  private async initialize(ctx: ExtensionCommandContext): Promise<void> {
-    const identity = sessionIdentity(ctx);
+  private async initialize(
+    ctx: ExtensionCommandContext,
+    pending?: WorkspaceApplicationIdentity,
+  ): Promise<"written" | "cancelled" | "unchanged"> {
+    if (pending !== undefined) {
+      assertPendingCreationIdentity(pending);
+      assertCleanCreationSession(ctx);
+    }
+    const identity = pending ?? sessionIdentity(ctx);
     if (identity === undefined) throw workflowError("workspace_unavailable");
     const attachment = await attachmentFor(this.options.agentDir, identity);
     const configured = attachment.snapshot.config.application_workspace;
     if (configured === null || attachment.expectedDirectoryPath === undefined) throw workflowError("workspace_unavailable");
     if (attachment.application !== undefined) {
+      if (pending !== undefined) throw workflowError("workspace_identity_conflict");
       ctx.ui.notify("The current application workspace is already initialized and valid.", "info");
-      return;
+      return "unchanged";
     }
     if (attachment.root.entries.length + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
     const directoryPath = attachment.expectedDirectoryPath;
@@ -3402,8 +3525,9 @@ export class ApplicationWorkspaceWorkflow {
         ? ["Transient session: workspace files outlive this process and do not recreate session identity."] : [],
       mutationId, createdAt,
     );
-    if (!(await approve(plan, ctx))) return;
-    assertSessionPlan(plan, ctx);
+    if (!(await approve(plan, ctx))) return "cancelled";
+    if (pending === undefined) assertSessionPlan(plan, ctx);
+    else assertPendingCreationPlan(plan, ctx, pending);
     await this.withMutationQueues([directoryPath, ...files.map((file) => file.final)], async () => {
       await this.options.beforeWorkspaceLockAcquire?.("initialize_application", mutationId);
       const rootLock = await acquireMutationLock(
@@ -3413,8 +3537,12 @@ export class ApplicationWorkspaceWorkflow {
       let createdDirectory: Stats | undefined;
       try {
         await this.afterWorkspaceLockAcquired("initialize_application", mutationId);
-        const currentIdentity = assertSessionPlan(plan, ctx);
-        if (currentIdentity === undefined) throw workflowError("workspace_identity_conflict");
+        let committedIdentity = identity;
+        if (pending === undefined) {
+          const currentIdentity = assertSessionPlan(plan, ctx);
+          if (currentIdentity === undefined) throw workflowError("workspace_identity_conflict");
+          committedIdentity = currentIdentity;
+        } else assertPendingCreationPlan(plan, ctx, pending);
         await assertConfigSnapshotCurrent(attachment.snapshot);
         await assertApplicationWorkspaceDisjoint(attachment.snapshot.config);
         const root = await inspectRoot(configured.root_path, {
@@ -3435,7 +3563,7 @@ export class ApplicationWorkspaceWorkflow {
         const persistentRootEntries = root.entries.filter((entry) => entry !== path.basename(rootLock.path)).length;
         if (persistentRootEntries + 1 > ROOT_MAX_ENTRIES) throw workflowError("workspace_limit_reached");
         await requireAbsent(directoryPath);
-        vacancyBytes(currentIdentity.vacancy, currentIdentity.identity.application_id);
+        vacancyBytes(committedIdentity.vacancy, committedIdentity.identity.application_id);
         if (ctx.signal?.aborted) throw workflowError("workflow_cancelled");
         await mkdir(directoryPath, { recursive: false, mode: 0o700 });
         createdDirectory = await lstat(directoryPath);
@@ -3482,6 +3610,7 @@ export class ApplicationWorkspaceWorkflow {
       }
     });
     ctx.ui.notify(`Initialized application workspace: ${privacyDisplayPath(directoryPath)}. No resume artifact was saved.`, "info");
+    return "written";
   }
 
   private async record(ctx: ExtensionCommandContext): Promise<void> {
