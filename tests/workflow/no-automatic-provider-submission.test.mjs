@@ -37,6 +37,10 @@ const DOCUMENT_SENTINEL = "SYNTHETIC_DOCUMENT_TEXT_32";
 const TRANSIENT_NOTICE = "Transient session: pi-career workflow entries are not written to a session JSONL.";
 const PREVIEW_TITLE = "Review exact application workspace mutation";
 const APPLY_TITLE = "Apply application workspace mutation?";
+const DETACH_TITLE = "Detach current application";
+const DETACH_CANCELLED = "Detach cancelled; workspace and session application files were not changed.";
+const DETACH_NOTICE = "Application detached from the session. Workspace files were not changed.";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ATTACHMENT_TYPE = "career.application_attachment";
 const ACTIVATION_TYPE = "career.application_assistance";
 const WORKFLOW_TYPE = "career.workflow";
@@ -729,6 +733,60 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
   assert.deepEqual(await treeSnapshot(item.catalogDir), before.catalog);
   assert.deepEqual(await treeSnapshot(path.join(item.agentDir, "career")), before.config);
   assert.deepEqual(live.localEvents, ["entry_appended", "session_info_changed", "entry_appended"]);
+  const beforeDetach = await treeSnapshot(createdDir);
+  const attachedBeforeDetach = careerEntries((await live.request({ type: "get_entries" })).data.entries);
+  const detachCancelled = await live.prompt("/career", [
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.detach },
+    { method: "confirm", confirmed: false },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
+  ]);
+  assert.equal(detachCancelled.filter((request) => request.method === "confirm" && request.title === DETACH_TITLE && request.message === "Detach this application from the Pi session? Workspace files are not changed.").length, 1);
+  assert.equal(detachCancelled.some((request) => request.method === "notify" && request.message === DETACH_CANCELLED), true);
+  assert.equal(detachCancelled.some((request) => request.method === "editor"), false);
+  assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries), attachedBeforeDetach);
+  assert.deepEqual(await treeSnapshot(createdDir), beforeDetach);
+  assert.deepEqual(live.localEvents, ["entry_appended", "session_info_changed", "entry_appended"]);
+  await assertBoundary(live, item, trap);
+
+  const detached = await live.prompt("/career", [
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.detach },
+    { method: "confirm", confirmed: true },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
+  ]);
+  assert.equal(detached.filter((request) => request.method === "confirm" && request.title === DETACH_TITLE && request.message === "Detach this application from the Pi session? Workspace files are not changed.").length, 1);
+  assert.equal(detached.some((request) => request.method === "notify" && request.message === DETACH_NOTICE), true);
+  assert.equal(detached.some((request) => request.method === "editor"), false);
+  const detachedEntries = careerEntries((await live.request({ type: "get_entries" })).data.entries);
+  assert.deepEqual(detachedEntries.slice(0, 2), attachedBeforeDetach);
+  assert.equal(detachedEntries.length, 3);
+  const detachment = detachedEntries[2].data;
+  assert.equal(detachedEntries[2].customType, ATTACHMENT_TYPE);
+  assert.deepEqual(detachment, {
+    schema_version: "pi.career.application_attachment.v1",
+    kind: "application_detachment",
+    detachment_id: detachment.detachment_id,
+    attachment_id: attachedBeforeDetach[1].data.attachment_id,
+  });
+  assert.match(detachment.detachment_id, UUID);
+  assert.notEqual(detachment.detachment_id, detachment.attachment_id);
+  assert.equal(detachedEntries.some((entry) =>
+    entry.data?.kind === "application_clear" || entry.data?.kind === "vacancy_clear" || entry.customType === ACTIVATION_TYPE), false);
+  assert.equal(JSON.stringify(detachedEntries).includes(DOCUMENT_SENTINEL), false);
+  assert.deepEqual(await treeSnapshot(createdDir), beforeDetach);
+  assert.deepEqual(await treeSnapshot(item.catalogDir), before.catalog);
+  assert.deepEqual(await treeSnapshot(item.libraryRoot), before.library);
+  assert.deepEqual(await treeSnapshot(path.join(item.agentDir, "career")), before.config);
+  assert.deepEqual(live.localEvents.slice(0, 3), ["entry_appended", "session_info_changed", "entry_appended"]);
+  assert.equal(live.localEvents.filter((type) => type === "entry_appended").length, 3);
+  assert.equal(live.localEvents.every((type) => type === "entry_appended" || type === "session_info_changed"), true);
+  const repeatDetach = await live.prompt("/career", [
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.detach },
+    { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
+  ]);
+  assert.equal(repeatDetach.some((request) => request.method === "confirm" || request.method === "notify" || request.method === "editor"), false);
+  assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries), detachedEntries);
+  await assertBoundary(live, item, trap);
+
   const tools = await live.prompt("/career-tools status", []);
   assert.equal(tools.some((request) => request.message === "Career tools inactive."), true);
   const residue = (await filesUnder(item.workspaceRoot)).filter((file) => file.includes(".tmp") || file.endsWith(".lock"));
