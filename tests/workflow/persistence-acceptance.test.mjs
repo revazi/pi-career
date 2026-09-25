@@ -58,6 +58,7 @@ const behavioral = {
   31: ["session-attachment-validation", "P3-31 missing configuration or a legacy identity is unavailable"],
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
+  36: ["noninteractive-private-read-boundary", "P3-36 installed print and JSON /career reject before denied private config, session, root, library, and document reads"],
   38: ["application-concurrency-acceptance", "P3-38 two same-UUID creators commit concurrently with one exact no-retry winner"],
   39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
   40: ["application-artifact-reconciliation-acceptance", "P3-40 artifact-published state-absent fault leaves a non-authoritative orphan and registered reconciliation never adopts it"],
@@ -80,7 +81,6 @@ const deferred = {
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
-  36: "Installed-extension and workflow session_start/session_tree plus /career print/JSON traps cover session getters and registration-scoped loader, UI, append, send and Core boundaries. Direct filesystem reads, host lifecycle ordering, and future read routes lack independent interception.",
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 48, "reviewed map has exactly 48 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 10, "reviewed map retains exactly 10 deferrals");
-  assert.match(markdown, /Currently 48 have scoped witnesses and 10 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 49, "reviewed map has exactly 49 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 9, "reviewed map retains exactly 9 deferrals");
+  assert.match(markdown, /Currently 49 have scoped witnesses and 9 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
