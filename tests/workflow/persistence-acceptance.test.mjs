@@ -55,6 +55,7 @@ const behavioral = {
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
   38: ["application-concurrency-acceptance", "P3-38 two same-UUID creators commit concurrently with one exact no-retry winner"],
   39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
+  40: ["application-artifact-reconciliation-acceptance", "P3-40 artifact-published state-absent fault leaves a non-authoritative orphan and registered reconciliation never adopts it"],
   41: ["application-concurrency-acceptance", "P3-41 exact durably published state settles success and equivalent retry is idempotent"],
   42: ["application-concurrency-acceptance", "P3-42 crash-left canonical lock blocks one public mutation attempt without replacement"],
   43: ["application-concurrency-acceptance", "P3-43 post-preview referenced-byte drift blocks commit without blessing or side effects"],
@@ -81,7 +82,6 @@ const deferred = {
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
   36: "Installed-extension and workflow session_start/session_tree plus /career print/JSON traps cover session getters and registration-scoped loader, UI, append, send and Core boundaries. Direct filesystem reads, host lifecycle ordering, and future read routes lack independent interception.",
   37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
-  40: "Existing state-publication settlement does not inject the distinct artifact-published/state-absent fault or prove orphan reconciliation.",
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 42, "reviewed map has exactly 42 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 16, "reviewed map retains exactly 16 deferrals");
-  assert.match(markdown, /Currently 42 have scoped witnesses and 16 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 43, "reviewed map has exactly 43 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 15, "reviewed map retains exactly 15 deferrals");
+  assert.match(markdown, /Currently 43 have scoped witnesses and 15 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
