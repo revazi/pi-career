@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 
-import { adapterError, CareerInvocationError } from "./errors.ts";
+import { adapterError, CareerInvocationError, payloadFreeAdapterError } from "./errors.ts";
 
 const CAREER_PACKAGE_NAME = "@revazi/career";
 const CAREER_PACKAGE_VERSION = "0.2.0";
@@ -551,7 +551,7 @@ function explicitProbeError(error: unknown): CareerInvocationError {
       error.payload.code === "executable_unavailable" ||
       error.payload.code === "cancelled" ||
       error.payload.code === "timeout"
-    ) return error;
+    ) return payloadFreeAdapterError(error);
   }
   return adapterError("managed_contract_invalid");
 }
@@ -571,7 +571,7 @@ async function probeCandidate(
     await probe(candidate, signal);
     return true;
   } catch (error) {
-    if (terminalProbeError(error)) throw error;
+    if (terminalProbeError(error)) throw payloadFreeAdapterError(error);
     if (candidate.source === "explicit") throw explicitProbeError(error);
     return false;
   }

@@ -159,6 +159,41 @@ function safeAdapterCode(error: unknown): string | undefined {
   return error instanceof CareerInvocationError ? error.payload.code : undefined;
 }
 
+function boundedOperationError(error: unknown): CareerWorkflowError | CareerInvocationError {
+  if (error instanceof CareerWorkflowError) return workflowError(error.code);
+  if (error instanceof CareerInvocationError) return payloadFreeAdapterError(error);
+  return workflowError("workflow_failed");
+}
+
+function payloadFreeNotice(error: unknown): {
+  message: string;
+  type: "info" | "error";
+  fallback: CareerWorkflowError | CareerInvocationError;
+} {
+  if (error instanceof CareerWorkflowError) {
+    const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+    return { message: workflowErrorMessage(error.code), type, fallback: workflowError(error.code) };
+  }
+  if (error instanceof CareerInvocationError) {
+    const safe = payloadFreeAdapterError(error);
+    return { message: publicAdapterMessage(safe), type: "error", fallback: safe };
+  }
+  return {
+    message: workflowErrorMessage("workflow_failed"),
+    type: "error",
+    fallback: workflowError("workflow_failed"),
+  };
+}
+
+function notifyPayloadFree(ctx: ExtensionCommandContext, error: unknown): void {
+  const rendered = payloadFreeNotice(error);
+  try {
+    ctx.ui.notify(rendered.message, rendered.type);
+  } catch {
+    throw rendered.fallback;
+  }
+}
+
 function isOversizeCode(code: string | undefined): code is "result_too_large" | "result_too_many_lines" {
   return code === "result_too_large" || code === "result_too_many_lines";
 }
@@ -175,33 +210,37 @@ async function runOperation<T>(
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   owner.assert(run, ctx);
-  if (ctx.mode !== "tui") {
-    ctx.ui.notify(label, "info");
-    const value = await operation(run.controller.signal);
+  try {
+    if (ctx.mode !== "tui") {
+      ctx.ui.notify(label, "info");
+      const value = await operation(run.controller.signal);
+      owner.assert(run, ctx);
+      return value;
+    }
+    const result = await ctx.ui.custom<LoaderResult<T>>((tui, theme, _keybindings, done) => {
+      const loader = new BorderedLoader(tui, theme, label);
+      let settled = false;
+      const finish = (value: LoaderResult<T>) => {
+        if (settled) return;
+        settled = true;
+        done(value);
+      };
+      loader.onAbort = () => {
+        run.controller.abort();
+        finish(null);
+      };
+      operation(run.controller.signal)
+        .then((value) => finish({ ok: true, value }))
+        .catch((error: unknown) => finish({ ok: false, error: boundedOperationError(error) }));
+      return loader;
+    });
+    if (result === null) throw workflowError("workflow_cancelled");
+    if (!result.ok) throw result.error;
     owner.assert(run, ctx);
-    return value;
+    return result.value;
+  } catch (error) {
+    throw boundedOperationError(error);
   }
-  const result = await ctx.ui.custom<LoaderResult<T>>((tui, theme, _keybindings, done) => {
-    const loader = new BorderedLoader(tui, theme, label);
-    let settled = false;
-    const finish = (value: LoaderResult<T>) => {
-      if (settled) return;
-      settled = true;
-      done(value);
-    };
-    loader.onAbort = () => {
-      run.controller.abort();
-      finish(null);
-    };
-    operation(run.controller.signal)
-      .then((value) => finish({ ok: true, value }))
-      .catch((error: unknown) => finish({ ok: false, error }));
-    return loader;
-  });
-  if (result === null) throw workflowError("workflow_cancelled");
-  if (!result.ok) throw result.error;
-  owner.assert(run, ctx);
-  return result.value;
 }
 
 interface MatchQueueResult {
@@ -400,12 +439,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         if (role === undefined) return false;
         if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
         const notifyCreateFailure = (error: unknown): false => {
-          if (error instanceof CareerWorkflowError) {
-            const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-            ctx.ui.notify(workflowErrorMessage(error.code), type);
-            return false;
-          }
-          ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+          notifyPayloadFree(ctx, error);
           return false;
         };
         let config;
@@ -704,12 +738,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         } catch (error) {
           // Overlay action binding discards thrown workflow errors. Surface the existing
           // payload-free notice so configure/detach failure cannot look like adoption.
-          if (error instanceof CareerWorkflowError) {
-            const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-            ctx.ui.notify(workflowErrorMessage(error.code), type);
-            return false;
-          }
-          ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+          notifyPayloadFree(ctx, error);
           return false;
         }
       },
@@ -788,22 +817,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       await action();
     } catch (error) {
       if (!ctx.hasUI || (ctx.mode !== "tui" && ctx.mode !== "rpc")) {
-        if (error instanceof CareerWorkflowError) throw workflowError(error.code);
-        if (error instanceof CareerInvocationError) {
-          throw payloadFreeAdapterError(error);
-        }
-        throw workflowError("workflow_failed");
+        throw payloadFreeNotice(error).fallback;
       }
-      if (error instanceof CareerWorkflowError) {
-        const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-        ctx.ui.notify(workflowErrorMessage(error.code), type);
-        return;
-      }
-      if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(publicAdapterMessage(error), "error");
-        return;
-      }
-      ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+      notifyPayloadFree(ctx, error);
     }
   };
 
@@ -980,7 +996,12 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         ctx.ui.setWidget("pi-career-setup", undefined);
       }
     } catch {
-      if (ctx.hasUI) ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+      if (!ctx.hasUI) return;
+      try {
+        ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+      } catch {
+        // A host widget failure must not republish the private loader cause.
+      }
     }
   });
 

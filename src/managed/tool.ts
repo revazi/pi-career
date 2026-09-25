@@ -6,10 +6,11 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil
 import { Text } from "@earendil-works/pi-tui";
 
 import { careerSkillsDirectory } from "../career-paths.ts";
+import { payloadFreeAdapterError, publicAdapterError } from "../errors.ts";
 import { invokeCareerCli } from "../process.ts";
 import type { ManagedInvoke } from "./catalog.ts";
 import { CareerRunEngine } from "./engine.ts";
-import { CareerRunError, careerRunErrorMessage } from "./errors.ts";
+import { CareerRunError, careerRunError, careerRunErrorMessage } from "./errors.ts";
 import { materializeEditorText, selectVariantChanges } from "./review-selector.ts";
 import { validateApplicationAttachment } from "../workflow/application-workspace.ts";
 import {
@@ -74,15 +75,21 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
     ],
     parameters: careerRunParameters,
     async execute(_toolCallId, params: CareerRunParams, signal, onUpdate, ctx) {
-      onUpdate?.({
-        content: [{ type: "text", text: `Running career ${params.command}…` }],
-        details: { schema_version: "pi.career.run_details.v1", command: params.command },
-      });
-      const result = await engine.run(params, signal, ctx);
-      if (params.command === "consent" && params.payload === "decline") {
-        variantSave.clearReceipts();
+      try {
+        onUpdate?.({
+          content: [{ type: "text", text: `Running career ${params.command}…` }],
+          details: { schema_version: "pi.career.run_details.v1", command: params.command },
+        });
+        const result = await engine.run(params, signal, ctx);
+        if (params.command === "consent" && params.payload === "decline") {
+          variantSave.clearReceipts();
+        }
+        return params.command === "variant-review" ? { ...result, terminate: true } : result;
+      } catch (error) {
+        // Public tool throws keep stable codes and drop foreign payloads, stacks, and Core text.
+        if (error instanceof CareerRunError) throw careerRunError(error.code);
+        throw payloadFreeAdapterError(publicAdapterError(error));
       }
-      return params.command === "variant-review" ? { ...result, terminate: true } : result;
     },
     renderCall(args, theme) {
       return new Text(
@@ -139,11 +146,16 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
           "info",
         );
       } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
+        const message = error instanceof CareerRunError
+          ? careerRunErrorMessage(error.code)
+          : "The reviewed-change selector failed without persisting a selection.";
+        try {
+          ctx.ui.notify(message, "error");
+        } catch {
+          throw error instanceof CareerRunError
+            ? careerRunError(error.code)
+            : new Error("The reviewed-change selector failed without persisting a selection.");
         }
-        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
       }
     },
   });
@@ -179,11 +191,16 @@ export function registerCareerRun(pi: ExtensionAPI, options: ManagedToolOptions 
           "info",
         );
       } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
+        const message = error instanceof CareerRunError
+          ? careerRunErrorMessage(error.code)
+          : "The assisted variant could not be saved or verified.";
+        try {
+          ctx.ui.notify(message, "error");
+        } catch {
+          throw error instanceof CareerRunError
+            ? careerRunError(error.code)
+            : new Error("The assisted variant could not be saved or verified.");
         }
-        ctx.ui.notify("The assisted variant could not be saved or verified.", "error");
       }
     },
   });

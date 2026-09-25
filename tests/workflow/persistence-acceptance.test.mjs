@@ -61,6 +61,7 @@ const behavioral = {
   34: ["overlay", "P3-26/P3-27/P3-34 unattached browse and open retain authority and hide private list bytes"],
   35: ["document-preview", "P3-35 local RPC preview needs separate explicit action; back and cancel discard bytes without mutation"],
   36: ["noninteractive-private-read-boundary", "P3-36 installed print and JSON /career reject before denied private config, session, root, library, and document reads"],
+  37: ["payload-free-error-boundaries", "P3-37 registered and installed payload-free errors omit synthetic sentinels across resolver, source, catalog, session, UI, persistence, and public tools"],
   38: ["application-concurrency-acceptance", "P3-38 two same-UUID creators commit concurrently with one exact no-retry winner"],
   39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
   40: ["application-artifact-reconciliation-acceptance", "P3-40 artifact-published state-absent fault leaves a non-authoritative orphan and registered reconciliation never adopts it"],
@@ -81,7 +82,6 @@ const behavioral = {
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
-  37: "Scoped session/UI/forged-error and Core-invoke sentinels plus public raw-tool normalization do not cover Core resolver, all source/catalog errors or persisted bytes across actions; these paths have no logger boundary to spy without inventing telemetry.",
   44: "Existing read bounds do not provide deterministic below/at/above plan and under-lock race evidence for every independent root-entry, application-entry, revision, managed-byte, preview-byte, metadata, document, label, and config capacity.",
   49: "Inactive model surface does not prove all five forbidden effects during browse/filter.",
   57: "Inactive raw-tool rejection and active-tool lists do not observe model context: all four schemas may still be registered.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 51, "reviewed map has exactly 51 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 7, "reviewed map retains exactly 7 deferrals");
-  assert.match(markdown, /Currently 51 have scoped witnesses and 7 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 52, "reviewed map has exactly 52 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 6, "reviewed map retains exactly 6 deferrals");
+  assert.match(markdown, /Currently 52 have scoped witnesses and 6 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

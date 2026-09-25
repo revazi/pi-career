@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+
+import { CareerInvocationError, payloadFreeAdapterError, publicAdapterMessage } from "../errors.ts";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 
 import {
@@ -13,6 +15,7 @@ import { scanLibrary } from "./scan.ts";
 import type { ApplicationStatus, ResumeRecord } from "./types.ts";
 import { replayApplicationSessionRecords, type ApplicationAttachmentPointer } from "./session-attachment.ts";
 import { reconstructWorkflowState, workspaceApplicationIdentity } from "./session-state.ts";
+import { CareerWorkflowError, workflowErrorMessage } from "./types.ts";
 
 export const CAREER_UI_VIEWS = [
   "setup",
@@ -400,6 +403,7 @@ export class CareerUiSession {
     private readonly actions: CareerUiActions = {},
     private readonly reloadModel?: () => Promise<CareerUiModel>,
     private readonly loadPreview?: (view: CareerUiView, reference: NonNullable<CareerUiItem["preview"]>) => Promise<string | undefined>,
+    private readonly onFailure?: (error: unknown) => void,
   ) {
     this.current = view;
     this.model = model;
@@ -587,7 +591,10 @@ export class CareerUiSession {
       const ok = await operation();
       if (ok === true && this.reloadModel !== undefined) this.model = await this.reloadModel();
       return ok === true;
-    } catch {
+    } catch (error) {
+      // Workflow errors stay fail-closed without a second notice. Foreign and Core
+      // failures still need a stable payload-free message before the overlay continues.
+      if (!(error instanceof CareerWorkflowError)) this.onFailure?.(error);
       return false;
     } finally {
       this.busyFlag = false;
@@ -1057,6 +1064,23 @@ export class CareerOverlay implements Component {
   invalidate(): void {}
 }
 
+function notifyCareerUiFailure(ctx: ExtensionCommandContext, error: unknown): void {
+  try {
+    if (error instanceof CareerWorkflowError) {
+      const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+      ctx.ui.notify(workflowErrorMessage(error.code), type);
+      return;
+    }
+    if (error instanceof CareerInvocationError) {
+      ctx.ui.notify(publicAdapterMessage(payloadFreeAdapterError(error)), "error");
+      return;
+    }
+    ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+  } catch {
+    // A host notification failure must not republish the private cause.
+  }
+}
+
 export async function openCareerUi(
   ctx: ExtensionCommandContext,
   view: CareerUiView,
@@ -1064,7 +1088,14 @@ export async function openCareerUi(
   actions: CareerUiActions = {},
 ): Promise<void> {
   const reload = () => buildCareerUiModel(agentDir, ctx);
-  const session = new CareerUiSession(view, await reload(), actions, reload, careerPreviewLoader(agentDir, ctx));
+  const session = new CareerUiSession(
+    view,
+    await reload(),
+    actions,
+    reload,
+    careerPreviewLoader(agentDir, ctx),
+    (error) => notifyCareerUiFailure(ctx, error),
+  );
   if (ctx.mode === "tui") {
     await ctx.ui.custom<void>((tui, theme, keybindings, done) => new CareerOverlay(
       session,

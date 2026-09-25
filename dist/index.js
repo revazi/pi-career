@@ -574,7 +574,7 @@ function terminalProbeError(error) {
   return error instanceof CareerInvocationError && (error.payload.code === "cancelled" || error.payload.code === "timeout");
 }
 function explicitProbeError(error) {
-  return error instanceof CareerInvocationError && (error.payload.code === "missing_executable" || error.payload.code === "executable_unavailable" || error.payload.code === "cancelled" || error.payload.code === "timeout") ? error : adapterError("managed_contract_invalid");
+  return error instanceof CareerInvocationError && (error.payload.code === "missing_executable" || error.payload.code === "executable_unavailable" || error.payload.code === "cancelled" || error.payload.code === "timeout") ? payloadFreeAdapterError(error) : adapterError("managed_contract_invalid");
 }
 function sourceStart(afterSource) {
   if (afterSource === void 0 || afterSource === "explicit") return 0;
@@ -585,7 +585,7 @@ async function probeCandidate(candidate, probe, signal) {
   try {
     return await probe(candidate, signal), !0;
   } catch (error) {
-    if (terminalProbeError(error)) throw error;
+    if (terminalProbeError(error)) throw payloadFreeAdapterError(error);
     if (candidate.source === "explicit") throw explicitProbeError(error);
     return !1;
   }
@@ -7106,12 +7106,16 @@ function registerCareerRun(pi, options = {}) {
     ],
     parameters: careerRunParameters,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      onUpdate?.({
-        content: [{ type: "text", text: `Running career ${params.command}…` }],
-        details: { schema_version: "pi.career.run_details.v1", command: params.command }
-      });
-      let result = await engine.run(params, signal, ctx);
-      return params.command === "consent" && params.payload === "decline" && variantSave.clearReceipts(), params.command === "variant-review" ? { ...result, terminate: !0 } : result;
+      try {
+        onUpdate?.({
+          content: [{ type: "text", text: `Running career ${params.command}…` }],
+          details: { schema_version: "pi.career.run_details.v1", command: params.command }
+        });
+        let result = await engine.run(params, signal, ctx);
+        return params.command === "consent" && params.payload === "decline" && variantSave.clearReceipts(), params.command === "variant-review" ? { ...result, terminate: !0 } : result;
+      } catch (error) {
+        throw error instanceof CareerRunError ? careerRunError(error.code) : payloadFreeAdapterError(publicAdapterError(error));
+      }
     },
     renderCall(args, theme) {
       return new Text2(
@@ -7159,11 +7163,12 @@ function registerCareerRun(pi, options = {}) {
           "info"
         );
       } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
+        let message = error instanceof CareerRunError ? careerRunErrorMessage(error.code) : "The reviewed-change selector failed without persisting a selection.";
+        try {
+          ctx.ui.notify(message, "error");
+        } catch {
+          throw error instanceof CareerRunError ? careerRunError(error.code) : new Error("The reviewed-change selector failed without persisting a selection.");
         }
-        ctx.ui.notify("The reviewed-change selector failed without persisting a selection.", "error");
       }
     }
   }), pi.registerCommand("career-save", {
@@ -7198,11 +7203,12 @@ Sidecar: ${outcome.sidecarPath}`,
           "info"
         );
       } catch (error) {
-        if (error instanceof CareerRunError) {
-          ctx.ui.notify(careerRunErrorMessage(error.code), "error");
-          return;
+        let message = error instanceof CareerRunError ? careerRunErrorMessage(error.code) : "The assisted variant could not be saved or verified.";
+        try {
+          ctx.ui.notify(message, "error");
+        } catch {
+          throw error instanceof CareerRunError ? careerRunError(error.code) : new Error("The assisted variant could not be saved or verified.");
         }
-        ctx.ui.notify("The assisted variant could not be saved or verified.", "error");
       }
     }
   }), pi.registerCommand("career-tools", {
@@ -7541,15 +7547,17 @@ Current session · Not persisted. Opening does not attach this application.`
   ]), empty;
 }
 var CareerUiSession = class {
-  constructor(view, model, actions = {}, reloadModel, loadPreview) {
+  constructor(view, model, actions = {}, reloadModel, loadPreview, onFailure) {
     this.actions = actions;
     this.reloadModel = reloadModel;
     this.loadPreview = loadPreview;
+    this.onFailure = onFailure;
     this.current = view, this.model = model, this.cursors = emptyCursors();
   }
   actions;
   reloadModel;
   loadPreview;
+  onFailure;
   current;
   cursors;
   detail = !1;
@@ -7682,8 +7690,8 @@ var CareerUiSession = class {
     try {
       let ok = await operation();
       return ok === !0 && this.reloadModel !== void 0 && (this.model = await this.reloadModel()), ok === !0;
-    } catch {
-      return !1;
+    } catch (error) {
+      return error instanceof CareerWorkflowError || this.onFailure?.(error), !1;
     } finally {
       this.busyFlag = !1;
     }
@@ -8015,8 +8023,30 @@ var CareerOverlay = class {
   invalidate() {
   }
 };
+function notifyCareerUiFailure(ctx, error) {
+  try {
+    if (error instanceof CareerWorkflowError) {
+      let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+      ctx.ui.notify(workflowErrorMessage(error.code), type);
+      return;
+    }
+    if (error instanceof CareerInvocationError) {
+      ctx.ui.notify(publicAdapterMessage(payloadFreeAdapterError(error)), "error");
+      return;
+    }
+    ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+  } catch {
+  }
+}
 async function openCareerUi(ctx, view, agentDir, actions = {}) {
-  let reload = () => buildCareerUiModel(agentDir, ctx), session = new CareerUiSession(view, await reload(), actions, reload, careerPreviewLoader(agentDir, ctx));
+  let reload = () => buildCareerUiModel(agentDir, ctx), session = new CareerUiSession(
+    view,
+    await reload(),
+    actions,
+    reload,
+    careerPreviewLoader(agentDir, ctx),
+    (error) => notifyCareerUiFailure(ctx, error)
+  );
   if (ctx.mode === "tui") {
     await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
       session,
@@ -8085,26 +8115,57 @@ function applicationSummary(application) {
 function safeAdapterCode(error) {
   return error instanceof CareerInvocationError ? error.payload.code : void 0;
 }
+function boundedOperationError(error) {
+  return error instanceof CareerWorkflowError ? workflowError(error.code) : error instanceof CareerInvocationError ? payloadFreeAdapterError(error) : workflowError("workflow_failed");
+}
+function payloadFreeNotice(error) {
+  if (error instanceof CareerWorkflowError) {
+    let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+    return { message: workflowErrorMessage(error.code), type, fallback: workflowError(error.code) };
+  }
+  if (error instanceof CareerInvocationError) {
+    let safe = payloadFreeAdapterError(error);
+    return { message: publicAdapterMessage(safe), type: "error", fallback: safe };
+  }
+  return {
+    message: workflowErrorMessage("workflow_failed"),
+    type: "error",
+    fallback: workflowError("workflow_failed")
+  };
+}
+function notifyPayloadFree(ctx, error) {
+  let rendered = payloadFreeNotice(error);
+  try {
+    ctx.ui.notify(rendered.message, rendered.type);
+  } catch {
+    throw rendered.fallback;
+  }
+}
 function isOversizeCode(code) {
   return code === "result_too_large" || code === "result_too_many_lines";
 }
 async function runOperation(ctx, owner, run, label, operation) {
-  if (owner.assert(run, ctx), ctx.mode !== "tui") {
-    ctx.ui.notify(label, "info");
-    let value = await operation(run.controller.signal);
-    return owner.assert(run, ctx), value;
+  owner.assert(run, ctx);
+  try {
+    if (ctx.mode !== "tui") {
+      ctx.ui.notify(label, "info");
+      let value = await operation(run.controller.signal);
+      return owner.assert(run, ctx), value;
+    }
+    let result = await ctx.ui.custom((tui, theme, _keybindings, done) => {
+      let loader = new BorderedLoader(tui, theme, label), settled = !1, finish = (value) => {
+        settled || (settled = !0, done(value));
+      };
+      return loader.onAbort = () => {
+        run.controller.abort(), finish(null);
+      }, operation(run.controller.signal).then((value) => finish({ ok: !0, value })).catch((error) => finish({ ok: !1, error: boundedOperationError(error) })), loader;
+    });
+    if (result === null) throw workflowError("workflow_cancelled");
+    if (!result.ok) throw result.error;
+    return owner.assert(run, ctx), result.value;
+  } catch (error) {
+    throw boundedOperationError(error);
   }
-  let result = await ctx.ui.custom((tui, theme, _keybindings, done) => {
-    let loader = new BorderedLoader(tui, theme, label), settled = !1, finish = (value) => {
-      settled || (settled = !0, done(value));
-    };
-    return loader.onAbort = () => {
-      run.controller.abort(), finish(null);
-    }, operation(run.controller.signal).then((value) => finish({ ok: !0, value })).catch((error) => finish({ ok: !1, error })), loader;
-  });
-  if (result === null) throw workflowError("workflow_cancelled");
-  if (!result.ok) throw result.error;
-  return owner.assert(run, ctx), result.value;
 }
 function retainOversizeFailure(error, resume, unavailable) {
   let code = safeAdapterCode(error);
@@ -8230,13 +8291,7 @@ function registerCareerCommands(pi, options = {}) {
         let role = await ctx.ui.input("Role", "Role title");
         if (role === void 0) return !1;
         if (!validApplicationLabel(role)) throw workflowError("invalid_command_arguments");
-        let notifyCreateFailure = (error) => {
-          if (error instanceof CareerWorkflowError) {
-            let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-            return ctx.ui.notify(workflowErrorMessage(error.code), type), !1;
-          }
-          return ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error"), !1;
-        }, config;
+        let notifyCreateFailure = (error) => (notifyPayloadFree(ctx, error), !1), config;
         try {
           config = await loadConfig(dependencies.agentDir);
         } catch (error) {
@@ -8453,11 +8508,7 @@ Application context is session-scoped; no workspace files were created.`,
         try {
           return await applicationWorkspace.run("", ctx), !0;
         } catch (error) {
-          if (error instanceof CareerWorkflowError) {
-            let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-            return ctx.ui.notify(workflowErrorMessage(error.code), type), !1;
-          }
-          return ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error"), !1;
+          return notifyPayloadFree(ctx, error), !1;
         }
       },
       askPi: async () => await attachedSources(ctx) === void 0 ? (ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning"), !1) : (await applicationWorkspace.prepareAssistanceHandoff(ctx), !0),
@@ -8507,17 +8558,8 @@ Application context is session-scoped; no workspace files were created.`,
       await action();
     } catch (error) {
       if (!ctx.hasUI || ctx.mode !== "tui" && ctx.mode !== "rpc")
-        throw error instanceof CareerWorkflowError ? workflowError(error.code) : error instanceof CareerInvocationError ? payloadFreeAdapterError(error) : workflowError("workflow_failed");
-      if (error instanceof CareerWorkflowError) {
-        let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
-        ctx.ui.notify(workflowErrorMessage(error.code), type);
-        return;
-      }
-      if (error instanceof CareerInvocationError) {
-        ctx.ui.notify(publicAdapterMessage(error), "error");
-        return;
-      }
-      ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+        throw payloadFreeNotice(error).fallback;
+      notifyPayloadFree(ctx, error);
     }
   };
   pi.registerCommand("career", {
@@ -8631,7 +8673,11 @@ Application context is session-scoped; no workspace files were created.`,
         let { config, scan } = await refreshState(ctx);
         ctx.hasUI && config.library_roots.length === 0 ? ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]) : ctx.hasUI && scan.records.length === 0 ? ctx.ui.setWidget("pi-career-setup", [EMPTY_LIBRARY_BANNER]) : ctx.hasUI && ctx.ui.setWidget("pi-career-setup", void 0);
       } catch {
-        ctx.hasUI && ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+        if (!ctx.hasUI) return;
+        try {
+          ctx.ui.setWidget("pi-career-setup", [SETUP_BANNER]);
+        } catch {
+        }
       }
   }), pi.on("session_tree", async (_event, ctx) => {
     if (owner.invalidate(), ctx.mode !== "tui" && ctx.mode !== "rpc") {
