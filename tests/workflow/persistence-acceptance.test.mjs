@@ -29,6 +29,7 @@ const behavioral = {
   2: ["application-catalog", "catalog sorts valid and legacy applications and marks slug presentation non-authoritative"],
   3: ["application-catalog", "catalog classifies a mixed root exactly once per child without exposing invalid details"],
   4: ["persistence-acceptance-behavior", "P3-04 corrupt manifest identity and chain are never exposed as valid"],
+  5: ["unknown-child-attachment-boundary", "P3-05 registered configure-root and Applications discovery/attach leave an unknown direct child aggregate drifted and non-attachable"],
   6: ["overlay-exact-label-restart", "P3-06/P3-07 registered Applications restart-like reconstruction lists and opens exact identity labels without slug or Unicode conflation"],
   7: ["overlay-exact-label-restart", "P3-06/P3-07 registered Applications restart-like reconstruction lists and opens exact identity labels without slug or Unicode conflation"],
   8: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
@@ -76,7 +77,6 @@ const behavioral = {
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
   53: "Detach and reload do not establish navigate-before-activation behavior or absence of provider/Core calls and handles.",
-  5: "Unknown-child catalog classification does not establish configure-root attachment restrictions.",
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
@@ -90,9 +90,9 @@ const deferred = {
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 46, "reviewed map has exactly 46 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 12, "reviewed map retains exactly 12 deferrals");
-  assert.match(markdown, /Currently 46 have scoped witnesses and 12 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 47, "reviewed map has exactly 47 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 11, "reviewed map retains exactly 11 deferrals");
+  assert.match(markdown, /Currently 47 have scoped witnesses and 11 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {

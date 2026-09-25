@@ -698,8 +698,20 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         return ranked.length > 0;
       },
       workspace: async () => {
-        await applicationWorkspace.run("", ctx);
-        return true;
+        try {
+          await applicationWorkspace.run("", ctx);
+          return true;
+        } catch (error) {
+          // Overlay action binding discards thrown workflow errors. Surface the existing
+          // payload-free notice so configure/detach failure cannot look like adoption.
+          if (error instanceof CareerWorkflowError) {
+            const type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+            ctx.ui.notify(workflowErrorMessage(error.code), type);
+            return false;
+          }
+          ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error");
+          return false;
+        }
       },
       askPi: async () => {
         const attached = await attachedSources(ctx);

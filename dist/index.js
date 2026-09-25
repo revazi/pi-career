@@ -8449,7 +8449,17 @@ Application context is session-scoped; no workspace files were created.`,
           ranked.length === 0 ? "error" : "info"
         ), ranked.length > 0;
       },
-      workspace: async () => (await applicationWorkspace.run("", ctx), !0),
+      workspace: async () => {
+        try {
+          return await applicationWorkspace.run("", ctx), !0;
+        } catch (error) {
+          if (error instanceof CareerWorkflowError) {
+            let type = error.code === "workflow_cancelled" || error.code === "workflow_stale" ? "info" : "error";
+            return ctx.ui.notify(workflowErrorMessage(error.code), type), !1;
+          }
+          return ctx.ui.notify(workflowErrorMessage("workflow_failed"), "error"), !1;
+        }
+      },
       askPi: async () => await attachedSources(ctx) === void 0 ? (ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning"), !1) : (await applicationWorkspace.prepareAssistanceHandoff(ctx), !0),
       detach: async () => {
         let outcome = await applicationWorkspace.detachAttachedApplication(ctx);
