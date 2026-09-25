@@ -76,7 +76,7 @@ const behavioral = {
 
 const deferred = {
   50: "Inactive surface projection without activation does not inspect an ordinary model turn for Skill content and tool schemas.",
-  53: "Detach and reload do not establish navigate-before-activation behavior or absence of provider/Core calls and handles.",
+  53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
   30: "Detach/reload is not process shutdown; transient attachment loss and intact workspace bytes need a shutdown test.",
   32: "Local browse/mutation paths need provider/model boundary spies.",
   33: "Pure projection privacy does not establish absence of persisted sentinels across all actions.",
