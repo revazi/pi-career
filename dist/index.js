@@ -8226,6 +8226,9 @@ function registerCareerCommands(pi, options = {}) {
     ...options.beforeWorkspaceLockAcquire === void 0 ? {} : {
       beforeWorkspaceLockAcquire: options.beforeWorkspaceLockAcquire
     },
+    ...options.afterWorkspaceLockAcquired === void 0 ? {} : {
+      afterWorkspaceLockAcquired: options.afterWorkspaceLockAcquired
+    },
     ...options.afterArtifactPublishedBeforeState === void 0 ? {} : {
       afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState
     }

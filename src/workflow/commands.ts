@@ -83,6 +83,10 @@ interface CommandRuntimeOptions {
     operation: "initialize_application" | "finish_application_migration" | "record_state",
     mutationId: string,
   ) => Promise<void>;
+  afterWorkspaceLockAcquired?: (
+    operation: "initialize_application" | "finish_application_migration" | "record_state",
+    mutationId: string,
+  ) => Promise<void>;
   afterArtifactPublishedBeforeState?: (mutationId: string) => Promise<void>;
   // Registration-scoped loader seam for early-guard tests; production uses loadLibrary.
   loadLibrary?: typeof loadLibrary;
@@ -338,6 +342,9 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
     ...(options.beforeWorkspaceLockAcquire === undefined ? {} : {
       beforeWorkspaceLockAcquire: options.beforeWorkspaceLockAcquire,
+    }),
+    ...(options.afterWorkspaceLockAcquired === undefined ? {} : {
+      afterWorkspaceLockAcquired: options.afterWorkspaceLockAcquired,
     }),
     ...(options.afterArtifactPublishedBeforeState === undefined ? {} : {
       afterArtifactPublishedBeforeState: options.afterArtifactPublishedBeforeState,
