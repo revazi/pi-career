@@ -3130,6 +3130,11 @@ async function readApplicationIdentityFile(directory, manifest) {
       handle = await open2(path6.join(directory, IDENTITY_NAME), constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
     } catch (error) {
       if (error.code === "ENOENT") {
+        try {
+          throw await lstat4(path6.join(directory, IDENTITY_NAME)), workflowError("workspace_drift");
+        } catch (probeError) {
+          if (probeError.code !== "ENOENT") throw probeError;
+        }
         await checkDirectory();
         return;
       }

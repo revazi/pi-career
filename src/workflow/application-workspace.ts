@@ -526,6 +526,14 @@ async function readApplicationIdentityFile(
       handle = await open(path.join(directory, IDENTITY_NAME), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        // Absence is legacy only while the fixed child remains absent. A file
+        // published after the failed open is concurrent drift, not legacy.
+        try {
+          await lstat(path.join(directory, IDENTITY_NAME));
+          throw workflowError("workspace_drift");
+        } catch (probeError) {
+          if ((probeError as NodeJS.ErrnoException).code !== "ENOENT") throw probeError;
+        }
         await checkDirectory();
         return undefined;
       }
