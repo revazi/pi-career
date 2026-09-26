@@ -113,6 +113,45 @@ async function openAndClose(fake, command, view) {
   return { context, rendered };
 }
 
+test("empty overlay panes direct setup/library to add-root and Applications to workspace configuration or create", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-empty-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    await prepareConfigDirectory(agentDir);
+    const fake = makeFakePi();
+    const context = makeContext(fake, { mode: "tui", persisted: false });
+    const unbound = await buildCareerUiModel(agentDir, context.ctx);
+    assert.match(unbound.setup.intro, /n to add a resume root/);
+    assert.match(unbound.library.intro, /n to add a root/);
+    assert.match(unbound.applications.intro, /Workspace \(8\).*m to configure/);
+    assert.doesNotMatch(unbound.applications.intro, /press c to create/i);
+
+    const library = path.join(temp, "library");
+    const applications = path.join(temp, "applications");
+    await mkdir(library);
+    await mkdir(applications, { mode: 0o700 });
+    await chmod(applications, 0o700);
+    const rootId = "00000000-0000-4000-8000-000000000099";
+    await privateJson(path.join(agentDir, "career", "config.v1.json"), {
+      schema_version: "pi.career.config.v2",
+      library_roots: [{ id: createHash("sha256").update(await realpath(library)).digest("hex"), path: await realpath(library), label: "Synthetic library" }],
+      generated_variants_root: null,
+      application_workspace: { root_id: rootId, root_path: applications },
+    });
+    await privateJson(path.join(applications, ".pi-career-applications.json"), {
+      schema_version: "pi.career.application_root.v1", kind: "application_workspace_root", root_id: rootId,
+      created_at: "2026-08-01T00:00:00.000Z",
+    });
+    const configured = await buildCareerUiModel(agentDir, context.ctx);
+    assert.match(configured.applications.intro, /Press c to create/);
+    assert.match(configured.applications.intro, /does not attach/);
+    assert.equal(configured.applications.items.length, 0);
+    assert.equal(fake.entries.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("TUI career commands open overlay views without Core, provider, or session append", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-")));
   try {

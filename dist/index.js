@@ -7409,7 +7409,7 @@ async function buildCareerUiModel(agentDir, ctx) {
   let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, empty = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
-    applications: { intro: "Application workspace is not configured. Open Workspace and press m to configure, then c to create.", items: [] },
+    applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
     vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
     match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
     analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
@@ -7419,7 +7419,8 @@ async function buildCareerUiModel(agentDir, ctx) {
   try {
     let config = await loadConfig(agentDir), scan = await scanLibrary(config);
     if (empty.setup = {
-      intro: setupSummary(config, scan, persisted3),
+      intro: config.library_roots.length === 0 ? `${setupSummary(config, scan, persisted3)}
+Press n to add a resume root.` : setupSummary(config, scan, persisted3),
       items: config.library_roots.map((root) => item(
         root.id,
         root.label,
@@ -7446,7 +7447,7 @@ Overlay browse does not analyze or attach this resume.`
     }, config.application_workspace !== null) {
       let catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
-        intro: catalog.length === 0 ? "No persistent applications. Press c to create one. Creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
+        intro: catalog.length === 0 ? "No applications yet. Press c to create one in this workspace; creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
         items: catalog.map((application) => {
           let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}

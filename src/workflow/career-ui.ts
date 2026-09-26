@@ -236,7 +236,7 @@ export async function buildCareerUiModel(
   const empty: CareerUiModel = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
-    applications: { intro: "Application workspace is not configured. Open Workspace and press m to configure, then c to create.", items: [] },
+    applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
     vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
     match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
     analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
@@ -248,7 +248,9 @@ export async function buildCareerUiModel(
     const config = await loadConfig(agentDir);
     const scan = await scanLibrary(config);
     empty.setup = {
-      intro: setupSummary(config, scan, persisted),
+      intro: config.library_roots.length === 0
+        ? `${setupSummary(config, scan, persisted)}\nPress n to add a resume root.`
+        : setupSummary(config, scan, persisted),
       items: config.library_roots.map((root) => item(
         root.id,
         root.label,
@@ -276,7 +278,7 @@ export async function buildCareerUiModel(
       const catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
         intro: catalog.length === 0
-          ? "No persistent applications. Press c to create one. Creating does not attach."
+          ? "No applications yet. Press c to create one in this workspace; creating does not attach."
           : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
         items: catalog.map((application) => {
           const status = applicationStatusLabel(application.status);
