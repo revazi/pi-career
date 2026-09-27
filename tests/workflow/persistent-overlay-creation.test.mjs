@@ -370,7 +370,7 @@ test("P3-16 configured-root Applications create resolves consent before exact pr
     assert.equal(restarted.entries.length, 0);
     assert.equal(model.applications.items.length, 1);
     assert.equal(model.applications.items[0].label, ROW_LABEL);
-    assert.match(model.applications.items[0].detail, /Status: Preparing\nReadiness: Incomplete 0\/3/);
+    assert.match(model.applications.items[0].detail, /Status: Preparing\nPackage checklist\nJob description: Incomplete\nSelected original: Incomplete\nReadiness: Incomplete 0\/3/);
     assert.equal(model.applications.items[0].pointer === undefined, false);
     assert.ok(restartDialogs[0].options.includes(ROW_LABEL));
     assert.equal(restartDialogs[0].options.some((option) => option.includes("Not persisted")), false);

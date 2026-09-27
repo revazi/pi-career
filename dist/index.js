@@ -3831,6 +3831,8 @@ async function readOverlayApplications(agentDir, scan) {
       },
       status: record.status,
       readiness: catalogReadiness(inspected, scan),
+      vacancy_bound: inspected.head.vacancy !== null,
+      original_bound: inspected.head.selected_original !== null,
       ...record.classification !== "valid" || identity2 === void 0 ? {} : {
         pointer: {
           applicationId: inspected.manifest.application_id,
@@ -3952,7 +3954,9 @@ async function validateApplicationAttachment(agentDir, attachment) {
     company_label: loaded.identity.company_label,
     role_label: loaded.identity.role_label,
     status: loaded.inspected.head.status,
-    updated_at: loaded.inspected.head.updated_at
+    updated_at: loaded.inspected.head.updated_at,
+    vacancy_bound: loaded.inspected.head.vacancy !== null,
+    original_bound: loaded.inspected.head.selected_original !== null
   };
 }
 async function loadAttachedApplicationSources(agentDir, attachment) {
@@ -7341,6 +7345,11 @@ function applicationStatusLabel(status) {
       return "Closed";
   }
 }
+function packageChecklist(vacancy, original) {
+  return `Package checklist
+Job description: ${vacancy ? "Ready" : "Incomplete"}
+Selected original: ${original ? "Ready" : "Incomplete"}`;
+}
 function resumePreview(source, record) {
   return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
 }
@@ -7454,6 +7463,7 @@ Status: ${application.status}
 Classification: ${application.classification}
 Opening does not attach this application.` : `${application.company_label} — ${application.role_label}
 Status: ${status}
+${packageChecklist(application.vacancy_bound, application.original_bound)}
 Readiness: ${application.readiness}
 Classification: ${application.classification}
 Opening does not attach. Press a to attach this application without activating assistance.`, row = item(application.application_id, label, detail, application.pointer);
@@ -7465,13 +7475,13 @@ Opening does not attach. Press a to attach this application without activating a
     empty.setup = unavailablePane(), empty.library = unavailablePane(), empty.applications = unavailablePane();
   }
   try {
-    let attached = await attachedApplicationSourcesForSession(
+    let attachedRecords = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()), attachment = attachedRecords.integrity === "valid" ? attachedRecords.attachment : void 0, metadata = attachment === void 0 ? void 0 : await validateApplicationAttachment(agentDir, attachment), attached = attachment === void 0 ? void 0 : await attachedApplicationSourcesForSession(
       agentDir,
       ctx.sessionManager.getBranch(),
       ctx.sessionManager.getEntries()
     );
-    if (attached !== void 0) {
-      let heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`, pack = `Job description: ${attached.vacancy === void 0 ? "missing" : "ready"} · Selected original: ${attached.selected_original === void 0 ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === void 0 ? "missing" : "ready"}`;
+    if (attached !== void 0 && metadata !== void 0) {
+      let heading = `${metadata.company_label} — ${metadata.role_label} — ${metadata.status}`, pack = packageChecklist(metadata.vacancy_bound, metadata.original_bound);
       empty.library.canSelectOriginal = attached.can_select_original, empty.vacancy = {
         intro: `${heading}
 ${pack}`,

@@ -258,6 +258,8 @@ export interface ValidatedApplicationAttachment {
   role_label: string;
   status: ApplicationStatus;
   updated_at: string;
+  vacancy_bound: boolean;
+  original_bound: boolean;
 }
 
 export interface AttachedApplicationSources {
@@ -1507,6 +1509,8 @@ export interface OverlayCatalogApplication {
   role_label?: string;
   status: ApplicationStatus;
   readiness: ApplicationReadinessProjection["readiness"];
+  vacancy_bound: boolean;
+  original_bound: boolean;
   pointer?: ApplicationAttachmentPointer;
 }
 
@@ -1554,6 +1558,8 @@ export async function readOverlayApplications(
       }),
       status: record.status,
       readiness: catalogReadiness(inspected, scan),
+      vacancy_bound: inspected.head.vacancy !== null,
+      original_bound: inspected.head.selected_original !== null,
       ...(record.classification !== "valid" || identity === undefined ? {} : {
         pointer: {
           applicationId: inspected.manifest.application_id,
@@ -1729,6 +1735,8 @@ export async function validateApplicationAttachment(
     role_label: loaded.identity.role_label,
     status: loaded.inspected.head.status,
     updated_at: loaded.inspected.head.updated_at,
+    vacancy_bound: loaded.inspected.head.vacancy !== null,
+    original_bound: loaded.inspected.head.selected_original !== null,
   };
 }
 

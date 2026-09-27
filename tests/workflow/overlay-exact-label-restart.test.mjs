@@ -54,7 +54,7 @@ function rowLabel(company, role) {
 }
 
 function detail(company, role) {
-  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+  return `${company} — ${role}\nStatus: ${STATUS}\nPackage checklist\nJob description: Incomplete\nSelected original: Incomplete\nReadiness: ${READINESS}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
 }
 
 function containsExact(text, value) {

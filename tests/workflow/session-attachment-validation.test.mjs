@@ -127,6 +127,8 @@ test("P3-28/P3-31 validates one exact current path-free attachment without mutat
     role_label: "Synthetic Engineer",
     status: "preparing",
     updated_at: WORKSPACE_CREATED_AT,
+    vacancy_bound: false,
+    original_bound: false,
   });
   assert.doesNotMatch(JSON.stringify(result), /pi-career-attachment-|application\.json|root_path/);
   assert.deepEqual(await snapshot(item.agentDir), beforeAgent);
