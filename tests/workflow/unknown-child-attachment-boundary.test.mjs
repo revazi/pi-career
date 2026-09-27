@@ -35,7 +35,7 @@ const VALID_LABEL = `${COMPANY} — ${ROLE} — Preparing — Incomplete 0/3`;
 const LEGACY_LABEL = "Legacy application — preparing";
 const CATALOG_OPTION = `${COMPANY} — ${ROLE} — preparing`;
 const LEGACY_DETAIL = "Legacy application\nStatus: preparing\nClassification: legacy\nOpening does not attach this application.";
-const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nPackage checklist\nJob description: Incomplete\nSelected original: Incomplete\nReadiness: Incomplete 0/3\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
 const DRIFT_NOTICE = "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
 const cancel = () => undefined;
 const canonical = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);

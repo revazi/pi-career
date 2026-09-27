@@ -8,6 +8,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type 
 import {
   attachedApplicationSourcesForSession,
   readOverlayApplications,
+  validateApplicationAttachment,
 } from "./application-workspace.ts";
 import { loadConfig } from "./config.ts";
 import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.ts";
@@ -149,6 +150,10 @@ function applicationStatusLabel(status: ApplicationStatus): string {
   }
 }
 
+function packageChecklist(vacancy: boolean, original: boolean): string {
+  return `Package checklist\nJob description: ${vacancy ? "Ready" : "Incomplete"}\nSelected original: ${original ? "Ready" : "Incomplete"}`;
+}
+
 function resumePreview(source: "library" | "original" | "effective", record: ResumeRecord): NonNullable<CareerUiItem["preview"]> {
   return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
 }
@@ -288,7 +293,7 @@ export async function buildCareerUiModel(
             : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
           const detail = application.company_label === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
-            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\n${packageChecklist(application.vacancy_bound, application.original_bound)}\nReadiness: ${application.readiness}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
           const row = item(application.application_id, label, detail, application.pointer);
           if (application.classification === "legacy") row.legacyMigration = true;
           return row;
@@ -302,14 +307,15 @@ export async function buildCareerUiModel(
   }
 
   try {
-    const attached = await attachedApplicationSourcesForSession(
-      agentDir,
-      ctx.sessionManager.getBranch(),
-      ctx.sessionManager.getEntries(),
+    const attachedRecords = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
+    const attachment = attachedRecords.integrity === "valid" ? attachedRecords.attachment : undefined;
+    const metadata = attachment === undefined ? undefined : await validateApplicationAttachment(agentDir, attachment);
+    const attached = attachment === undefined ? undefined : await attachedApplicationSourcesForSession(
+      agentDir, ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries(),
     );
-    if (attached !== undefined) {
-      const heading = `${attached.company_label} — ${attached.role_label} — ${attached.status}`;
-      const pack = `Job description: ${attached.vacancy === undefined ? "missing" : "ready"} · Selected original: ${attached.selected_original === undefined ? "missing" : "ready"} · Effective resume: ${attached.effective_resume === undefined ? "missing" : "ready"}`;
+    if (attached !== undefined && metadata !== undefined) {
+      const heading = `${metadata.company_label} — ${metadata.role_label} — ${metadata.status}`;
+      const pack = packageChecklist(metadata.vacancy_bound, metadata.original_bound);
       empty.library.canSelectOriginal = attached.can_select_original;
       empty.vacancy = {
         intro: `${heading}\n${pack}`,
