@@ -18,7 +18,7 @@ import {
   selectedOriginalOptions,
 } from "./application-workspace.ts";
 import { openCareerUi, type CareerUiView } from "./career-ui.ts";
-import { addLibraryRoot, loadConfig, removeLibraryRoot, writeConfig } from "./config.ts";
+import { addLibraryRoot, loadConfig, removeLibraryRoot, suggestedGeneratedVariantsRoot, writeConfig } from "./config.ts";
 import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput } from "./core-input.ts";
 import {
   deriveMatchTieStateIds,
@@ -26,6 +26,7 @@ import {
   libraryWarningPreview,
   oversizeResultMessage,
   plainResultCard,
+  privacyDisplayPath,
   registerWorkflowEntryRenderer,
   setupSummary,
   unavailableMatchResultMessage,
@@ -38,6 +39,7 @@ import {
   type CoreResult,
 } from "./result-projection.ts";
 import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
+import { buildWorkbenchPrompt, defaultWorkbenchQuestion, validWorkbenchQuestion, type WorkbenchMode } from "./workbench.ts";
 import {
   createApplicationClearEntry,
   createApplicationEntry,
@@ -769,11 +771,50 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       },
       askPi: async () => {
         const attached = await attachedSources(ctx);
-        if (attached === undefined) {
-          ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning");
-          return false;
+        if (attached !== undefined) {
+          await applicationWorkspace.prepareAssistanceHandoff(ctx);
+          return true;
         }
-        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        const run = owner.start(ctx);
+        const { config, scan } = await refreshState(ctx);
+        const originals = eligibleOriginals(scan);
+        if (originals.length === 0) throw workflowError("library_empty");
+        const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+        const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+        const resume = chosen === undefined ? undefined : byOption.get(chosen);
+        if (resume === undefined) return false;
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const modes = new Map<string, WorkbenchMode>([
+          ["Explain my score — resume only", "explain"],
+          ["Create a reviewed improvement plan — resume only", "plan"],
+          ["Guided rewrite interview — resume only", "rewrite"],
+          ["Draft reviewed replacements — resume only", "replacements"],
+          ...(state.vacancy === undefined ? [] : [[resume.format === "pdf"
+            ? "Create reviewed tailoring changes — PDF manual application"
+            : "Create a tailored variation — current vacancy", "tailor"] as [string, WorkbenchMode]]),
+          ["Ask my own question — resume only", "question"],
+        ]);
+        const selected = await ctx.ui.select("Career workbench", [...modes.keys(), "Cancel"]);
+        const mode = selected === undefined ? undefined : modes.get(selected);
+        if (mode === undefined) return false;
+        const question = await ctx.ui.editor("Question for Pi", defaultWorkbenchQuestion(mode));
+        if (question === undefined) return false;
+        if (!validWorkbenchQuestion(question)) throw workflowError("invalid_command_arguments");
+        const approved = await ctx.ui.confirm(
+          "Prepare workbench prompt",
+          "Include the selected original visibly in the editor for your review? Nothing will be submitted.",
+        );
+        if (approved !== true) return false;
+        owner.assert(run, ctx);
+        const current = await freshOriginal(resume);
+        const vacancy = mode === "tailor" ? state.vacancy : undefined;
+        const variantsRoot = suggestedGeneratedVariantsRoot(config, current.root_id);
+        const prompt = buildWorkbenchPrompt(current, vacancy, state.application, mode, question,
+          variantsRoot === undefined ? undefined : privacyDisplayPath(variantsRoot));
+        if (prompt === undefined) throw workflowError("workbench_too_large");
+        owner.assert(run, ctx);
+        ctx.ui.setEditorText(prompt);
+        ctx.ui.notify("Career workbench prompt prepared. Review it, then submit it normally. Nothing was sent automatically.", "info");
         return true;
       },
       detach: async () => {

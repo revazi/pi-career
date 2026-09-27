@@ -1287,7 +1287,128 @@ test("RPC overlay analyze and match stay confirmation-gated and local", async ()
   }
 });
 
-test("RPC overlay refuses unattached assistance and clears only the current vacancy", async () => {
+test("#108 unattached Ask Pi selects one original and prepares a visible prompt without submission", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ask-unattached-")));
+  try {
+    const root = path.join(temp, "resumes");
+    await mkdir(root);
+    const alpha = path.join(root, "alpha.md");
+    await writeFile(alpha, "# Synthetic Alpha\nALPHA_PRIVATE_BODY\n");
+    await writeFile(path.join(root, "beta.md"), "# Synthetic Beta\nBETA_PRIVATE_BODY\n");
+    const { fake, calls } = await register(temp);
+    await fake.commands.get("career-setup").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [root], confirms: [true],
+    }).ctx);
+    const before = structuredClone(fake.entries);
+    const editorText = [];
+    const sends = [];
+    let listStep = 0;
+    const context = makeContext(fake, { mode: "rpc", persisted: false, editorText, editors: [(_title, prefill) => prefill], confirms: [true] });
+    context.ctx.sendMessage = (...args) => sends.push(args);
+    context.ctx.sendUserMessage = (...args) => sends.push(args);
+    context.ctx.ui.select = async (title, options) => {
+      if (title.startsWith("Career • Workbench")) return listStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+      if (title === "Choose an original resume") return options.find((option) => option.includes("alpha.md"));
+      if (title === "Career workbench") return "Explain my score — resume only";
+      return undefined;
+    };
+    await fake.commands.get("career-workbench").handler("", context.ctx);
+    assert.equal(editorText.length, 1);
+    assert.match(editorText[0], /ALPHA_PRIVATE_BODY/);
+    assert.doesNotMatch(editorText[0], /BETA_PRIVATE_BODY|pi-career-ask-unattached-/);
+    assert.equal(editorText[0].match(/ALPHA_PRIVATE_BODY/g)?.length, 1);
+    assert.deepEqual(fake.entries, before);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(calls, []);
+    assert.equal(fake.activeTools.length, 0);
+
+    const tuiEditorText = [];
+    const components = [];
+    const tui = makeContext(fake, {
+      mode: "tui", persisted: false, editorText: tuiEditorText, components,
+      editors: [(_title, prefill) => prefill], confirms: [true],
+      keybindings: { matches(data, action) { return data === "esc" && action === "tui.select.cancel"; } },
+    });
+    tui.ctx.sendMessage = () => assert.fail("Ask Pi must not submit");
+    tui.ctx.sendUserMessage = () => assert.fail("Ask Pi must not submit");
+    tui.ctx.ui.select = async (title, options) => title === "Choose an original resume"
+      ? options.find((option) => option.includes("alpha.md"))
+      : "Explain my score — resume only";
+    const pendingTui = fake.commands.get("career-workbench").handler("", tui.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(components.length, 1);
+    components[0].handleInput("p");
+    while (tuiEditorText.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(tuiEditorText.length, 1);
+    assert.match(tuiEditorText[0], /ALPHA_PRIVATE_BODY/);
+    assert.doesNotMatch(tuiEditorText[0], /BETA_PRIVATE_BODY/);
+    components[0].handleInput("esc");
+    await pendingTui;
+    assert.deepEqual(fake.entries, before);
+
+    for (const stage of ["picker", "mode", "editor", "confirm", "drift"]) {
+      const prepared = [];
+      let viewStep = 0;
+      const attempt = makeContext(fake, {
+        mode: "rpc", persisted: false, editorText: prepared,
+        editors: stage === "editor" ? [undefined] : [(_title, prefill) => prefill],
+        confirms: [stage === "confirm" ? false : async () => {
+          if (stage === "drift") await writeFile(alpha, "# Synthetic Alpha\nCHANGED_AFTER_CONFIRM\n");
+          return true;
+        }],
+      });
+      attempt.ctx.sendMessage = () => assert.fail("Ask Pi must not submit");
+      attempt.ctx.sendUserMessage = () => assert.fail("Ask Pi must not submit");
+      attempt.ctx.ui.select = async (title, options) => {
+        if (title.startsWith("Career • Workbench")) return viewStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+        if (title === "Choose an original resume") return stage === "picker" ? undefined : options.find((option) => option.includes("alpha.md"));
+        if (title === "Career workbench") return stage === "mode" ? "Cancel" : "Explain my score — resume only";
+        return undefined;
+      };
+      await fake.commands.get("career-workbench").handler("", attempt.ctx);
+      assert.deepEqual(prepared, []);
+      assert.deepEqual(fake.entries, before);
+      if (stage === "drift") await writeFile(alpha, "# Synthetic Alpha\nALPHA_PRIVATE_BODY\n");
+    }
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("#108 attached Ask Pi uses one activation confirmation and document-free handoff", async () => {
+  const value = await catalogFixture("pi-career-ask-attached-");
+  try {
+    await value.fake.commands.get("career").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    const editorText = [];
+    const confirmations = [];
+    const sends = [];
+    const asked = makeContext(value.fake, {
+      mode: "rpc", persisted: false, editorText,
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [(title) => { confirmations.push(title); return true; }],
+    });
+    asked.ctx.sendMessage = (...args) => sends.push(args);
+    asked.ctx.sendUserMessage = (...args) => sends.push(args);
+    await value.fake.commands.get("career-workbench").handler("", asked.ctx);
+    assert.deepEqual(confirmations, ["Activate Career assistance"]);
+    assert.equal(editorText.length, 1);
+    assert.doesNotMatch(editorText[0], /Synthetic Alpha|applications[/\\]|resume\.md/);
+    assert.equal(value.fake.entries.filter((entry) => entry.customType === "career.application_assistance").length, 1);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(value.calls, []);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC overlay leaves unavailable unattached assistance inert and clears only the current vacancy", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-vacancy-clear-")));
   try {
     const { fake } = await register(temp);
@@ -1302,12 +1423,13 @@ test("RPC overlay refuses unattached assistance and clears only the current vaca
     });
     const blocked = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     });
     await fake.commands.get("career-workbench").handler("", blocked.ctx);
     assert.equal(fake.entries.length, 0);
     assert.equal(calls.length, 0);
-    assert.ok(blocked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(blocked.customCalls, 0);
+    assert.equal(blocked.notifications.some(({ message }) => message.includes("Attach an application")), false);
     assert.equal(fake.activeTools.length, 0);
 
     const vacancyText = "Synthetic vacancy: Backend Engineer.\nSynthetic requirements only.";
@@ -1415,11 +1537,11 @@ test("overlay keeps created applications and analyze results in the shared UI", 
 
     const asked = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     });
     await fake.commands.get("career-workbench").handler("", asked.ctx);
     assert.equal(fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
-    assert.ok(asked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(asked.customCalls, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
