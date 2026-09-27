@@ -7577,6 +7577,8 @@ var CareerUiSession = class {
   previewFailed = !1;
   previewGeneration = 0;
   busyFlag = !1;
+  cancellableOperation = !1;
+  cancellationRequested = !1;
   filterText = "";
   applicationCatalog;
   applicationIntro;
@@ -7610,6 +7612,15 @@ var CareerUiSession = class {
   }
   get busy() {
     return this.busyFlag;
+  }
+  get operationActive() {
+    return this.busyFlag && this.cancellableOperation;
+  }
+  get operationCancelling() {
+    return this.operationActive && this.cancellationRequested;
+  }
+  cancelOperation() {
+    !this.operationActive || this.cancellationRequested || (this.cancellationRequested = !0, this.actions.cancelOperation?.());
   }
   get applicationFilter() {
     return this.filterText;
@@ -7724,16 +7735,16 @@ var CareerUiSession = class {
   back() {
     return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview(), "list") : "close";
   }
-  async runBound(enabled, operation) {
+  async runBound(enabled, operation, cancellable = !1) {
     if (!enabled || this.busyFlag) return !1;
-    this.busyFlag = !0;
+    this.busyFlag = !0, this.cancellableOperation = cancellable, this.cancellationRequested = !1;
     try {
       let ok = await operation();
       return ok === !0 && this.reloadModel !== void 0 && (this.model = await this.reloadModel(), this.applicationCatalog = [...this.model.applications.items], this.applicationIntro = this.model.applications.intro, this.applyApplicationFilter()), ok === !0;
     } catch (error) {
       return error instanceof CareerWorkflowError || this.onFailure?.(error), !1;
     } finally {
-      this.busyFlag = !1;
+      this.busyFlag = !1, this.cancellableOperation = !1, this.cancellationRequested = !1;
     }
   }
   async openPreview() {
@@ -7786,11 +7797,11 @@ var CareerUiSession = class {
   }
   async analyze() {
     let action = this.actions.analyze;
-    return action === void 0 ? !1 : this.runBound(this.canAnalyze, action);
+    return action === void 0 ? !1 : this.runBound(this.canAnalyze, action, !0);
   }
   async match() {
     let action = this.actions.match;
-    return action === void 0 ? !1 : this.runBound(this.canMatch, action);
+    return action === void 0 ? !1 : this.runBound(this.canMatch, action, !0);
   }
   async editVacancy() {
     let action = this.actions.editVacancy;
@@ -7969,6 +7980,10 @@ var CareerOverlay = class {
     ].find(([name, enabled]) => name === key && enabled)?.[2]();
   }
   handleCancel() {
+    if (this.session.operationActive) {
+      this.session.cancelOperation(), this.requestRender();
+      return;
+    }
     if (this.session.showingDetail && !this.session.busy) {
       this.session.back(), this.previewPage = 0, this.requestRender();
       return;
@@ -8039,7 +8054,7 @@ var CareerOverlay = class {
     }), compactChips = CAREER_UI_VIEWS.map((name, index) => {
       let chip = `${index + 1}${VIEW_MARKS[name]}`;
       return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    }), fullNav = packChips(fullChips, renderWidth), navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav, footer = this.footerHints().join("   ");
+    }), fullNav = packChips(fullChips, renderWidth), navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav, footer = this.session.operationActive ? this.session.operationCancelling ? "Cancelling Career Core action…" : "Career Core is working · esc cancel" : this.footerHints().join("   ");
     this.session.preview === void 0 && (this.previewPage = 0);
     let body = this.session.preview !== void 0 ? this.renderPreview(this.session.preview, renderWidth) : this.session.showingDetail && selected !== void 0 ? [
       "",
@@ -8048,6 +8063,11 @@ var CareerOverlay = class {
 `).flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
       ...this.session.previewError === void 0 ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))
     ] : [
+      ...this.session.operationActive ? styledLines(
+        this.session.operationCancelling ? "Cancelling deterministic Career Core action…" : "Running deterministic Career Core action…",
+        renderWidth,
+        (text) => theme.fg("accent", text)
+      ) : [],
       "",
       ...pane.intro.split(`
 `).flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
@@ -8138,6 +8158,9 @@ var SETUP_BANNER = "pi-career not configured — run /career-setup", EMPTY_LIBRA
   assert(run, ctx) {
     if (this.current !== run || run.controller.signal.aborted || ctx.sessionManager.getSessionId() !== run.sessionId) throw workflowError("workflow_stale");
   }
+  cancel() {
+    this.current?.controller.abort();
+  }
   invalidate() {
     this.sequence += 1, this.current?.controller.abort(), this.current = void 0;
   }
@@ -8198,13 +8221,24 @@ function notifyPayloadFree(ctx, error) {
 function isOversizeCode(code) {
   return code === "result_too_large" || code === "result_too_many_lines";
 }
-async function runOperation(ctx, owner, run, label, operation) {
+async function runOperation(ctx, owner, run, label, operation, inOverlay = !1) {
   owner.assert(run, ctx);
   try {
     if (ctx.mode !== "tui") {
       ctx.ui.notify(label, "info");
       let value = await operation(run.controller.signal);
       return owner.assert(run, ctx), value;
+    }
+    if (inOverlay) {
+      let aborted = new Promise((resolve) => {
+        run.controller.signal.addEventListener("abort", () => resolve(null), { once: !0 });
+      }), result2 = await Promise.race([
+        operation(run.controller.signal).then((value) => ({ ok: !0, value })).catch((error) => ({ ok: !1, error: boundedOperationError(error) })),
+        aborted
+      ]);
+      if (result2 === null) throw workflowError("workflow_cancelled");
+      if (!result2.ok) throw result2.error;
+      return owner.assert(run, ctx), result2.value;
     }
     let result = await ctx.ui.custom((tui, theme, _keybindings, done) => {
       let loader = new BorderedLoader(tui, theme, label), settled = !1, finish = (value) => {
@@ -8309,6 +8343,7 @@ function registerCareerCommands(pi, options = {}) {
     if (appendData(pi, owner, run, ctx, createConsentEntry(granted, dependencies)), !granted) throw workflowError("consent_required");
   }, openUi = async (ctx, view) => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
+      cancelOperation: () => owner.cancel(),
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
       migrate: async (applicationId) => {
         let company = await ctx.ui.input("Exact company label", "Company name");
@@ -8478,7 +8513,7 @@ Application context is session-scoped; no workspace files were created.`,
               signal
             );
             return parseCoreJson(invocation.json);
-          });
+          }, !0);
         } catch (error) {
           let code = safeAdapterCode(error);
           if (isOversizeCode(code))
@@ -8535,7 +8570,8 @@ Application context is session-scoped; no workspace files were created.`,
             if (owner.assert(run, ctx), signal.aborted) throw workflowError("workflow_cancelled");
             if (sha256(current.text) !== expectedResume.text_sha256 || sha256(currentVacancy.vacancy_text) !== vacancy.vacancy_text_sha256) throw workflowError("workspace_drift");
             return { resume: current, vacancy: currentVacancy };
-          })
+          }),
+          !0
         ), ranked = rankMatches(queue.matches), applicationId = attached?.application_id ?? state.application?.application_id, cards = ranked.map((item2) => createResultCard({
           workflow: "match",
           ...applicationId === void 0 ? {} : { applicationId },

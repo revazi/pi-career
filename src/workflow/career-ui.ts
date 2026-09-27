@@ -107,6 +107,7 @@ export interface CareerUiPane {
 export type CareerUiModel = Record<CareerUiView, CareerUiPane>;
 
 export interface CareerUiActions {
+  cancelOperation?: () => void;
   /** Returns a transient, exact-text application filter; never persisted. */
   filterApplications?: () => Promise<string | undefined>;
   attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
@@ -414,6 +415,8 @@ export class CareerUiSession {
   private previewFailed = false;
   private previewGeneration = 0;
   private busyFlag = false;
+  private cancellableOperation = false;
+  private cancellationRequested = false;
   private filterText = "";
   private applicationCatalog: CareerUiItem[];
   private applicationIntro: string;
@@ -478,6 +481,20 @@ export class CareerUiSession {
 
   get busy(): boolean {
     return this.busyFlag;
+  }
+
+  get operationActive(): boolean {
+    return this.busyFlag && this.cancellableOperation;
+  }
+
+  get operationCancelling(): boolean {
+    return this.operationActive && this.cancellationRequested;
+  }
+
+  cancelOperation(): void {
+    if (!this.operationActive || this.cancellationRequested) return;
+    this.cancellationRequested = true;
+    this.actions.cancelOperation?.();
   }
 
   get applicationFilter(): string { return this.filterText; }
@@ -642,9 +659,15 @@ export class CareerUiSession {
     return "close";
   }
 
-  private async runBound(enabled: boolean, operation: () => Promise<boolean>): Promise<boolean> {
+  private async runBound(
+    enabled: boolean,
+    operation: () => Promise<boolean>,
+    cancellable = false,
+  ): Promise<boolean> {
     if (!enabled || this.busyFlag) return false;
     this.busyFlag = true;
+    this.cancellableOperation = cancellable;
+    this.cancellationRequested = false;
     try {
       const ok = await operation();
       if (ok === true && this.reloadModel !== undefined) {
@@ -661,6 +684,8 @@ export class CareerUiSession {
       return false;
     } finally {
       this.busyFlag = false;
+      this.cancellableOperation = false;
+      this.cancellationRequested = false;
     }
   }
 
@@ -747,13 +772,13 @@ export class CareerUiSession {
   async analyze(): Promise<boolean> {
     const action = this.actions.analyze;
     if (action === undefined) return false;
-    return this.runBound(this.canAnalyze, action);
+    return this.runBound(this.canAnalyze, action, true);
   }
 
   async match(): Promise<boolean> {
     const action = this.actions.match;
     if (action === undefined) return false;
-    return this.runBound(this.canMatch, action);
+    return this.runBound(this.canMatch, action, true);
   }
 
   async editVacancy(): Promise<boolean> {
@@ -1006,6 +1031,11 @@ export class CareerOverlay implements Component {
   }
 
   private handleCancel(): void {
+    if (this.session.operationActive) {
+      this.session.cancelOperation();
+      this.requestRender();
+      return;
+    }
     if (this.session.showingDetail && !this.session.busy) {
       this.session.back();
       this.previewPage = 0;
@@ -1105,7 +1135,9 @@ export class CareerOverlay implements Component {
     });
     const fullNav = packChips(fullChips, renderWidth);
     const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
-    const footer = this.footerHints().join("   ");
+    const footer = this.session.operationActive
+      ? this.session.operationCancelling ? "Cancelling Career Core action…" : "Career Core is working · esc cancel"
+      : this.footerHints().join("   ");
     if (this.session.preview === undefined) this.previewPage = 0;
     const body = this.session.preview !== undefined
       ? this.renderPreview(this.session.preview, renderWidth)
@@ -1117,6 +1149,13 @@ export class CareerOverlay implements Component {
         ...(this.session.previewError === undefined ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))),
       ]
       : [
+        ...(this.session.operationActive
+          ? styledLines(
+            this.session.operationCancelling ? "Cancelling deterministic Career Core action…" : "Running deterministic Career Core action…",
+            renderWidth,
+            (text) => theme.fg("accent", text),
+          )
+          : []),
         "",
         ...pane.intro.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
         "",

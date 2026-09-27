@@ -118,6 +118,8 @@ class RunOwner {
     ) throw workflowError("workflow_stale");
   }
 
+  cancel(): void { this.current?.controller.abort(); }
+
   invalidate(): void {
     this.sequence += 1;
     this.current?.controller.abort();
@@ -212,6 +214,7 @@ async function runOperation<T>(
   run: OwnedRun,
   label: string,
   operation: (signal: AbortSignal) => Promise<T>,
+  inOverlay = false,
 ): Promise<T> {
   owner.assert(run, ctx);
   try {
@@ -220,6 +223,20 @@ async function runOperation<T>(
       const value = await operation(run.controller.signal);
       owner.assert(run, ctx);
       return value;
+    }
+    if (inOverlay) {
+      const aborted = new Promise<null>((resolve) => {
+        run.controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+      });
+      const result = await Promise.race([
+        operation(run.controller.signal).then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error: boundedOperationError(error) })),
+        aborted,
+      ]);
+      if (result === null) throw workflowError("workflow_cancelled");
+      if (!result.ok) throw result.error;
+      owner.assert(run, ctx);
+      return result.value;
     }
     const result = await ctx.ui.custom<LoaderResult<T>>((tui, theme, _keybindings, done) => {
       const loader = new BorderedLoader(tui, theme, label);
@@ -393,6 +410,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
   const openUi = async (ctx: ExtensionCommandContext, view: CareerUiView): Promise<void> => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
+      cancelOperation: () => owner.cancel(),
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
       migrate: async (applicationId) => {
         const company = await ctx.ui.input("Exact company label", "Company name");
@@ -630,7 +648,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
               signal,
             );
             return parseCoreJson(invocation.json);
-          });
+          }, true);
         } catch (error) {
           const code = safeAdapterCode(error);
           if (isOversizeCode(code)) {
@@ -712,7 +730,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
               return { resume: current, vacancy: currentVacancy };
             };
             return executeMatchQueue(dependencies, selected, vacancy, signal, freshSources);
-          },
+          }, true,
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;

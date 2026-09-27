@@ -113,6 +113,45 @@ async function openAndClose(fake, command, view) {
   return { context, rendered };
 }
 
+test("Analyze and Match keep the mounted overlay busy/cancellable and restore its idle view", async () => {
+  for (const view of ["analyze", "match"]) {
+    for (const outcome of ["success", "error", "cancel"]) {
+      const calls = [];
+      const ownedController = new AbortController();
+      let finish;
+      const pending = new Promise((resolve, reject) => { finish = outcome === "error" ? reject : resolve; });
+      const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: `${name} synthetic`, items: [] }]));
+      const session = new CareerUiSession(view, model, {
+        cancelOperation: () => { calls.push("cancel"); ownedController.abort(); },
+        [view]: () => pending.then(() => true),
+      });
+      const style = (_name, text) => text;
+      const overlay = new CareerOverlay(session, { fg: style, bold: (text) => text }, { matches: (data, action) => data === "esc" && action === "tui.select.cancel" }, () => {});
+      const selected = session.selected;
+      const running = view === "analyze" ? session.analyze() : session.match();
+      assert.equal(session.busy, true);
+      assert.match(overlay.render(80).join("\n"), /Running deterministic Career Core action/);
+      assert.match(overlay.render(80).join("\n"), /esc cancel/);
+      overlay.handleInput("esc");
+      assert.deepEqual(calls, ["cancel"]);
+      assert.equal(ownedController.signal.aborted, true);
+      assert.match(overlay.render(80).join("\n"), /Cancelling deterministic Career Core action/);
+      overlay.handleInput("esc");
+      assert.deepEqual(calls, ["cancel"]);
+      assert.equal(session.view, view);
+      assert.equal(session.selected, selected);
+      if (outcome === "cancel") finish(false);
+      else if (outcome === "error") finish(new Error("synthetic failure"));
+      else finish(true);
+      await running;
+      assert.equal(session.busy, false);
+      assert.equal(session.view, view);
+      assert.equal(session.selected, selected);
+      assert.doesNotMatch(overlay.render(80).join("\n"), /Running deterministic Career Core action/);
+    }
+  }
+});
+
 test("empty overlay panes direct setup/library to add-root and Applications to workspace configuration or create", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-empty-")));
   try {
