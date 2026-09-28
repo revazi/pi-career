@@ -81,8 +81,7 @@ const IDENTITY_NAME = ".pi-career-identity.json";
 const ROOT_MARKER_SCHEMA = "pi.career.application_root.v1";
 const MANIFEST_SCHEMA = "pi.career.application_manifest.v1";
 const IDENTITY_SCHEMA = "pi.career.application_identity.v1";
-const STATE_SCHEMA_V1 = "pi.career.application_state.v1";
-const STATE_SCHEMA_V2 = "pi.career.application_state.v2";
+const STATE_SCHEMA = "pi.career.application_state";
 const PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1";
 const METADATA_MAX_BYTES = 16_384;
 const CONFIG_MAX_BYTES = 65_536;
@@ -176,16 +175,10 @@ interface ApplicationStateRevisionBase {
   updated_at: string;
 }
 
-interface ApplicationStateRevisionV1 extends ApplicationStateRevisionBase {
-  schema_version: typeof STATE_SCHEMA_V1;
-}
-
-interface ApplicationStateRevisionV2 extends ApplicationStateRevisionBase {
-  schema_version: typeof STATE_SCHEMA_V2;
+interface ApplicationStateRevision extends ApplicationStateRevisionBase {
+  schema_version: typeof STATE_SCHEMA;
   cover_letter_artifact: CoverLetterArtifactBinding | null;
 }
-
-type ApplicationStateRevision = ApplicationStateRevisionV1 | ApplicationStateRevisionV2;
 
 interface ExactFile {
   path: string;
@@ -673,20 +666,17 @@ function parseStateBase(value: Record<string, unknown>): ApplicationStateRevisio
 
 function parseState(value: unknown): ApplicationStateRevision | undefined {
   if (!isRecord(value)) return undefined;
-  const v1 = value.schema_version === STATE_SCHEMA_V1;
-  const v2 = value.schema_version === STATE_SCHEMA_V2;
-  if ((!v1 && !v2) || !exactKeys(value, [
+  if (value.schema_version !== STATE_SCHEMA || !exactKeys(value, [
     "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status", "vacancy",
-    "selected_original", "resume_artifact", ...(v2 ? ["cover_letter_artifact"] : []), "updated_at",
+    "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
   ])) return undefined;
   const base = parseStateBase(value);
   if (base === undefined) return undefined;
-  if (v1) return { schema_version: STATE_SCHEMA_V1, ...base };
   const coverLetter = parseCoverLetterArtifact(value.cover_letter_artifact);
   if (coverLetter === undefined) return undefined;
   const { updated_at: updatedAt, ...beforeUpdatedAt } = base;
   return {
-    schema_version: STATE_SCHEMA_V2,
+    schema_version: STATE_SCHEMA,
     ...beforeUpdatedAt,
     cover_letter_artifact: coverLetter,
     updated_at: updatedAt,
@@ -920,7 +910,7 @@ async function inspectArtifactReferences(
 }
 
 function coverLetter(state: ApplicationStateRevision | undefined): CoverLetterArtifactBinding | null {
-  return state?.schema_version === STATE_SCHEMA_V2 ? state.cover_letter_artifact : null;
+  return state?.cover_letter_artifact ?? null;
 }
 
 function sameCoverLetterIdentity(
@@ -996,26 +986,13 @@ function sameResumeArtifact(left: ResumeArtifactBinding | null, right: ResumeArt
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function assertVersionAndSourceTransition(
+function assertSourceTransition(
   state: ApplicationStateRevision,
   previous: ApplicationStateRevision | undefined,
 ): void {
   if (state.resume_artifact !== null && state.selected_original === null) throw workflowError("workspace_drift");
-  if (previous === undefined) {
-    if (state.schema_version === STATE_SCHEMA_V2 && state.cover_letter_artifact !== null) {
-      throw workflowError("workspace_drift");
-    }
-    return;
-  }
-  if (previous.schema_version === STATE_SCHEMA_V2 && state.schema_version === STATE_SCHEMA_V1) {
-    throw workflowError("workspace_drift");
-  }
-  if (previous.resume_artifact !== null && !sameSelectedOriginal(previous.selected_original, state.selected_original) &&
-    state.resume_artifact !== null) throw workflowError("workspace_drift");
-  if (previous.schema_version === STATE_SCHEMA_V1 && state.schema_version === STATE_SCHEMA_V2 &&
-    (state.status !== previous.status || !sameVacancyBinding(state.vacancy, previous.vacancy) ||
-      !sameSelectedOriginal(state.selected_original, previous.selected_original) ||
-      !sameResumeArtifact(state.resume_artifact, previous.resume_artifact))) {
+  if (previous !== undefined && previous.resume_artifact !== null &&
+    !sameSelectedOriginal(previous.selected_original, state.selected_original) && state.resume_artifact !== null) {
     throw workflowError("workspace_drift");
   }
 }
@@ -1040,7 +1017,7 @@ async function inspectStateChain(
     if (read.value.sequence !== expectedSequence ||
       read.value.application_id !== application.manifest.application_id ||
       read.value.parent_sha256 !== parentHash || timestampInvalid) throw workflowError("workspace_drift");
-    assertVersionAndSourceTransition(read.value, previous);
+    assertSourceTransition(read.value, previous);
     await inspectVacancyReference(application.directoryPath, read.value, previous, referencedFiles);
     await inspectArtifactReferences(application.directoryPath, read.value, referencedFiles);
     await inspectCoverLetterReference(application.directoryPath, read.value, previous, referencedFiles);
@@ -1189,7 +1166,7 @@ async function inspectRoot(rootPath: string, options: RootInspectionOptions = {}
 }
 
 const CATALOG_SCHEMA = "pi.career.application_catalog.v1" as const;
-const APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|transition|state)\.tmp$/;
+const APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|state)\.tmp$/;
 
 type ReconciliationClass = keyof ApplicationCatalogProjection["reconciliation"];
 
@@ -1314,8 +1291,8 @@ async function candidateHasUnsupportedSchema(
     if (await hasUnsupportedSchema(
       path.join(candidate.directoryPath, stateNameValue),
       "application_state_revision",
-      "pi.career.application_state.v",
-      [STATE_SCHEMA_V1, STATE_SCHEMA_V2],
+      "",
+      STATE_SCHEMA,
       manifest.application_id,
       { sequence: Number(stateNameValue.match(STATE_BASENAME)![1]) },
     )) return true;
@@ -1521,9 +1498,7 @@ function catalogReadiness(inspected: InspectedApplication, scan: LibraryScan): A
     resume_artifact: inspected.head.resume_artifact === null
       ? null
       : { artifact_sha256: inspected.head.resume_artifact.artifact_sha256 },
-    cover_letter_artifact: inspected.head.schema_version === STATE_SCHEMA_V2
-      ? inspected.head.cover_letter_artifact
-      : null,
+    cover_letter_artifact: inspected.head.cover_letter_artifact,
   }, {
     vacancy: "valid",
     resume_artifact: "valid",
@@ -1766,9 +1741,7 @@ export async function loadAttachedApplicationSources(
     resume_artifact: application.head.resume_artifact === null
       ? null
       : { artifact_sha256: application.head.resume_artifact.artifact_sha256 },
-    cover_letter_artifact: application.head.schema_version === STATE_SCHEMA_V2
-      ? application.head.cover_letter_artifact
-      : null,
+    cover_letter_artifact: application.head.cover_letter_artifact,
   }, {
     vacancy: "valid",
     resume_artifact: "valid",
@@ -2331,78 +2304,27 @@ function assertApplicationCapacity(
   }
 }
 
-function transitionTimestamp(headUpdatedAt: string, finalUpdatedAt: string): string {
-  const value = Date.parse(headUpdatedAt) + 1;
-  if (!Number.isSafeInteger(value) || !validTimestamp(finalUpdatedAt) || value >= Date.parse(finalUpdatedAt)) {
-    throw workflowError("workspace_unavailable");
-  }
-  return new Date(value).toISOString();
-}
-
-function transitionToStateV2(
-  head: ApplicationStateRevisionV1,
-  parentSha256: string,
-  updatedAt: string,
-): ApplicationStateRevisionV2 {
-  return {
-    schema_version: STATE_SCHEMA_V2,
-    kind: "application_state_revision",
-    application_id: head.application_id,
-    sequence: head.sequence + 1,
-    parent_sha256: parentSha256,
-    status: head.status,
-    vacancy: head.vacancy,
-    selected_original: head.selected_original,
-    resume_artifact: head.resume_artifact,
-    cover_letter_artifact: null,
-    updated_at: updatedAt,
-  };
-}
-
-interface PreparedV2Mutation {
+interface PreparedStateMutation {
   createdAt: string;
   sequence: number;
   parentSha256: string;
   coverLetterArtifact: CoverLetterArtifactBinding | null;
-  transitionFiles: Array<{ final: string; temp: string; bytes: Buffer }>;
-  revisionAdditions: 1 | 2;
+  revisionAdditions: 1;
 }
 
-function prepareV2Mutation(
+function prepareStateMutation(
   application: InspectedApplication,
-  mutationId: string,
   createdAt: string,
-): PreparedV2Mutation {
+): PreparedStateMutation {
   if (!validTimestamp(createdAt) || Date.parse(createdAt) <= Date.parse(application.head.updated_at)) {
     throw workflowError("workspace_unavailable");
   }
-  if (application.head.schema_version === STATE_SCHEMA_V2) {
-    return {
-      createdAt,
-      sequence: application.head.sequence + 1,
-      parentSha256: application.headFile.sha256,
-      coverLetterArtifact: application.head.cover_letter_artifact,
-      transitionFiles: [],
-      revisionAdditions: 1,
-    };
-  }
-  const transition = transitionToStateV2(
-    application.head,
-    application.headFile.sha256,
-    transitionTimestamp(application.head.updated_at, createdAt),
-  );
-  const bytes = stateBytes(transition);
   return {
     createdAt,
-    sequence: transition.sequence + 1,
-    parentSha256: hashBytes(bytes),
-    coverLetterArtifact: null,
-    transitionFiles: [{
-      final: path.join(application.directoryPath, stateName(transition.sequence)),
-      temp: path.join(application.directoryPath, `.pi-career-${mutationId}-transition.tmp`),
-      bytes,
-    }],
-    revisionAdditions: 2,
+    sequence: application.head.sequence + 1,
+    parentSha256: application.headFile.sha256,
+    coverLetterArtifact: application.head.cover_letter_artifact,
+    revisionAdditions: 1,
   };
 }
 
@@ -2470,14 +2392,14 @@ function prepareSelectedOriginalRevision(
   sequence: number;
   stateBuffer: Buffer;
   files: Array<{ final: string; temp: string; bytes: Buffer }>;
-  revisionAdditions: 1 | 2;
+  revisionAdditions: 1;
 } {
   const mutationId = options.uuid().toLowerCase();
-  const prepared = prepareV2Mutation(application, mutationId, options.now().toISOString());
+  const prepared = prepareStateMutation(application, options.now().toISOString());
   const { createdAt, sequence } = prepared;
   if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
-  const state: ApplicationStateRevisionV2 = {
-    schema_version: STATE_SCHEMA_V2,
+  const state: ApplicationStateRevision = {
+    schema_version: STATE_SCHEMA,
     kind: "application_state_revision",
     application_id: applicationId,
     sequence,
@@ -2496,7 +2418,6 @@ function prepareSelectedOriginalRevision(
     sequence,
     stateBuffer,
     files: [
-      ...prepared.transitionFiles,
       {
         final: path.join(application.directoryPath, stateName(sequence)),
         temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
@@ -2610,7 +2531,7 @@ export class ApplicationWorkspaceWorkflow {
     createdAt: string,
     files: Array<{ final: string; temp: string; bytes: Buffer }>,
     stateBuffer: Buffer,
-    revisionAdditions: 1 | 2,
+    revisionAdditions: 1,
     successMessage: string,
     sourceValidation?: () => Promise<void>,
   ): Promise<"written" | "cancelled"> {
@@ -2666,15 +2587,15 @@ export class ApplicationWorkspaceWorkflow {
       return "unchanged";
     }
     const mutationId = this.options.uuid().toLowerCase();
-    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const prepared = prepareStateMutation(application, this.options.now().toISOString());
     const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     const vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`;
     const nextVacancy = text === null || nextBytes === undefined
       ? null
       : vacancyBindingFromBytes(vacancyName, nextBytes, this.options.uuid().toLowerCase());
-    const state: ApplicationStateRevisionV2 = {
-      schema_version: STATE_SCHEMA_V2,
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: application.manifest.application_id,
       sequence,
@@ -2690,7 +2611,6 @@ export class ApplicationWorkspaceWorkflow {
     return this.publishAttachedRevision(
       ctx, mutation, "update_vacancy", mutationId, createdAt,
       [
-        ...prepared.transitionFiles,
         ...(nextBytes === undefined ? [] : [{
           final: path.join(application.directoryPath, vacancyName),
           temp: path.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
@@ -2743,11 +2663,11 @@ export class ApplicationWorkspaceWorkflow {
       return "unchanged";
     }
     const mutationId = this.options.uuid().toLowerCase();
-    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const prepared = prepareStateMutation(application, this.options.now().toISOString());
     const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
-    const state: ApplicationStateRevisionV2 = {
-      schema_version: STATE_SCHEMA_V2,
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: application.manifest.application_id,
       sequence,
@@ -2763,7 +2683,6 @@ export class ApplicationWorkspaceWorkflow {
     return this.publishAttachedRevision(
       ctx, mutation, "record_state", mutationId, createdAt,
       [
-        ...prepared.transitionFiles,
         {
           final: path.join(application.directoryPath, stateName(sequence)),
           temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
@@ -3490,8 +3409,8 @@ export class ApplicationWorkspaceWorkflow {
     const identityBytes = applicationIdentityBytes(identity.identity, manifest);
     const currentVacancyBytes = vacancyBytes(identity.vacancy, identity.identity.application_id);
     const vacancyName = "vacancy.md";
-    const state: ApplicationStateRevisionV1 = {
-      schema_version: STATE_SCHEMA_V1,
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: identity.identity.application_id,
       sequence: 1,
@@ -3502,6 +3421,7 @@ export class ApplicationWorkspaceWorkflow {
         : vacancyBinding(vacancyName, currentVacancyBytes, identity.vacancy),
       selected_original: null,
       resume_artifact: null,
+      cover_letter_artifact: null,
       updated_at: createdAt,
     };
     const stateFile = path.join(directoryPath, stateName(1));
@@ -3636,7 +3556,7 @@ export class ApplicationWorkspaceWorkflow {
       return;
     }
     const mutationId = this.options.uuid().toLowerCase();
-    const prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString());
+    const prepared = prepareStateMutation(application, this.options.now().toISOString());
     const { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     const currentVacancyBytes = vacancyBytes(identity.vacancy, identity.identity.application_id);
@@ -3647,8 +3567,8 @@ export class ApplicationWorkspaceWorkflow {
       : vacancyChanged && currentVacancyBytes !== undefined
         ? vacancyBinding(vacancyName, currentVacancyBytes, identity.vacancy)
         : application.head.vacancy;
-    const state: ApplicationStateRevisionV2 = {
-      schema_version: STATE_SCHEMA_V2,
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: identity.identity.application_id,
       sequence,
@@ -3662,7 +3582,6 @@ export class ApplicationWorkspaceWorkflow {
     };
     const stateBuffer = stateBytes(state);
     const files = [
-      ...prepared.transitionFiles,
       ...(vacancyChanged && currentVacancyBytes !== undefined
         ? [{ final: vacancyFile, temp: path.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }]
         : []),

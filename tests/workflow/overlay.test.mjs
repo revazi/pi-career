@@ -256,7 +256,7 @@ async function writeApplication(root, {
     created_at: createdAt,
   });
   await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: applicationId,
     sequence: 1,
@@ -265,6 +265,7 @@ async function writeApplication(root, {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: workspaceCreatedAt,
   });
 }
@@ -898,7 +899,7 @@ test("RPC overlay binds an attached selected original without calling Core", asy
     const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
     assert.ok(applicationName);
     const selectedState = JSON.parse(await readFile(
-      path.join(value.root, applicationName, ".pi-career-state-000003.json"),
+      path.join(value.root, applicationName, ".pi-career-state-000002.json"),
       "utf8",
     ));
     assert.equal(selectedState.selected_original.document_id, original.id);

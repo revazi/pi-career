@@ -55,5 +55,29 @@ test("#140 assigns focused single-schema acceptance scenarios to #141", async ()
     assert.equal(columns[0], `S1-${String(index + 1).padStart(2, "0")}`);
     for (const column of columns.slice(1)) assert.ok(column.length > 0);
   });
-  assert.match(markdown, /Issue #141 owns production, fixture, generated-bundle, and documentation convergence\./);
+  assert.match(markdown, /Issue #141 implements production, fixture, generated-bundle, and documentation convergence\./);
+});
+
+test("#141 maps every S1 scenario to focused behavioral coverage", async () => {
+  const evidence = {
+    1: ["application-state-reader", "S1-01/S1-02: catalog reads canonical single-schema chains without mutation"],
+    2: ["application-state-reader", "S1-01/S1-02: catalog reads canonical single-schema chains without mutation"],
+    3: ["application-state-reader", "S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record"],
+    4: ["application-state-reader", "S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record"],
+    5: ["application-state-reader", "S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record"],
+    6: ["persistent-overlay-creation", "S1-06/P3-16 configured-root Applications create commits canonical sequence 1 and renders Preparing Incomplete 0/3"],
+    7: ["application-status-authority", "S1-02/S1-07/P3-45 public attached status reads a canonical chain and approved mutation appends exactly one revision"],
+    8: ["application-state-reader", "S1-08: sequence 1 accepts the exact nullable cover-letter reference shape"],
+    9: ["application-concurrency-acceptance", "S1-09/P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
+    10: ["capacity-boundary-matrix", "S1-10/P3-44 under-lock application-entry and revision crossings do not publish a new head"],
+    11: ["application-state-reader", "S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record"],
+    12: ["application-state-reader", "S1-12: a single-schema source failure remains mutation-free"],
+  };
+
+  assert.equal(Object.keys(evidence).length, 12);
+  for (const [number, [name, title]] of Object.entries(evidence)) {
+    const source = await readFile(new URL(`./${name}.test.mjs`, import.meta.url), "utf8");
+    const titles = [...source.matchAll(/^test\("([^"\n]+)",/gm)].map((match) => match[1]);
+    assert.equal(titles.filter((candidate) => candidate === title).length, 1, `S1-${String(number).padStart(2, "0")} needs one exact witness`);
+  }
 });

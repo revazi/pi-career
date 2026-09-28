@@ -105,14 +105,14 @@ async function fixture(t, options = {}) {
     role_label: "Synthetic Engineer", created_at: APPLICATION_CREATED_AT,
   });
   await privateJson(path.join(applicationDir, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
     vacancy: null,
     selected_original: options.sourceDrift ? {
       document_id: hash(Buffer.from(await realpath(resumePath))),
       library_root_id: rootId(libraryRoot), text_sha256: hash(resumeBytes), format: "markdown",
     } : null,
-    resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
+    resume_artifact: null, cover_letter_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
   if (options.sourceDrift) await unlink(resumePath);
   // Keep persisted lifecycle records independent of production record factories so the

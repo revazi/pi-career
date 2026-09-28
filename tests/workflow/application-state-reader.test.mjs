@@ -26,7 +26,7 @@ import {
   materializeApplicationFixture,
   mixedChainFixtures,
   stateBoundaryFixtures,
-} from "./fixtures/persistence-v2.mjs";
+} from "./fixtures/persistence-state.mjs";
 
 async function snapshot(directory) {
   const result = {};
@@ -54,9 +54,9 @@ function onlyClassification(catalog) {
   return nonzero[0][0];
 }
 
-test("P3-08/P3-09: catalog reads all-v1, all-v2, and one v1-to-v2 transition without mutation", async (t) => {
+test("S1-01/S1-02: catalog reads canonical single-schema chains without mutation", async (t) => {
   const fixtures = [
-    ...mixedChainFixtures().filter((fixture) => ["all-v1", "all-v2", "v1-to-v2"].includes(fixture.id)),
+    ...mixedChainFixtures().filter((fixture) => fixture.expected === "valid"),
     ...canonicalStateFixtures(),
   ];
   for (const fixture of fixtures) {
@@ -72,7 +72,7 @@ test("P3-08/P3-09: catalog reads all-v1, all-v2, and one v1-to-v2 transition wit
   }
 });
 
-test("P3-04/P3-10: complete-chain validation rejects downgrade, gap, mismatch, fork, and future schema", async (t) => {
+test("S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record", async (t) => {
   for (const fixture of mixedChainFixtures().filter((candidate) => candidate.expected !== "valid")) {
     const value = await materialize(t, fixture.chain);
     const before = await snapshot(value.root);
@@ -93,8 +93,8 @@ test("P3-04/P3-09/P3-44: state metadata and revision limits classify without tru
   }
 });
 
-test("P3-04: v2 state bytes reject reordered, missing, extra, and duplicate decoded keys", async (t) => {
-  const base = buildChain([{ version: 2 }]);
+test("S1-05: canonical state bytes reject reordered, missing, extra, and duplicate decoded keys", async (t) => {
+  const base = buildChain([{}]);
   const value = base.revisions[0].value;
   const { cover_letter_artifact: coverLetterArtifact, updated_at: updatedAt, ...prefix } = value;
   const reordered = canonicalJson({ ...prefix, updated_at: updatedAt, cover_letter_artifact: coverLetterArtifact });
@@ -122,20 +122,18 @@ test("P3-04: v2 state bytes reject reordered, missing, extra, and duplicate deco
   }
 });
 
-test("P3-09: the first v2 transition cannot combine unrelated state changes", async (t) => {
+test("S1-07: one canonical next revision may carry an approved state change directly", async (t) => {
   const vacancy = makeVacancyBinding();
   const selectedOriginal = makeSelectedOriginal();
-  const base = { version: 1, vacancy, selectedOriginal };
-  const changes = [
-    { id: "status", next: { version: 2, vacancy, selectedOriginal, status: "applied" } },
-    { id: "vacancy", next: { version: 2, selectedOriginal } },
-    { id: "selected-original", next: { version: 2, vacancy } },
+  const chains = [
+    { id: "status", values: [{ vacancy, selectedOriginal }, { vacancy, selectedOriginal, status: "applied" }] },
+    { id: "vacancy-clear", values: [{ vacancy, selectedOriginal }, { selectedOriginal }] },
+    { id: "selected-original-clear", values: [{ vacancy, selectedOriginal }, { vacancy }] },
   ];
-  for (const change of changes) {
-    const chain = buildChain([base, change.next]);
-    const value = await materialize(t, chain, new Map([["vacancy.md", SYNTHETIC.vacancyBytes]]));
+  for (const candidate of chains) {
+    const value = await materialize(t, buildChain(candidate.values), new Map([["vacancy.md", SYNTHETIC.vacancyBytes]]));
     const catalog = await readApplicationCatalog(value.root, SYNTHETIC.rootId);
-    assert.equal(onlyClassification(catalog), "drifted", change.id);
+    assert.equal(catalog.applications.length, 1, candidate.id);
   }
 });
 
@@ -159,13 +157,13 @@ test("P3-19/P3-44: exact cover-letter references validate path, authority, bytes
     const first = makeCoverLetter();
     const chain = buildChain(numbered
       ? [
-        { version: 2, vacancy, selectedOriginal },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact: first },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact: fixture.binding },
+        { vacancy, selectedOriginal },
+        { vacancy, selectedOriginal, coverLetterArtifact: first },
+        { vacancy, selectedOriginal, coverLetterArtifact: fixture.binding },
       ]
       : [
-        { version: 2, vacancy, selectedOriginal },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact: fixture.binding },
+        { vacancy, selectedOriginal },
+        { vacancy, selectedOriginal, coverLetterArtifact: fixture.binding },
       ]);
     const files = new Map([
       ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -193,8 +191,8 @@ test("P3-19/P3-44: cover-letter bytes reject BOM, NUL, carriage return, and inva
   for (const [id, bytes] of cases) {
     const binding = makeCoverLetter(bytes);
     const chain = buildChain([
-      { version: 2, vacancy, selectedOriginal },
-      { version: 2, vacancy, selectedOriginal, coverLetterArtifact: binding },
+      { vacancy, selectedOriginal },
+      { vacancy, selectedOriginal, coverLetterArtifact: binding },
     ]);
     const value = await materialize(t, chain, new Map([
       ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -208,7 +206,7 @@ test("P3-21/P3-23: tailored artifacts require exact v2 sidecar authority and sou
   const selectedOriginal = makeSelectedOriginal();
   const sidecarBytes = canonicalJson(makeAssistedSidecar(SYNTHETIC.resumeBytes, selectedOriginal));
   const artifact = makeResumeArtifact(SYNTHETIC.resumeBytes, sidecarBytes);
-  const validChain = buildChain([{ version: 2, selectedOriginal, resumeArtifact: artifact }]);
+  const validChain = buildChain([{ selectedOriginal, resumeArtifact: artifact }]);
   const validFiles = new Map([
     ["resume.md", SYNTHETIC.resumeBytes],
     ["resume.pi-career.json", sidecarBytes],
@@ -220,21 +218,21 @@ test("P3-21/P3-23: tailored artifacts require exact v2 sidecar authority and sou
   const mismatchedSidecar = canonicalJson(makeAssistedSidecar(SYNTHETIC.resumeBytes, otherOriginal));
   const mismatchedArtifact = makeResumeArtifact(SYNTHETIC.resumeBytes, mismatchedSidecar);
   const mismatched = await materialize(t,
-    buildChain([{ version: 2, selectedOriginal, resumeArtifact: mismatchedArtifact }]),
+    buildChain([{ selectedOriginal, resumeArtifact: mismatchedArtifact }]),
     new Map([["resume.md", SYNTHETIC.resumeBytes], ["resume.pi-career.json", mismatchedSidecar]]),
   );
   assert.equal(onlyClassification(await readApplicationCatalog(mismatched.root, SYNTHETIC.rootId)), "drifted");
 
   const noSource = await materialize(t,
-    buildChain([{ version: 2, resumeArtifact: artifact }]),
+    buildChain([{ resumeArtifact: artifact }]),
     validFiles,
   );
   assert.equal(onlyClassification(await readApplicationCatalog(noSource.root, SYNTHETIC.rootId)), "drifted");
 
   const changedWhileCarried = await materialize(t,
     buildChain([
-      { version: 2, selectedOriginal, resumeArtifact: artifact },
-      { version: 2, selectedOriginal: otherOriginal, resumeArtifact: artifact },
+      { selectedOriginal, resumeArtifact: artifact },
+      { selectedOriginal: otherOriginal, resumeArtifact: artifact },
     ]),
     validFiles,
   );
@@ -242,8 +240,8 @@ test("P3-21/P3-23: tailored artifacts require exact v2 sidecar authority and sou
 
   const changedAndCleared = await materialize(t,
     buildChain([
-      { version: 2, selectedOriginal, resumeArtifact: artifact },
-      { version: 2, selectedOriginal: otherOriginal },
+      { selectedOriginal, resumeArtifact: artifact },
+      { selectedOriginal: otherOriginal },
     ]),
     validFiles,
   );
@@ -261,9 +259,9 @@ test("P3-20/P3-21: a carried exact cover may survive dependency changes for late
     {
       id: "job-dependency",
       chain: buildChain([
-        { version: 2, vacancy, selectedOriginal },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact: cover },
-        { version: 2, vacancy: changedVacancy, selectedOriginal, coverLetterArtifact: cover },
+        { vacancy, selectedOriginal },
+        { vacancy, selectedOriginal, coverLetterArtifact: cover },
+        { vacancy: changedVacancy, selectedOriginal, coverLetterArtifact: cover },
       ]),
       files: new Map([
         ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -274,9 +272,9 @@ test("P3-20/P3-21: a carried exact cover may survive dependency changes for late
     {
       id: "resume-dependency",
       chain: buildChain([
-        { version: 2, vacancy, selectedOriginal },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact: cover },
-        { version: 2, vacancy, selectedOriginal: changedOriginal, coverLetterArtifact: cover },
+        { vacancy, selectedOriginal },
+        { vacancy, selectedOriginal, coverLetterArtifact: cover },
+        { vacancy, selectedOriginal: changedOriginal, coverLetterArtifact: cover },
       ]),
       files: new Map([
         ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -291,8 +289,8 @@ test("P3-20/P3-21: a carried exact cover may survive dependency changes for late
   }
 });
 
-test("P3-09/P3-18: a v2-head source failure remains mutation-free", async (t) => {
-  const value = await materialize(t, buildChain([{ version: 2 }]));
+test("S1-12: a single-schema source failure remains mutation-free", async (t) => {
+  const value = await materialize(t, buildChain([{}]));
   const agentDir = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-v2-writer-")));
   t.after(() => rm(agentDir, { recursive: true, force: true }));
   await prepareConfigDirectory(agentDir);
@@ -334,11 +332,10 @@ test("P3-09/P3-18: a v2-head source failure remains mutation-free", async (t) =>
   assert.equal(fake.entries.length, 1);
 });
 
-test("P3-04: sequence-1 v2 cannot start with a cover-letter reference", async (t) => {
+test("S1-08: sequence 1 accepts the exact nullable cover-letter reference shape", async (t) => {
   const vacancy = makeVacancyBinding();
   const selectedOriginal = makeSelectedOriginal();
   const chain = buildChain([{
-    version: 2,
     vacancy,
     selectedOriginal,
     coverLetterArtifact: makeCoverLetter(),
@@ -347,5 +344,5 @@ test("P3-04: sequence-1 v2 cannot start with a cover-letter reference", async (t
     ["vacancy.md", SYNTHETIC.vacancyBytes],
     ["cover-letter.md", SYNTHETIC.coverBytes],
   ]));
-  assert.equal(onlyClassification(await readApplicationCatalog(value.root, SYNTHETIC.rootId)), "drifted");
+  assert.equal((await readApplicationCatalog(value.root, SYNTHETIC.rootId)).applications.length, 1);
 });

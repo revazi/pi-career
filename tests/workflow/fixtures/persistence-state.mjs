@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 
 export const FIXTURE_OWNERSHIP = Object.freeze({
-  "state-v2-canonical": ["P3-08", "P3-09", "P3-47"],
-  "mixed-chain": ["P3-04", "P3-08", "P3-09", "P3-10"],
+  "single-schema-chain": ["S1-01", "S1-02", "S1-06", "S1-07"],
+  "unsupported-state-schema": ["S1-03", "S1-04", "S1-11"],
   "historical-references": ["P3-04", "P3-20", "P3-21", "P3-43", "P3-47"],
   "cover-letter-reference": ["P3-19", "P3-20", "P3-21", "P3-44"],
   "package-completeness": ["P3-16", "P3-17", "P3-18", "P3-19", "P3-20", "P3-21", "P3-22", "P3-23", "P3-24", "P3-25"],
@@ -139,7 +139,7 @@ export function makeCoverLetter(
   };
 }
 
-export function makeState(version, {
+export function makeState({
   sequence,
   parentSha256,
   status = "preparing",
@@ -148,9 +148,10 @@ export function makeState(version, {
   resumeArtifact = null,
   coverLetterArtifact = null,
   updatedAt = new Date(Date.parse(SYNTHETIC.createdAt) + sequence * 1_000).toISOString(),
+  schemaVersion = "pi.career.application_state",
 } = {}) {
-  const shared = {
-    schema_version: `pi.career.application_state.v${version}`,
+  return {
+    schema_version: schemaVersion,
     kind: "application_state_revision",
     application_id: SYNTHETIC.applicationId,
     sequence,
@@ -159,9 +160,9 @@ export function makeState(version, {
     vacancy,
     selected_original: selectedOriginal,
     resume_artifact: resumeArtifact,
+    cover_letter_artifact: coverLetterArtifact,
+    updated_at: updatedAt,
   };
-  if (version === 1) return { ...shared, updated_at: updatedAt };
-  return { ...shared, cover_letter_artifact: coverLetterArtifact, updated_at: updatedAt };
 }
 
 export function buildChain(specifications, { manifest = makeManifest() } = {}) {
@@ -169,7 +170,7 @@ export function buildChain(specifications, { manifest = makeManifest() } = {}) {
   let parentSha256 = sha256(manifestBytes);
   const revisions = specifications.map((specification, index) => {
     const sequence = index + 1;
-    const value = makeState(specification.version, {
+    const value = makeState({
       sequence,
       parentSha256,
       ...specification,
@@ -189,48 +190,43 @@ function replaceRevision(chain, index, value, name = chain.revisions[index].name
 }
 
 export function mixedChainFixtures() {
-  const allV1 = buildChain([{ version: 1 }, { version: 1 }]);
-  const allV2 = buildChain([{ version: 2 }, { version: 2 }]);
-  const transition = buildChain([{ version: 1 }, { version: 2 }]);
-  const downgrade = buildChain([{ version: 2 }, { version: 1 }]);
+  const canonical = buildChain([{}, {}]);
+  const formerV1 = buildChain([{ schemaVersion: "pi.career.application_state.v1" }]);
+  const formerV2 = buildChain([{ schemaVersion: "pi.career.application_state.v2" }]);
 
-  const gapBase = buildChain([{ version: 1 }, { version: 2 }]);
+  const gapBase = buildChain([{}, {}]);
   const gap = replaceRevision(gapBase, 1, gapBase.revisions[1].value, stateName(3));
 
-  const mismatchBase = buildChain([{ version: 1 }, { version: 2 }]);
+  const mismatchBase = buildChain([{}, {}]);
   const sequenceMismatch = replaceRevision(mismatchBase, 1, {
     ...mismatchBase.revisions[1].value,
     sequence: 3,
   });
 
-  const parentBase = buildChain([{ version: 1 }, { version: 2 }]);
+  const parentBase = buildChain([{}, {}]);
   const badParent = replaceRevision(parentBase, 1, {
     ...parentBase.revisions[1].value,
     parent_sha256: "f".repeat(64),
   });
 
-  const unsupportedBase = buildChain([{ version: 1 }, { version: 2 }]);
-  const unsupported = replaceRevision(unsupportedBase, 1, {
-    ...unsupportedBase.revisions[1].value,
-    schema_version: "pi.career.application_state.v99",
-  });
-
-  const malformedBase = buildChain([{ version: 1 }, { version: 2 }]);
+  const unsupported = buildChain([{ schemaVersion: "pi.career.application_state.future" }]);
+  const otherSchema = buildChain([{ schemaVersion: "example.application_state" }]);
+  const malformedBase = buildChain([{}, {}]);
   const malformed = replaceRevision(
     malformedBase,
     1,
-    Buffer.from('{"schema_version":"pi.career.application_state.v99",'),
+    Buffer.from('{"schema_version":"pi.career.application_state.future",'),
   );
 
   return [
-    { id: "all-v1", expected: "valid", chain: allV1 },
-    { id: "all-v2", expected: "valid", chain: allV2 },
-    { id: "v1-to-v2", expected: "valid", chain: transition },
-    { id: "v2-to-v1", expected: "drifted", chain: downgrade },
+    { id: "canonical-chain", expected: "valid", chain: canonical },
+    { id: "former-v1", expected: "unsupported", chain: formerV1 },
+    { id: "former-v2", expected: "unsupported", chain: formerV2 },
     { id: "gap", expected: "drifted", chain: gap },
     { id: "embedded-sequence-mismatch", expected: "drifted", chain: sequenceMismatch },
     { id: "bad-parent", expected: "drifted", chain: badParent },
     { id: "canonical-unsupported", expected: "unsupported", chain: unsupported },
+    { id: "other-schema", expected: "unsupported", chain: otherSchema },
     { id: "malformed-future-looking", expected: "drifted", chain: malformed },
   ];
 }
@@ -240,13 +236,13 @@ export function canonicalStateFixtures() {
   const selectedOriginal = makeSelectedOriginal();
   const coverLetterArtifact = makeCoverLetter();
   return [
-    { id: "sequence-1-v2", chain: buildChain([{ version: 2 }]), files: new Map() },
-    { id: "v1-null-cover-transition", chain: buildChain([{ version: 1 }, { version: 2 }]), files: new Map() },
+    { id: "sequence-1", chain: buildChain([{}]), files: new Map() },
+    { id: "contiguous-chain", chain: buildChain([{}, {}]), files: new Map() },
     {
-      id: "cover-introduction-transition",
+      id: "cover-introduction",
       chain: buildChain([
-        { version: 1, vacancy, selectedOriginal },
-        { version: 2, vacancy, selectedOriginal, coverLetterArtifact },
+        { vacancy, selectedOriginal },
+        { vacancy, selectedOriginal, coverLetterArtifact },
       ]),
       files: new Map([
         ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -257,7 +253,7 @@ export function canonicalStateFixtures() {
 }
 
 export function stateBoundaryFixtures() {
-  const base = buildChain([{ version: 2 }]);
+  const base = buildChain([{}]);
   const rawState = (length) => ({
     ...base,
     revisions: [{ ...base.revisions[0], bytes: Buffer.alloc(length, 0x20) }],
@@ -266,8 +262,8 @@ export function stateBoundaryFixtures() {
     { id: "metadata-below-limit", expected: "drifted", chain: rawState(16_383) },
     { id: "metadata-at-limit", expected: "drifted", chain: rawState(16_384) },
     { id: "metadata-above-limit", expected: "over_limit", chain: rawState(16_385) },
-    { id: "revisions-at-limit", expected: "valid", chain: buildChain(Array.from({ length: 64 }, () => ({ version: 2 }))) },
-    { id: "revisions-above-limit", expected: "over_limit", chain: buildChain(Array.from({ length: 65 }, () => ({ version: 2 }))) },
+    { id: "revisions-at-limit", expected: "valid", chain: buildChain(Array.from({ length: 64 }, () => ({}))) },
+    { id: "revisions-above-limit", expected: "over_limit", chain: buildChain(Array.from({ length: 65 }, () => ({}))) },
   ];
 }
 
@@ -276,22 +272,22 @@ export function historicalReferenceFixtures() {
   const selectedOriginal = makeSelectedOriginal();
   const coverLetterArtifact = makeCoverLetter();
   const carried = buildChain([
-    { version: 2, vacancy, selectedOriginal },
-    { version: 2, vacancy, selectedOriginal, coverLetterArtifact },
-    { version: 2, vacancy, selectedOriginal, coverLetterArtifact },
+    { vacancy, selectedOriginal },
+    { vacancy, selectedOriginal, coverLetterArtifact },
+    { vacancy, selectedOriginal, coverLetterArtifact },
   ]);
   const cleared = buildChain([
-    { version: 2, vacancy, selectedOriginal },
-    { version: 2, vacancy, selectedOriginal, coverLetterArtifact },
-    { version: 2 },
+    { vacancy, selectedOriginal },
+    { vacancy, selectedOriginal, coverLetterArtifact },
+    {},
   ]);
   const historicalOriginal = buildChain([
-    { version: 2, selectedOriginal },
-    { version: 2 },
+    { selectedOriginal },
+    {},
   ]);
   const conflictingPath = buildChain([
-    { version: 2, vacancy },
-    { version: 2, vacancy: { ...vacancy, content_sha256: "e".repeat(64) } },
+    { vacancy },
+    { vacancy: { ...vacancy, content_sha256: "e".repeat(64) } },
   ]);
   const managedFiles = new Map([
     ["vacancy.md", SYNTHETIC.vacancyBytes],
@@ -377,13 +373,13 @@ export function readRaceAndPrivacyFixtures() {
 
 export function transactionOrphanFixtures() {
   const coverBytes = SYNTHETIC.coverBytes;
-  const exactState = buildChain([{ version: 2 }]);
+  const exactState = buildChain([{}]);
   return [
     {
       id: "artifact-without-state",
       expected: "orphan-not-current",
       files: new Map([["cover-letter.md", coverBytes]]),
-      chain: buildChain([{ version: 2 }]),
+      chain: buildChain([{}]),
     },
     {
       id: "exact-state-after-ambiguous-failure",
@@ -394,7 +390,7 @@ export function transactionOrphanFixtures() {
   ];
 }
 
-export function completeApplicationFixture(chain = buildChain([{ version: 1 }]), additionalFiles = new Map()) {
+export function completeApplicationFixture(chain = buildChain([{}]), additionalFiles = new Map()) {
   const rootMarker = makeRootMarker();
   const identity = makeIdentity();
   const files = new Map([
@@ -413,7 +409,7 @@ export async function materializeApplicationFixture(fixture = completeApplicatio
       throw new TypeError("unsafe synthetic fixture filename");
     }
   }
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-persistence-v2-")));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-persistence-state-")));
   await chmod(root, 0o700);
   await writeFile(path.join(root, ".pi-career-applications.json"), canonicalJson(fixture.rootMarker), { mode: 0o600 });
   const directory = path.join(root, `synthetic-company--synthetic-engineer--${SYNTHETIC.applicationId}`);

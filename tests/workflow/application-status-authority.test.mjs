@@ -91,7 +91,7 @@ async function fixture() {
     created_at: APPLICATION_CREATED_AT,
   });
   const state1 = canonical({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -100,10 +100,11 @@ async function fixture() {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   });
   const state2 = canonical({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 2,
@@ -112,6 +113,7 @@ async function fixture() {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: "2026-08-04T00:00:00.000Z",
   });
   await writeFile(path.join(directory, ".pi-career-state-000001.json"), state1, { mode: 0o600 });
@@ -149,21 +151,21 @@ async function fixture() {
   };
 }
 
-test("P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition", async () => {
+test("S1-02/S1-07/P3-45 public attached status reads a canonical chain and approved mutation appends exactly one revision", async () => {
   const value = await fixture();
   try {
     const before = await snapshot(value.temp);
     assertPrivateTree(before);
-    const legacyKeys = [
+    const stateKeys = [
       "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
-      "vacancy", "selected_original", "resume_artifact", "updated_at",
+      "vacancy", "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
     ];
-    const legacy1 = JSON.parse(value.state1);
-    const legacy2 = JSON.parse(value.state2);
-    assert.deepEqual(Object.keys(legacy1), legacyKeys);
-    assert.deepEqual(Object.keys(legacy2), legacyKeys);
-    assert.equal(legacy1.parent_sha256, hash(value.manifest));
-    assert.equal(legacy2.parent_sha256, hash(value.state1));
+    const revision1 = JSON.parse(value.state1);
+    const revision2 = JSON.parse(value.state2);
+    assert.deepEqual(Object.keys(revision1), stateKeys);
+    assert.deepEqual(Object.keys(revision2), stateKeys);
+    assert.equal(revision1.parent_sha256, hash(value.manifest));
+    assert.equal(revision2.parent_sha256, hash(value.state1));
     const beforeEntries = structuredClone(value.fake.entries);
     const status = makeContext(value.fake, { mode: "rpc", persisted: false });
     await value.fake.commands.get("career-application").handler("status", status.ctx);
@@ -195,25 +197,12 @@ test("P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and app
     });
     await value.fake.commands.get("career").handler("", saved.ctx);
 
-    const transition = canonical({
-      schema_version: "pi.career.application_state.v2",
+    const mutation = canonical({
+      schema_version: "pi.career.application_state",
       kind: "application_state_revision",
       application_id: APPLICATION_ID,
       sequence: 3,
       parent_sha256: hash(value.state2),
-      status: "interviewing",
-      vacancy: null,
-      selected_original: null,
-      resume_artifact: null,
-      cover_letter_artifact: null,
-      updated_at: "2026-08-04T00:00:00.001Z",
-    });
-    const mutation = canonical({
-      schema_version: "pi.career.application_state.v2",
-      kind: "application_state_revision",
-      application_id: APPLICATION_ID,
-      sequence: 4,
-      parent_sha256: hash(transition),
       status: "applied",
       vacancy: null,
       selected_original: null,
@@ -221,21 +210,14 @@ test("P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and app
       cover_letter_artifact: null,
       updated_at: "2026-08-12T00:00:12.000Z",
     });
-    assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000003.json")), transition);
-    assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000004.json")), mutation);
-    assert.deepEqual(Object.keys(JSON.parse(transition)), [
-      "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
-      "vacancy", "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
-    ]);
+    assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000003.json")), mutation);
+    assert.deepEqual(Object.keys(JSON.parse(mutation)), stateKeys);
 
     const after = await snapshot(value.temp);
     assertPrivateTree(after);
     const applicationName = path.basename(value.directory);
     const expected = structuredClone(before);
     expected.applications.entries[applicationName].entries[".pi-career-state-000003.json"] = {
-      type: "file", mode: 0o600, bytes: transition.toString("hex"),
-    };
-    expected.applications.entries[applicationName].entries[".pi-career-state-000004.json"] = {
       type: "file", mode: 0o600, bytes: mutation.toString("hex"),
     };
     assert.deepEqual(after, expected);

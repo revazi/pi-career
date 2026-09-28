@@ -103,7 +103,7 @@ async function workspace(t) {
     created_at: APPLICATION_CREATED_AT,
   });
   await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -112,6 +112,7 @@ async function workspace(t) {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   });
   return agentDir;

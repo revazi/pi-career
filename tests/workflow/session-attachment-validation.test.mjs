@@ -75,7 +75,7 @@ async function fixture(t, options = {}) {
   }
   const stateFile = path.join(directory, ".pi-career-state-000001.json");
   await privateJson(stateFile, {
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -84,6 +84,7 @@ async function fixture(t, options = {}) {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   });
   const attachment = createApplicationAttachmentEntry({

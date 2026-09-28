@@ -33,7 +33,7 @@ import {
   stateBoundaryFixtures,
   stateName,
   transactionOrphanFixtures,
-} from "./fixtures/persistence-v2.mjs";
+} from "./fixtures/persistence-state.mjs";
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -53,10 +53,10 @@ function assertLinkedChain(chain) {
   });
 }
 
-test("#60 fixtures map every reviewed family to explicit P3 ownership", () => {
+test("#141 fixtures map every reviewed family to explicit scenario ownership", () => {
   assert.deepEqual(Object.keys(FIXTURE_OWNERSHIP), [
-    "state-v2-canonical",
-    "mixed-chain",
+    "single-schema-chain",
+    "unsupported-state-schema",
     "historical-references",
     "cover-letter-reference",
     "package-completeness",
@@ -66,11 +66,11 @@ test("#60 fixtures map every reviewed family to explicit P3 ownership", () => {
   ]);
   for (const [family, scenarios] of Object.entries(FIXTURE_OWNERSHIP)) {
     assert.ok(scenarios.length > 0, `${family} needs scenario ownership`);
-    for (const scenario of scenarios) assert.match(scenario, /^P3-(?:0[1-9]|[1-4][0-9])$/);
+    for (const scenario of scenarios) assert.match(scenario, /^(?:P3-(?:0[1-9]|[1-4][0-9])|S1-(?:0[1-9]|1[0-2]))$/);
   }
 });
 
-test("#60 canonical builders produce independent exact v1/v2 bytes", () => {
+test("#141 canonical builders produce independent exact schema bytes", () => {
   const rootMarker = makeRootMarker();
   const manifest = makeManifest();
   const identity = makeIdentity();
@@ -79,7 +79,7 @@ test("#60 canonical builders produce independent exact v1/v2 bytes", () => {
   const selectedOriginal = makeSelectedOriginal();
   const sidecar = makeAssistedSidecar(SYNTHETIC.resumeBytes, selectedOriginal);
   const resumeArtifact = makeResumeArtifact(SYNTHETIC.resumeBytes, canonicalJson(sidecar));
-  const state = makeState(2, {
+  const state = makeState({
     sequence: 1,
     parentSha256: digest(manifestBytes),
     vacancy,
@@ -100,33 +100,34 @@ test("#60 canonical builders produce independent exact v1/v2 bytes", () => {
   assert.equal(selectedOriginal.text_sha256, digest(SYNTHETIC.originalBytes));
   assert.equal(sidecar.base_document_id, selectedOriginal.document_id);
   assert.equal(resumeArtifact.artifact_sha256, digest(SYNTHETIC.resumeBytes));
-  assertLinkedChain(buildChain([{ version: 1 }, { version: 2 }]));
+  assertLinkedChain(buildChain([{}, {}]));
+  assert.equal(state.schema_version, "pi.career.application_state");
   assert.equal(sha256(canonicalJson(state)), digest(canonicalJson(state)));
   assert.equal(canonicalJson(state).at(-1), 0x0a);
   assert.doesNotMatch(canonicalJson(state).toString("utf8"), /Ready|match_result|provider|session_id/);
 });
 
-test("#60 P3-08/P3-09/P3-47 canonical state fixtures preserve transition bytes", () => {
+test("#141 S1-01/S1-02/S1-08 canonical state fixtures preserve single-schema bytes", () => {
   const fixtures = canonicalStateFixtures();
   assert.deepEqual(fixtures.map((fixture) => fixture.id), [
-    "sequence-1-v2", "v1-null-cover-transition", "cover-introduction-transition",
+    "sequence-1", "contiguous-chain", "cover-introduction",
   ]);
   fixtures.forEach((fixture) => assertLinkedChain(fixture.chain));
 
   const sequenceOne = parsed(fixtures[0].chain.revisions[0]);
-  assert.equal(sequenceOne.schema_version, "pi.career.application_state.v2");
+  assert.equal(sequenceOne.schema_version, "pi.career.application_state");
   assert.equal(sequenceOne.cover_letter_artifact, null);
 
-  const nullTransition = fixtures[1].chain.revisions.map(parsed);
-  assert.equal(nullTransition[0].schema_version, "pi.career.application_state.v1");
-  assert.equal(nullTransition[1].schema_version, "pi.career.application_state.v2");
-  assert.equal(nullTransition[1].cover_letter_artifact, null);
+  const contiguous = fixtures[1].chain.revisions.map(parsed);
+  assert.equal(contiguous[0].schema_version, "pi.career.application_state");
+  assert.equal(contiguous[1].schema_version, "pi.career.application_state");
+  assert.equal(contiguous[1].cover_letter_artifact, null);
 
-  const coverTransition = fixtures[2].chain.revisions.map(parsed);
+  const coverIntroduction = fixtures[2].chain.revisions.map(parsed);
   for (const field of ["status", "vacancy", "selected_original", "resume_artifact"]) {
-    assert.deepEqual(coverTransition[1][field], coverTransition[0][field]);
+    assert.deepEqual(coverIntroduction[1][field], coverIntroduction[0][field]);
   }
-  assert.equal(coverTransition[1].cover_letter_artifact.authority, "user_authored");
+  assert.equal(coverIntroduction[1].cover_letter_artifact.authority, "user_authored");
   assert.deepEqual([...fixtures[2].files], [
     ["vacancy.md", SYNTHETIC.vacancyBytes],
     ["cover-letter.md", SYNTHETIC.coverBytes],
@@ -146,18 +147,13 @@ test("#60 P3-04/P3-09/P3-44 state fixtures hit exact metadata and revision bound
   assertLinkedChain(fixtures.get("revisions-at-limit").chain);
 });
 
-test("#60 P3-04/P3-08/P3-09/P3-10 mixed-chain fixtures isolate each corruption", () => {
+test("#141 S1-02/S1-03/S1-04/S1-05 fixtures isolate canonical and unsupported chains", () => {
   const fixtures = new Map(mixedChainFixtures().map((fixture) => [fixture.id, fixture]));
   assert.deepEqual([...fixtures.keys()], [
-    "all-v1", "all-v2", "v1-to-v2", "v2-to-v1", "gap",
-    "embedded-sequence-mismatch", "bad-parent", "canonical-unsupported", "malformed-future-looking",
+    "canonical-chain", "former-v1", "former-v2", "gap",
+    "embedded-sequence-mismatch", "bad-parent", "canonical-unsupported", "other-schema", "malformed-future-looking",
   ]);
-  for (const id of ["all-v1", "all-v2", "v1-to-v2", "v2-to-v1"]) {
-    assertLinkedChain(fixtures.get(id).chain);
-  }
-  assert.deepEqual(fixtures.get("v2-to-v1").chain.revisions.map((revision) => revision.value.schema_version), [
-    "pi.career.application_state.v2", "pi.career.application_state.v1",
-  ]);
+  assertLinkedChain(fixtures.get("canonical-chain").chain);
   assert.equal(fixtures.get("gap").chain.revisions[1].name, stateName(3));
   assert.equal(fixtures.get("embedded-sequence-mismatch").chain.revisions[1].value.sequence, 3);
   assert.notEqual(
@@ -165,12 +161,15 @@ test("#60 P3-04/P3-08/P3-09/P3-10 mixed-chain fixtures isolate each corruption",
     digest(fixtures.get("bad-parent").chain.revisions[0].bytes),
   );
   assert.equal(
-    fixtures.get("canonical-unsupported").chain.revisions[1].value.schema_version,
-    "pi.career.application_state.v99",
+    fixtures.get("canonical-unsupported").chain.revisions[0].value.schema_version,
+    "pi.career.application_state.future",
   );
   assert.throws(() => parsed(fixtures.get("malformed-future-looking").chain.revisions[1]), SyntaxError);
+  assert.equal(fixtures.get("former-v1").expected, "unsupported");
+  assert.equal(fixtures.get("former-v2").expected, "unsupported");
   assert.equal(fixtures.get("canonical-unsupported").expected, "unsupported");
-  for (const id of ["v2-to-v1", "gap", "embedded-sequence-mismatch", "bad-parent", "malformed-future-looking"]) {
+  assert.equal(fixtures.get("other-schema").expected, "unsupported");
+  for (const id of ["gap", "embedded-sequence-mismatch", "bad-parent", "malformed-future-looking"]) {
     assert.equal(fixtures.get(id).expected, "drifted");
   }
 });
@@ -266,7 +265,7 @@ test("#60 P3-40/P3-41 transaction fixtures distinguish orphan from exact commit"
 test("#60 materialized fixture uses only private synthetic files and deterministic bytes", async (t) => {
   await assert.rejects(
     materializeApplicationFixture(completeApplicationFixture(
-      buildChain([{ version: 1 }]),
+      buildChain([{}]),
       new Map([["../escaped-private-fixture", Buffer.from("Synthetic escaped bytes")]]),
     )),
     { name: "TypeError", message: "unsafe synthetic fixture filename" },

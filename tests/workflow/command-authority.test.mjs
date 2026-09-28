@@ -172,7 +172,7 @@ async function materializePackage({ tailored = false } = {}) {
     await writeFile(path.join(variants, "linked.pi-career.json"), sidecarBytes, { mode: 0o600 });
   }
   const state = {
-    schema_version: "pi.career.application_state.v2",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -189,20 +189,7 @@ async function materializePackage({ tailored = false } = {}) {
     cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   };
-  if (tailored) {
-    // Existing v1 head followed by the exact null-cover v2 transition that links the artifact.
-    const legacy = { ...state, schema_version: "pi.career.application_state.v1", resume_artifact: null };
-    delete legacy.cover_letter_artifact;
-    const legacyBytes = canonical(legacy);
-    await writeFile(path.join(directory, ".pi-career-state-000001.json"), legacyBytes, { mode: 0o600 });
-    const transition = { ...state, sequence: 2, parent_sha256: hash(legacyBytes), resume_artifact: null,
-      updated_at: "2026-08-03T00:00:01.000Z" };
-    await privateJson(path.join(directory, ".pi-career-state-000002.json"), transition);
-    await privateJson(path.join(directory, ".pi-career-state-000003.json"), {
-      ...state, sequence: 3, parent_sha256: hash(canonical(transition)),
-      updated_at: "2026-08-03T00:00:02.000Z",
-    });
-  } else await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
+  await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
   return { temp, agentDir, library, root, directory, original, other, tailored: resumeArtifact };
 }
 
@@ -577,7 +564,7 @@ test("P3-23 public attached-source validation rejects a valid tailored artifact 
   try {
     const artifactPath = path.join(value.directory, "resume.md");
     const sidecarPath = path.join(value.directory, "resume.pi-career.json");
-    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const headPath = path.join(value.directory, ".pi-career-state-000001.json");
     const artifactBytes = Buffer.from(TAILORED_TEXT);
     const sidecar = {
       schema_version: "pi.career.assisted_variant_meta.v2",
@@ -765,7 +752,7 @@ test("P3-48 linked assisted artifact stays out of Analyze/Match original authori
     sidecar.base_text_sha256 = value.other.text_sha256;
     const mismatchedBytes = canonical(sidecar);
     await writeFile(sidecarPath, mismatchedBytes);
-    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const headPath = path.join(value.directory, ".pi-career-state-000001.json");
     const head = JSON.parse(await readFile(headPath, "utf8"));
     head.resume_artifact.sidecar_sha256 = hash(mismatchedBytes);
     await writeFile(headPath, canonical(head));
