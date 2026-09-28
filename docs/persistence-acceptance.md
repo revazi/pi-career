@@ -5,7 +5,9 @@ Status: **#60 acceptance-map/fixture work complete; approved scenario contract w
 Approved product specifications: [#51](https://github.com/revazi/pi-career/issues/51), [#52](https://github.com/revazi/pi-career/issues/52), [#53](https://github.com/revazi/pi-career/issues/53).
 Work item: [#60](https://github.com/revazi/pi-career/issues/60).
 
-This document separates approved outcomes from unresolved implementation contracts. It does not supersede the current [workspace protocol](application-workspaces.md) or authorize new persistence. Scenario outcomes originate from Spec 3; test integration is informed by the existing harness afterward.
+> **Superseded application-state design:** Issue #140 replaces every application-state `.v1`/`.v2`, mixed-chain, transition, downgrade, and state-migration rule in this historical ledger with the [single application-state contract](single-application-state.md). The scenario ledger and evidence below remain unchanged only to document the current pre-#141 implementation and its already-reviewed tests. They are not the target contract and must not be used to justify retaining compatibility behavior. Issue #141 will replace that production behavior, fixtures, evidence map, and generated bundle before #54 continues. Identity/config migrations and other independently versioned contracts are unaffected.
+
+This document records the #60 acceptance history and unresolved implementation evidence. It does not authorize new persistence. Current application-state authority comes from [`single-application-state.md`](single-application-state.md); other workspace behavior remains in [`application-workspaces.md`](application-workspaces.md).
 
 ## Acceptance harness
 
