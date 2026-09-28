@@ -17,7 +17,7 @@ import {
   attachedApplicationSourcesForSession,
   selectedOriginalOptions,
 } from "./application-workspace.ts";
-import { openCareerUi, type CareerUiView } from "./career-ui.ts";
+import { openCareerUi, type CareerUiPreviewReference, type CareerUiView } from "./career-ui.ts";
 import { addLibraryRoot, loadConfig, removeLibraryRoot, suggestedGeneratedVariantsRoot, writeConfig } from "./config.ts";
 import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput } from "./core-input.ts";
 import {
@@ -335,6 +335,25 @@ async function loadLibrary(dependencies: WorkflowDependencies): Promise<{
   return { config, scan: await scanLibrary(config) };
 }
 
+function exactReferencedOriginal(
+  scan: LibraryScan,
+  reference: CareerUiPreviewReference,
+): ResumeRecord | undefined {
+  if (reference.source !== "library") return undefined;
+  const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+  if (scan.total_capped || root === undefined || root.capped || root.stale) return undefined;
+  const matches = scan.records.filter((record) => record.kind === "original" &&
+    record.id === reference.id && record.root_id === reference.rootId &&
+    record.text_sha256 === reference.digest && record.format === reference.format &&
+    record.too_large_for_core_input !== true);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function sameOriginal(left: ResumeRecord | undefined, right: ResumeRecord | undefined): boolean {
+  return left !== undefined && right !== undefined && left.id === right.id && left.root_id === right.root_id &&
+    left.text_sha256 === right.text_sha256 && left.format === right.format;
+}
+
 function appendData(
   pi: ExtensionAPI,
   owner: RunOwner,
@@ -599,12 +618,17 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const outcome = await applicationWorkspace.selectAttachedOriginal(ctx);
         return outcome === "written" || outcome === "unchanged";
       },
-      analyze: async () => {
+      analyze: async (reference) => {
+        const rejectSelectedAnalyze = (): never => {
+          ctx.ui.notify(workflowErrorMessage("workspace_drift"), "error");
+          throw workflowError("workspace_drift");
+        };
         const attached = await attachedSources(ctx);
         if (attached !== undefined && attached.selected_original === undefined) {
           ctx.ui.notify("Select an original resume with o before analyzing this attached application.", "warning");
           return false;
         }
+        if (reference !== undefined && reference.source !== "library") rejectSelectedAnalyze();
         const confirmed = await ctx.ui.confirm(
           "Run analyze",
           "Run deterministic resume analysis with Career Core? This does not call a model or attach an application.",
@@ -613,7 +637,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const run = owner.start(ctx);
         const { scan } = await refreshState(ctx);
         let resume: ResumeRecord | undefined = attached?.selected_original;
-        if (resume === undefined) {
+        if (reference !== undefined) {
+          const selected = exactReferencedOriginal(scan, reference);
+          if (selected === undefined || (attached !== undefined && !sameOriginal(resume, selected))) {
+            rejectSelectedAnalyze();
+          }
+          resume = selected;
+        } else if (resume === undefined) {
           const originals = eligibleOriginals(scan);
           if (originals.length === 0) throw workflowError("library_empty");
           if (originals.length === 1) {
