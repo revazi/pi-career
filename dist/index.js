@@ -3009,7 +3009,7 @@ function createApplicationAssistanceActivationEntry(attachment, options) {
 }
 
 // src/workflow/application-workspace.ts
-var ROOT_MARKER_NAME = ".pi-career-applications.json", MANIFEST_NAME = "application.json", IDENTITY_NAME = ".pi-career-identity.json", ROOT_MARKER_SCHEMA = "pi.career.application_root.v1", MANIFEST_SCHEMA = "pi.career.application_manifest.v1", IDENTITY_SCHEMA = "pi.career.application_identity.v1", STATE_SCHEMA_V1 = "pi.career.application_state.v1", STATE_SCHEMA_V2 = "pi.career.application_state.v2", PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1", METADATA_MAX_BYTES = 16384, CONFIG_MAX_BYTES2 = 65536, PREVIEW_MAX_BYTES = 5242880, VACANCY_MAX_BYTES = 262144, ROOT_MAX_ENTRIES = 1024, APPLICATION_MAX_ENTRIES = 160, APPLICATION_MAX_MANAGED_BYTES = 2097152, STATE_MAX_REVISIONS = 64, PATH_MAX_BYTES3 = 4096, BASENAME_MAX_BYTES = 180, CONFIRM_TIMEOUT_MS = 600 * 1e3, UUID3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, SHA2564 = /^[a-f0-9]{64}$/, ISO_UTC3 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/, VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/, COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/, APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/, APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
+var ROOT_MARKER_NAME = ".pi-career-applications.json", MANIFEST_NAME = "application.json", IDENTITY_NAME = ".pi-career-identity.json", ROOT_MARKER_SCHEMA = "pi.career.application_root.v1", MANIFEST_SCHEMA = "pi.career.application_manifest.v1", IDENTITY_SCHEMA = "pi.career.application_identity.v1", STATE_SCHEMA = "pi.career.application_state", PREVIEW_SCHEMA = "pi.career.workspace_mutation_preview.v1", METADATA_MAX_BYTES = 16384, CONFIG_MAX_BYTES2 = 65536, PREVIEW_MAX_BYTES = 5242880, VACANCY_MAX_BYTES = 262144, ROOT_MAX_ENTRIES = 1024, APPLICATION_MAX_ENTRIES = 160, APPLICATION_MAX_MANAGED_BYTES = 2097152, STATE_MAX_REVISIONS = 64, PATH_MAX_BYTES3 = 4096, BASENAME_MAX_BYTES = 180, CONFIRM_TIMEOUT_MS = 600 * 1e3, UUID3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, SHA2564 = /^[a-f0-9]{64}$/, ISO_UTC3 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/, VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/, COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/, APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/, APPLICATION_STATUSES2 = /* @__PURE__ */ new Set(["preparing", "applied", "interviewing", "closed"]);
 function hashBytes2(bytes) {
   return createHash4("sha256").update(bytes).digest("hex");
 }
@@ -3244,9 +3244,7 @@ function parseStateBase(value) {
     };
 }
 function parseState(value) {
-  if (!isRecord7(value)) return;
-  let v1 = value.schema_version === STATE_SCHEMA_V1, v2 = value.schema_version === STATE_SCHEMA_V2;
-  if (!v1 && !v2 || !exactKeys6(value, [
+  if (!isRecord7(value) || value.schema_version !== STATE_SCHEMA || !exactKeys6(value, [
     "schema_version",
     "kind",
     "application_id",
@@ -3256,17 +3254,16 @@ function parseState(value) {
     "vacancy",
     "selected_original",
     "resume_artifact",
-    ...v2 ? ["cover_letter_artifact"] : [],
+    "cover_letter_artifact",
     "updated_at"
   ])) return;
   let base2 = parseStateBase(value);
   if (base2 === void 0) return;
-  if (v1) return { schema_version: STATE_SCHEMA_V1, ...base2 };
   let coverLetter2 = parseCoverLetterArtifact(value.cover_letter_artifact);
   if (coverLetter2 === void 0) return;
   let { updated_at: updatedAt, ...beforeUpdatedAt } = base2;
   return {
-    schema_version: STATE_SCHEMA_V2,
+    schema_version: STATE_SCHEMA,
     ...beforeUpdatedAt,
     cover_letter_artifact: coverLetter2,
     updated_at: updatedAt
@@ -3439,7 +3436,7 @@ async function inspectArtifactReferences(directoryPath, state, referencedFiles) 
   parseApplicationSidecar(sidecarFile.bytes, artifact, state.selected_original);
 }
 function coverLetter(state) {
-  return state?.schema_version === STATE_SCHEMA_V2 ? state.cover_letter_artifact : null;
+  return state?.cover_letter_artifact ?? null;
 }
 function sameCoverLetterIdentity(left, right) {
   return left === null || right === null ? left === right : left.relative_path === right.relative_path && left.artifact_sha256 === right.artifact_sha256 && left.utf8_bytes === right.utf8_bytes && left.format === right.format && left.authority === right.authority;
@@ -3482,20 +3479,9 @@ async function inspectCoverLetterReference(directoryPath, state, previous, refer
 function sameSelectedOriginal(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-function sameResumeArtifact(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function assertVersionAndSourceTransition(state, previous) {
+function assertSourceTransition(state, previous) {
   if (state.resume_artifact !== null && state.selected_original === null) throw workflowError("workspace_drift");
-  if (previous === void 0) {
-    if (state.schema_version === STATE_SCHEMA_V2 && state.cover_letter_artifact !== null)
-      throw workflowError("workspace_drift");
-    return;
-  }
-  if (previous.schema_version === STATE_SCHEMA_V2 && state.schema_version === STATE_SCHEMA_V1)
-    throw workflowError("workspace_drift");
-  if (previous.resume_artifact !== null && !sameSelectedOriginal(previous.selected_original, state.selected_original) && state.resume_artifact !== null) throw workflowError("workspace_drift");
-  if (previous.schema_version === STATE_SCHEMA_V1 && state.schema_version === STATE_SCHEMA_V2 && (state.status !== previous.status || !sameVacancyBinding(state.vacancy, previous.vacancy) || !sameSelectedOriginal(state.selected_original, previous.selected_original) || !sameResumeArtifact(state.resume_artifact, previous.resume_artifact)))
+  if (previous !== void 0 && previous.resume_artifact !== null && !sameSelectedOriginal(previous.selected_original, state.selected_original) && state.resume_artifact !== null)
     throw workflowError("workspace_drift");
 }
 async function inspectStateChain(application, stateNames) {
@@ -3505,7 +3491,7 @@ async function inspectStateChain(application, stateNames) {
     if (stateName2.sequence !== expectedSequence) throw workflowError("workspace_drift");
     let read = await readExactFile(path6.join(application.directoryPath, stateName2.name), parseState), previous = revisions.at(-1)?.state, timestampInvalid = expectedSequence === 1 ? Date.parse(read.value.updated_at) < Date.parse(priorTimestamp) : Date.parse(read.value.updated_at) <= Date.parse(priorTimestamp);
     if (read.value.sequence !== expectedSequence || read.value.application_id !== application.manifest.application_id || read.value.parent_sha256 !== parentHash || timestampInvalid) throw workflowError("workspace_drift");
-    assertVersionAndSourceTransition(read.value, previous), await inspectVacancyReference(application.directoryPath, read.value, previous, referencedFiles), await inspectArtifactReferences(application.directoryPath, read.value, referencedFiles), await inspectCoverLetterReference(application.directoryPath, read.value, previous, referencedFiles), revisions.push({ file: read.file, state: read.value }), parentHash = read.file.sha256, priorTimestamp = read.value.updated_at;
+    assertSourceTransition(read.value, previous), await inspectVacancyReference(application.directoryPath, read.value, previous, referencedFiles), await inspectArtifactReferences(application.directoryPath, read.value, referencedFiles), await inspectCoverLetterReference(application.directoryPath, read.value, previous, referencedFiles), revisions.push({ file: read.file, state: read.value }), parentHash = read.file.sha256, priorTimestamp = read.value.updated_at;
   }
   return { revisions, referencedFiles };
 }
@@ -3601,7 +3587,7 @@ async function inspectRoot(rootPath, options = {}) {
     ...currentApplication === void 0 ? {} : { currentApplication }
   };
 }
-var CATALOG_SCHEMA = "pi.career.application_catalog.v1", APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|transition|state)\.tmp$/;
+var CATALOG_SCHEMA = "pi.career.application_catalog.v1", APPLICATION_TEMP = /^\.pi-career-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-(?:manifest|identity|vacancy|state)\.tmp$/;
 function emptyCatalogProjection() {
   return {
     schema_version: CATALOG_SCHEMA,
@@ -3680,8 +3666,8 @@ async function candidateHasUnsupportedSchema(candidate, entries, stateNames) {
     if (await hasUnsupportedSchema(
       path6.join(candidate.directoryPath, stateNameValue),
       "application_state_revision",
-      "pi.career.application_state.v",
-      [STATE_SCHEMA_V1, STATE_SCHEMA_V2],
+      "",
+      STATE_SCHEMA,
       manifest.application_id,
       { sequence: Number(stateNameValue.match(STATE_BASENAME)[1]) }
     )) return !0;
@@ -3803,7 +3789,7 @@ function catalogReadiness(inspected, scan) {
     vacancy: inspected.head.vacancy === null ? null : { content_sha256: inspected.head.vacancy.content_sha256 },
     selected_original: inspected.head.selected_original,
     resume_artifact: inspected.head.resume_artifact === null ? null : { artifact_sha256: inspected.head.resume_artifact.artifact_sha256 },
-    cover_letter_artifact: inspected.head.schema_version === STATE_SCHEMA_V2 ? inspected.head.cover_letter_artifact : null
+    cover_letter_artifact: inspected.head.cover_letter_artifact
   }, {
     vacancy: "valid",
     resume_artifact: "valid",
@@ -3973,7 +3959,7 @@ async function loadAttachedApplicationSources(agentDir, attachment) {
     vacancy: application.head.vacancy === null ? null : { content_sha256: application.head.vacancy.content_sha256 },
     selected_original: selected,
     resume_artifact: application.head.resume_artifact === null ? null : { artifact_sha256: application.head.resume_artifact.artifact_sha256 },
-    cover_letter_artifact: application.head.schema_version === STATE_SCHEMA_V2 ? application.head.cover_letter_artifact : null
+    cover_letter_artifact: application.head.cover_letter_artifact
   }, {
     vacancy: "valid",
     resume_artifact: "valid",
@@ -4352,55 +4338,15 @@ function assertApplicationCapacity(application, additions, revisionAdditions = 1
   if (entryCount > APPLICATION_MAX_ENTRIES || byteCount > APPLICATION_MAX_MANAGED_BYTES || application.revisions.length + revisionAdditions > STATE_MAX_REVISIONS)
     throw workflowError("workspace_limit_reached");
 }
-function transitionTimestamp(headUpdatedAt, finalUpdatedAt) {
-  let value = Date.parse(headUpdatedAt) + 1;
-  if (!Number.isSafeInteger(value) || !validTimestamp(finalUpdatedAt) || value >= Date.parse(finalUpdatedAt))
-    throw workflowError("workspace_unavailable");
-  return new Date(value).toISOString();
-}
-function transitionToStateV2(head, parentSha256, updatedAt) {
-  return {
-    schema_version: STATE_SCHEMA_V2,
-    kind: "application_state_revision",
-    application_id: head.application_id,
-    sequence: head.sequence + 1,
-    parent_sha256: parentSha256,
-    status: head.status,
-    vacancy: head.vacancy,
-    selected_original: head.selected_original,
-    resume_artifact: head.resume_artifact,
-    cover_letter_artifact: null,
-    updated_at: updatedAt
-  };
-}
-function prepareV2Mutation(application, mutationId, createdAt) {
+function prepareStateMutation(application, createdAt) {
   if (!validTimestamp(createdAt) || Date.parse(createdAt) <= Date.parse(application.head.updated_at))
     throw workflowError("workspace_unavailable");
-  if (application.head.schema_version === STATE_SCHEMA_V2)
-    return {
-      createdAt,
-      sequence: application.head.sequence + 1,
-      parentSha256: application.headFile.sha256,
-      coverLetterArtifact: application.head.cover_letter_artifact,
-      transitionFiles: [],
-      revisionAdditions: 1
-    };
-  let transition = transitionToStateV2(
-    application.head,
-    application.headFile.sha256,
-    transitionTimestamp(application.head.updated_at, createdAt)
-  ), bytes = stateBytes(transition);
   return {
     createdAt,
-    sequence: transition.sequence + 1,
-    parentSha256: hashBytes2(bytes),
-    coverLetterArtifact: null,
-    transitionFiles: [{
-      final: path6.join(application.directoryPath, stateName(transition.sequence)),
-      temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-transition.tmp`),
-      bytes
-    }],
-    revisionAdditions: 2
+    sequence: application.head.sequence + 1,
+    parentSha256: application.headFile.sha256,
+    coverLetterArtifact: application.head.cover_letter_artifact,
+    revisionAdditions: 1
   };
 }
 function freshRecord(scan, record) {
@@ -4437,10 +4383,10 @@ function selectedOriginalBinding(record) {
   };
 }
 function prepareSelectedOriginalRevision(options, application, applicationId, binding) {
-  let mutationId = options.uuid().toLowerCase(), prepared = prepareV2Mutation(application, mutationId, options.now().toISOString()), { createdAt, sequence } = prepared;
+  let mutationId = options.uuid().toLowerCase(), prepared = prepareStateMutation(application, options.now().toISOString()), { createdAt, sequence } = prepared;
   if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
   let state = {
-    schema_version: STATE_SCHEMA_V2,
+    schema_version: STATE_SCHEMA,
     kind: "application_state_revision",
     application_id: applicationId,
     sequence,
@@ -4458,7 +4404,6 @@ function prepareSelectedOriginalRevision(options, application, applicationId, bi
     sequence,
     stateBuffer,
     files: [
-      ...prepared.transitionFiles,
       {
         final: path6.join(application.directoryPath, stateName(sequence)),
         temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
@@ -4587,10 +4532,10 @@ var ApplicationWorkspaceWorkflow = class {
     let current = application.head.vacancy;
     if (text === null ? current === null : current !== null && nextBytes !== void 0 && current.content_sha256 === hashBytes2(nextBytes) && current.utf8_bytes === nextBytes.length)
       return ctx.ui.notify("Workspace vacancy already matches this input; no revision was added.", "info"), "unchanged";
-    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString()), { createdAt, sequence } = prepared;
+    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareStateMutation(application, this.options.now().toISOString()), { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     let vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`, nextVacancy = text === null || nextBytes === void 0 ? null : vacancyBindingFromBytes(vacancyName, nextBytes, this.options.uuid().toLowerCase()), state = {
-      schema_version: STATE_SCHEMA_V2,
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: application.manifest.application_id,
       sequence,
@@ -4609,7 +4554,6 @@ var ApplicationWorkspaceWorkflow = class {
       mutationId,
       createdAt,
       [
-        ...prepared.transitionFiles,
         ...nextBytes === void 0 ? [] : [{
           final: path6.join(application.directoryPath, vacancyName),
           temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`),
@@ -4660,10 +4604,10 @@ var ApplicationWorkspaceWorkflow = class {
     let mutation = await this.attachedMutation(ctx), { application } = mutation;
     if (application.head.status === status)
       return ctx.ui.notify("Workspace status already matches this input; no revision was added.", "info"), "unchanged";
-    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString()), { createdAt, sequence } = prepared;
+    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareStateMutation(application, this.options.now().toISOString()), { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     let state = {
-      schema_version: STATE_SCHEMA_V2,
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: application.manifest.application_id,
       sequence,
@@ -4682,7 +4626,6 @@ var ApplicationWorkspaceWorkflow = class {
       mutationId,
       createdAt,
       [
-        ...prepared.transitionFiles,
         {
           final: path6.join(application.directoryPath, stateName(sequence)),
           temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
@@ -5236,7 +5179,7 @@ var ApplicationWorkspaceWorkflow = class {
       application_created_at: identity2.identity.created_at,
       workspace_created_at: createdAt
     }, manifestBytes = canonicalJson(manifest), identityBytes = applicationIdentityBytes(identity2.identity, manifest), currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id), vacancyName = "vacancy.md", state = {
-      schema_version: STATE_SCHEMA_V1,
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: identity2.identity.application_id,
       sequence: 1,
@@ -5245,6 +5188,7 @@ var ApplicationWorkspaceWorkflow = class {
       vacancy: currentVacancyBytes === void 0 || identity2.vacancy === void 0 ? null : vacancyBinding(vacancyName, currentVacancyBytes, identity2.vacancy),
       selected_original: null,
       resume_artifact: null,
+      cover_letter_artifact: null,
       updated_at: createdAt
     }, stateFile = path6.join(directoryPath, stateName(1)), manifestFile = path6.join(directoryPath, MANIFEST_NAME), identityFile = path6.join(directoryPath, IDENTITY_NAME), vacancyFile = path6.join(directoryPath, vacancyName), stateBuffer = stateBytes(state), persistentCount = 3 + (currentVacancyBytes === void 0 ? 0 : 1), managedBytes = manifestBytes.length + identityBytes.length + stateBuffer.length + (currentVacancyBytes?.length ?? 0);
     if (persistentCount > APPLICATION_MAX_ENTRIES || managedBytes > APPLICATION_MAX_MANAGED_BYTES)
@@ -5342,10 +5286,10 @@ var ApplicationWorkspaceWorkflow = class {
       ctx.ui.notify("Workspace status and vacancy already match this session; no revision was added.", "info");
       return;
     }
-    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareV2Mutation(application, mutationId, this.options.now().toISOString()), { createdAt, sequence } = prepared;
+    let mutationId = this.options.uuid().toLowerCase(), prepared = prepareStateMutation(application, this.options.now().toISOString()), { createdAt, sequence } = prepared;
     if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
     let currentVacancyBytes = vacancyBytes(identity2.vacancy, identity2.identity.application_id), vacancyChanged = !sameSessionVacancy(application.head, identity2.vacancy), vacancyName = `vacancy-${String(sequence).padStart(6, "0")}.md`, vacancyFile = path6.join(application.directoryPath, vacancyName), nextVacancy = identity2.vacancy === void 0 ? null : vacancyChanged && currentVacancyBytes !== void 0 ? vacancyBinding(vacancyName, currentVacancyBytes, identity2.vacancy) : application.head.vacancy, state = {
-      schema_version: STATE_SCHEMA_V2,
+      schema_version: STATE_SCHEMA,
       kind: "application_state_revision",
       application_id: identity2.identity.application_id,
       sequence,
@@ -5357,7 +5301,6 @@ var ApplicationWorkspaceWorkflow = class {
       cover_letter_artifact: prepared.coverLetterArtifact,
       updated_at: createdAt
     }, stateBuffer = stateBytes(state), files = [
-      ...prepared.transitionFiles,
       ...vacancyChanged && currentVacancyBytes !== void 0 ? [{ final: vacancyFile, temp: path6.join(application.directoryPath, `.pi-career-${mutationId}-vacancy.tmp`), bytes: currentVacancyBytes }] : [],
       {
         final: path6.join(application.directoryPath, stateName(sequence)),

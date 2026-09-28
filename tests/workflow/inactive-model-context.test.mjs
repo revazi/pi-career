@@ -408,9 +408,9 @@ async function fixture(t, trap, spec) {
   await privateFile(identityPath, identityBytes);
   assert.deepEqual(await readFile(identityPath), identityBytes);
   await privateJson(path.join(catalogDir, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: applicationId, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
+    vacancy: null, selected_original: null, resume_artifact: null, cover_letter_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
   const coreTrap = path.join(base, "core-trap");
   await privateFile(coreTrap, Buffer.from("#!/bin/sh\ntouch \"$(dirname \"$0\")/core-was-invoked\"\nexit 97\n"));

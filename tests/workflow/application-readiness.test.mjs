@@ -11,7 +11,7 @@ import {
   makeVacancyBinding,
   packageCompletenessFixtures,
   sourceAuthorityFixtures,
-} from "./fixtures/persistence-v2.mjs";
+} from "./fixtures/persistence-state.mjs";
 
 function record(overrides = {}) {
   const selected = makeSelectedOriginal();

@@ -114,7 +114,7 @@ async function fixture() {
     role_label: "Synthetic Reviewer", created_at: APPLICATION_CREATED_AT,
   });
   const state = canonical({
-    schema_version: "pi.career.application_state.v2", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
     vacancy: {
       relative_path: "vacancy.md", content_sha256: hash(HISTORICAL_VACANCY),
@@ -225,7 +225,7 @@ test("P3-40 artifact-published state-absent fault leaves a non-authoritative orp
     ]);
     assert.equal(previews[0].creates[0].sha256, hash(ORPHAN_VACANCY));
     const absentState = canonical({
-      schema_version: "pi.career.application_state.v2", kind: "application_state_revision",
+      schema_version: "pi.career.application_state", kind: "application_state_revision",
       application_id: APPLICATION_ID, sequence: 2, parent_sha256: hash(value.state), status: "preparing",
       vacancy: {
         relative_path: "vacancy-000002.md", content_sha256: hash(ORPHAN_VACANCY),

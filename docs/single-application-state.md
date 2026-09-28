@@ -8,7 +8,7 @@ This contract replaces application-state schema versioning with one exact pi-car
 pi.career.application_state
 ```
 
-Issue #140 approves this contract only. Issue #141 owns production, fixture, generated-bundle, and documentation convergence. Until #141 is merged, source and historical acceptance evidence may still describe the superseded `.v1`/`.v2` implementation.
+Issue #140 approved this contract. Issue #141 implements production, fixture, generated-bundle, and documentation convergence.
 
 There is no application-state schema migration or compatibility path. Files whose `schema_version` is `pi.career.application_state.v1`, `pi.career.application_state.v2`, or any other value are unsupported and fail closed. They are never rewritten, adopted, interpreted as a compatible prefix, or exposed as current state.
 

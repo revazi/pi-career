@@ -266,9 +266,9 @@ async function fixture(t) {
     role_label: "Synthetic Engineer", created_at: APPLICATION_CREATED_AT,
   });
   await privateJson(path.join(applicationDir, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: APPLICATION_ID, sequence: 1, parent_sha256: hash(manifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: WORKSPACE_CREATED_AT,
+    vacancy: null, selected_original: null, resume_artifact: null, cover_letter_artifact: null, updated_at: WORKSPACE_CREATED_AT,
   });
   const ptyHelper = path.join(base, "pty-helper.py");
   await writeFile(ptyHelper, `import fcntl, os, select, signal, struct, subprocess, sys, termios

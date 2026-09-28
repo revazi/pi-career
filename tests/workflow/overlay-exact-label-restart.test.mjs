@@ -12,7 +12,7 @@ import { CAREER_UI_RPC_ACTIONS, buildCareerUiModel } from "../../src/workflow/ca
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { configPath, rootId } from "../../src/workflow/config.ts";
 import { reconstructWorkflowState } from "../../src/workflow/session-state.ts";
-import { canonicalJson } from "./fixtures/persistence-v2.mjs";
+import { canonicalJson } from "./fixtures/persistence-state.mjs";
 import { makeContext, makeFakePi, prepareConfigDirectory } from "./helpers.mjs";
 
 const ROOT_ID = "00000000-0000-4000-8000-000000000061";
@@ -104,7 +104,7 @@ async function writePackage(root, {
   });
   await privateFile(path.join(directory, ".pi-career-identity.json"), identity);
   await privateFile(path.join(directory, ".pi-career-state-000001.json"), canonicalJson({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: id,
     sequence: 1,
@@ -113,6 +113,7 @@ async function writePackage(root, {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: updatedAt,
   }));
   assert.equal((await lstat(directory)).mode & 0o777, 0o700);

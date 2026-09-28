@@ -65,7 +65,7 @@ async function writeApplication(root, { applicationId, company, role, applicatio
     created_at: applicationCreatedAt,
   });
   await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: applicationId,
     sequence: 1,
@@ -74,6 +74,7 @@ async function writeApplication(root, { applicationId, company, role, applicatio
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: workspaceCreatedAt,
   });
 }

@@ -261,12 +261,9 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const transition = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000002.json")));
-    assert.equal(transition.schema_version, "pi.career.application_state.v2");
-    assert.equal(transition.selected_original, null);
-    assert.equal(transition.cover_letter_artifact, null);
-    const selectedState = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000003.json")));
-    assert.equal(selectedState.schema_version, "pi.career.application_state.v2");
+    const selectedState = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000002.json")));
+    assert.equal(selectedState.schema_version, "pi.career.application_state");
+    assert.equal(selectedState.cover_letter_artifact, null);
     assert.equal(selectedState.selected_original.library_root_id, rootId(value.library));
     assert.equal(selectedState.selected_original.format, "markdown");
     assert.equal(selectedState.vacancy.relative_path, "vacancy.md");
@@ -288,11 +285,11 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Record current status and vacancy"],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const state4 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000004.json"), "utf8"));
-    assert.equal(state4.status, "applied");
-    assert.equal(state4.vacancy.relative_path, "vacancy-000004.md");
-    assert.equal(state4.selected_original.document_id, selectedState.selected_original.document_id);
-    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000004.md"), "utf8"), "Replacement synthetic vacancy");
+    const state3 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000003.json"), "utf8"));
+    assert.equal(state3.status, "applied");
+    assert.equal(state3.vacancy.relative_path, "vacancy-000003.md");
+    assert.equal(state3.selected_original.document_id, selectedState.selected_original.document_id);
+    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000003.md"), "utf8"), "Replacement synthetic vacancy");
     assert.equal(await readFile(path.join(applicationDirectory, "vacancy.md"), "utf8"), "Synthetic vacancy bytes");
 
     value.fake.entries.push(sessionEntry(createVacancyClearEntry(updatedVacancy, {
@@ -303,9 +300,9 @@ test("initialization, selected-original binding, status/vacancy revision, status
       selects: ["Record current status and vacancy"],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const state5 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000005.json"), "utf8"));
-    assert.equal(state5.vacancy, null);
-    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000004.md"), "utf8"), "Replacement synthetic vacancy");
+    const state4 = JSON.parse(await readFile(path.join(applicationDirectory, ".pi-career-state-000004.json"), "utf8"));
+    assert.equal(state4.vacancy, null);
+    assert.equal(await readFile(path.join(applicationDirectory, "vacancy-000003.md"), "utf8"), "Replacement synthetic vacancy");
 
     const beforeStatus = (await readdir(applicationDirectory)).sort();
     const status = await runWorkspace(value.fake, { selects: ["Status and reconcile"] });
@@ -476,13 +473,10 @@ test("#63 explicitly migrates only an exactly matched legacy identity after prev
       selects: ["Record current status and vacancy"],
       editors: [(_title, preview) => preview], confirms: [true],
     });
-    const transition = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000002.json"), "utf8"));
-    const changed = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000003.json"), "utf8"));
-    assert.equal(transition.schema_version, "pi.career.application_state.v2");
-    assert.equal(transition.status, "preparing");
-    assert.equal(transition.cover_letter_artifact, null);
-    assert.equal(changed.schema_version, "pi.career.application_state.v2");
+    const changed = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000002.json"), "utf8"));
+    assert.equal(changed.schema_version, "pi.career.application_state");
     assert.equal(changed.status, "applied");
+    assert.equal(changed.cover_letter_artifact, null);
     assert.deepEqual(await readFile(identityFile), identityBytes);
     assert.deepEqual(await Promise.all(existingNames.map((name) => readFile(path.join(directory, name)))), existingBytes);
   } finally {
@@ -581,7 +575,7 @@ test("persisted identity label drift blocks attachment without rewriting private
   }
 });
 
-test("P3-08: repeated reconciliation preserves every existing v1 workspace byte and session entry", async () => {
+test("P3-08: repeated reconciliation preserves every existing canonical workspace byte and session entry", async () => {
   const value = await workspaceFixture();
   try {
     await runWorkspace(value.fake, {
@@ -600,7 +594,7 @@ test("P3-08: repeated reconciliation preserves every existing v1 workspace byte 
     const before = await Promise.all(files.map((file) => readFile(file)));
     const entriesBefore = structuredClone(value.fake.entries);
     const state = JSON.parse(await readFile(path.join(directory, ".pi-career-state-000001.json"), "utf8"));
-    assert.equal(state.schema_version, "pi.career.application_state.v1");
+    assert.equal(state.schema_version, "pi.career.application_state");
 
     for (let repeat = 0; repeat < 2; repeat += 1) {
       const context = await runWorkspace(value.fake, {
@@ -1244,11 +1238,9 @@ test("unrelated application state drift does not deny current status, mutation, 
       value.root,
       `synthetic-company--platform-engineer--${value.identity.application_id}`,
     );
-    const transition = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000002.json"), "utf8"));
-    assert.equal(transition.status, "preparing");
-    assert.equal(transition.schema_version, "pi.career.application_state.v2");
-    const state3 = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000003.json"), "utf8"));
-    assert.equal(state3.status, "applied");
+    const state2 = JSON.parse(await readFile(path.join(currentDirectory, ".pi-career-state-000002.json"), "utf8"));
+    assert.equal(state2.status, "applied");
+    assert.equal(state2.schema_version, "pi.career.application_state");
     assert.deepEqual(await readFile(driftedState), driftedBytes);
   } finally {
     await rm(value.temp, { recursive: true, force: true });

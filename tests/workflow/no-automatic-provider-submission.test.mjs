@@ -408,9 +408,9 @@ async function fixture(t, trap) {
     role_label: CATALOG_ROLE, created_at: CATALOG_CREATED_AT,
   });
   await privateJson(path.join(catalogDir, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: CATALOG_ID, sequence: 1, parent_sha256: hash(catalogManifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: CATALOG_WORKSPACE_AT,
+    vacancy: null, selected_original: null, resume_artifact: null, cover_letter_artifact: null, updated_at: CATALOG_WORKSPACE_AT,
   });
   const legacyDir = path.join(workspaceRoot, `synthetic-legacy-co--synthetic-legacy-role--${LEGACY_ID}`);
   await mkdir(legacyDir, { mode: 0o700 });
@@ -422,9 +422,9 @@ async function fixture(t, trap) {
   });
   await privateFile(path.join(legacyDir, "application.json"), legacyManifest);
   await privateJson(path.join(legacyDir, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: LEGACY_ID, sequence: 1, parent_sha256: hash(legacyManifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: LEGACY_UPDATED_AT,
+    vacancy: null, selected_original: null, resume_artifact: null, cover_letter_artifact: null, updated_at: LEGACY_UPDATED_AT,
   });
   const legacyIdentity = canonical({
     schema_version: "pi.career.application_identity.v1", kind: "application_identity",
@@ -804,29 +804,22 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
   assert.deepEqual(live.operations.slice(6, 9), ["record_state", "record_state", "record_state"]);
   const state1 = await readFile(path.join(createdDir, ".pi-career-state-000001.json"));
   const state2 = await readFile(path.join(createdDir, ".pi-career-state-000002.json"));
-  const state3 = await readFile(path.join(createdDir, ".pi-career-state-000003.json"));
   const parsed2 = JSON.parse(state2.toString("utf8"));
-  const parsed3 = JSON.parse(state3.toString("utf8"));
-  assert.equal(parsed2.schema_version, "pi.career.application_state.v2");
+  assert.equal(parsed2.schema_version, "pi.career.application_state");
   assert.equal(parsed2.sequence, 2);
-  assert.equal(parsed2.status, "preparing");
+  assert.equal(parsed2.status, "applied");
   assert.equal(parsed2.parent_sha256, hash(state1));
+  assert.equal(parsed2.vacancy, null);
+  assert.equal(parsed2.selected_original, null);
+  assert.equal(parsed2.resume_artifact, null);
   assert.equal(parsed2.cover_letter_artifact, null);
-  assert.equal(parsed3.schema_version, "pi.career.application_state.v2");
-  assert.equal(parsed3.sequence, 3);
-  assert.equal(parsed3.status, "applied");
-  assert.equal(parsed3.parent_sha256, hash(state2));
-  assert.equal(parsed3.vacancy, null);
-  assert.equal(parsed3.selected_original, null);
-  assert.equal(parsed3.resume_artifact, null);
-  assert.equal(parsed3.cover_letter_artifact, null);
-  assert.deepEqual(Object.keys(parsed3), [
+  assert.deepEqual(Object.keys(parsed2), [
     "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
     "vacancy", "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
   ]);
   assert.deepEqual((await readdir(createdDir)).sort(), [
     ".pi-career-identity.json", ".pi-career-state-000001.json", ".pi-career-state-000002.json",
-    ".pi-career-state-000003.json", "application.json",
+    "application.json",
   ]);
   assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries).map((entry) => entry.data?.kind), [
     "application", "application_attachment",
@@ -845,15 +838,15 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
   ]);
   assert.equal(selected.some((request) => request.method === "notify" && String(request.message).includes("no original bytes were copied or changed")), true);
   assert.deepEqual(live.operations.slice(9), ["select_original"]);
-  const state4 = JSON.parse(await readFile(path.join(createdDir, ".pi-career-state-000004.json"), "utf8"));
-  assert.equal(state4.sequence, 4);
-  assert.equal(state4.status, "applied");
-  assert.equal(state4.parent_sha256, hash(state3));
-  assert.equal(state4.selected_original.text_sha256, hash(item.document));
-  assert.equal(state4.selected_original.format, "markdown");
-  assert.equal(state4.selected_original.library_root_id, hash(item.libraryRoot));
-  assert.equal(state4.selected_original.document_id, hash(await realpath(item.documentPath)));
-  assert.equal(state4.resume_artifact, null);
+  const state3 = JSON.parse(await readFile(path.join(createdDir, ".pi-career-state-000003.json"), "utf8"));
+  assert.equal(state3.sequence, 3);
+  assert.equal(state3.status, "applied");
+  assert.equal(state3.parent_sha256, hash(state2));
+  assert.equal(state3.selected_original.text_sha256, hash(item.document));
+  assert.equal(state3.selected_original.format, "markdown");
+  assert.equal(state3.selected_original.library_root_id, hash(item.libraryRoot));
+  assert.equal(state3.selected_original.document_id, hash(await realpath(item.documentPath)));
+  assert.equal(state3.resume_artifact, null);
   assert.deepEqual(await treeSnapshot(item.libraryRoot), before.library);
   assert.deepEqual(await treeSnapshot(item.catalogDir), before.catalog);
   assert.deepEqual(await treeSnapshot(path.join(item.agentDir, "career")), before.config);

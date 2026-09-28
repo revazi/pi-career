@@ -116,7 +116,7 @@ async function fixture(prefix = "pi-career-legacy-overlay-") {
     created_at: STATE_UPDATED_AT,
   });
   const state = canonical({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -135,6 +135,7 @@ async function fixture(prefix = "pi-career-legacy-overlay-") {
       sidecar_relative_path: "resume.pi-career.json",
       sidecar_sha256: hash(sidecar),
     },
+    cover_letter_artifact: null,
     updated_at: STATE_UPDATED_AT,
   });
   for (const [name, bytes] of [
@@ -245,7 +246,7 @@ test("P3-12 legacy Applications migration cancellation and post-preview byte rac
   }
 });
 
-test("P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes", async () => {
+test("P3-13/P3-14/P3-47 registered identity migration writes only canonical identity and preserves state bytes", async () => {
   const value = await fixture();
   try {
     const before = await snapshot(value.temp);
