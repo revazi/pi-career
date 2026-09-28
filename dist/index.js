@@ -7357,8 +7357,61 @@ function emptyCursors() {
 function viewTitle(view) {
   return `Career • ${CAREER_UI_VIEW_LABELS[view]}`;
 }
+var LIBRARY_NOTICE_LABELS = {
+  root_stale: "root unavailable or changed",
+  root_file_cap_reached: "root scan capped",
+  total_file_cap_reached: "library scan capped",
+  raw_file_too_large: "file exceeds scan limit",
+  pdf_text_unavailable: "PDF text unavailable",
+  invalid_utf8: "text encoding unreadable",
+  invalid_assisted_sidecar: "assisted metadata quarantined",
+  scan_entry_unavailable: "entry unavailable"
+};
+function currentAnalysis(record, cards) {
+  let card = [...cards].reverse().find((entry) => entry.workflow === "analyze" && entry.resume_id === record.id && entry.input_digests.resume_text_sha256 === record.text_sha256);
+  return card === void 0 ? "Analysis: Not analyzed in this session." : `Analysis:
+${plainResultCard(card)}`;
+}
+function buildCareerLibraryPane(scan, cards = []) {
+  let rootById = new Map(scan.roots.map((root) => [root.root_id, root])), records = scan.records.map((record) => {
+    let authority = record.kind === "original" ? "Original" : "Assisted variant", badges2 = [
+      record.kind === "original" ? "Original" : "assisted variant",
+      record.format,
+      ...record.kind === "assisted_variant" ? ["non-authoritative"] : [],
+      ...record.too_large_for_core_input === !0 ? ["too large"] : []
+    ].join(" • "), root = rootById.get(record.root_id), notices2 = [...new Set(scan.warnings.filter((warning) => warning.root_id === record.root_id && (warning.relative_path === void 0 || warning.relative_path === record.relative_path)).map((warning) => LIBRARY_NOTICE_LABELS[warning.code]))], availability = record.too_large_for_core_input === !0 ? "Unavailable — too large for deterministic analysis" : root === void 0 ? "Unavailable — root status missing" : root.stale ? "Unavailable — root changed or missing" : root.capped ? "Unavailable — root scan capped" : scan.total_capped ? "Unavailable — library scan capped" : "Available — indexed locally", row = item(
+      record.id,
+      `${record.label} — ${badges2}`,
+      `${record.label}
+Authority: ${authority}${record.kind === "assisted_variant" ? " (non-authoritative; cannot be analyzed as an original)" : " (eligible only while available and within limits)"}
+Format: ${record.format}
+Availability: ${availability}
+${currentAnalysis(record, cards)}
+${notices2.length ? `Scan notices: ${notices2.join(", ")}
+` : ""}Overlay browse does not analyze or attach this resume.`
+    );
+    return row.libraryRootId = record.root_id, record.kind === "original" && record.too_large_for_core_input !== !0 && root !== void 0 && !root.stale && !root.capped && !scan.total_capped ? (row.preview = resumePreview("library", record), row.detail += `
+Actions: g run deterministic Analyze; x remove this resume root (confirmation required).`) : row.detail += `
+This resume is unavailable for Analyze; choose an available, within-limit Original.`, row;
+  }), notices = scan.warnings.map((warning, index) => {
+    let label = LIBRARY_NOTICE_LABELS[warning.code], row = item(
+      `notice:${index}`,
+      `Library notice — ${label}`,
+      `Library scan notice
+Authority: Quarantined or unavailable; never an Original.
+Availability: Unavailable
+Reason: ${label}
+Recovery: inspect the configured root, then run an explicit rescan.`
+    );
+    return row.libraryRootId = warning.root_id, row;
+  });
+  return {
+    intro: scan.records.length === 0 ? `No indexed resumes. Press n to add a root, r to rescan.${scan.total_capped ? " Library scan capped." : ""}${scan.warnings.length > 0 ? ` ${scan.warnings.length} scan notice(s) available below.` : ""}` : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Originals and assisted variants are explicitly labeled.${scan.total_capped ? " Library scan capped." : ""}${scan.warnings.length > 0 ? ` ${scan.warnings.length} scan notice(s) available below.` : ""}`,
+    items: [...records, ...notices]
+  };
+}
 async function buildCareerUiModel(agentDir, ctx) {
-  let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, empty = {
+  let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, branch = ctx.sessionManager.getBranch(), state = reconstructWorkflowState(branch), empty = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
     applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
@@ -7380,23 +7433,7 @@ Press n to add a resume root.` : setupSummary(config, scan, persisted3),
 ${privacyDisplayPath(root.path)}
 Indexed resumes stay local. Opening a root does not call Core.`
       ))
-    }, empty.library = {
-      intro: scan.records.length === 0 ? "No indexed resumes. Press n to add a root, r to rescan." : `${scan.records.length} indexed resume${scan.records.length === 1 ? "" : "s"}. Assisted variants are not originals.`,
-      items: scan.records.map((record) => {
-        let badges2 = [
-          record.format,
-          ...record.kind === "assisted_variant" ? ["assisted variant"] : [],
-          ...record.too_large_for_core_input === !0 ? ["too large"] : []
-        ].join(" • "), row = item(
-          record.id,
-          `${record.label} — ${badges2}`,
-          `${record.label}
-${badges2}
-Overlay browse does not analyze or attach this resume.`
-        );
-        return record.kind === "original" && record.too_large_for_core_input !== !0 && (row.preview = resumePreview("library", record)), row;
-      })
-    }, config.application_workspace !== null) {
+    }, empty.library = buildCareerLibraryPane(scan, state.result_cards), config.application_workspace !== null) {
       let catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
         intro: catalog.length === 0 ? "No applications yet. Press c to create one in this workspace; creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
@@ -7475,7 +7512,7 @@ Opening this view does not mutate files or attach another application.`)]
   } catch {
     empty.vacancy = unavailablePane(), empty.match = unavailablePane(), empty.analyze = unavailablePane();
   }
-  let branch = ctx.sessionManager.getBranch(), state = reconstructWorkflowState(branch), sessionIdentity2;
+  let sessionIdentity2;
   try {
     sessionIdentity2 = workspaceApplicationIdentity(branch);
   } catch {
@@ -7530,7 +7567,7 @@ var CareerUiSession = class {
   previewFailed = !1;
   previewGeneration = 0;
   busyFlag = !1;
-  cancellableOperation = !1;
+  activity;
   cancellationRequested = !1;
   filterText = "";
   applicationCatalog;
@@ -7567,7 +7604,11 @@ var CareerUiSession = class {
     return this.busyFlag;
   }
   get operationActive() {
-    return this.busyFlag && this.cancellableOperation;
+    return this.busyFlag && this.activity !== void 0;
+  }
+  get operationLabel() {
+    if (this.operationActive)
+      return this.activity === "library" ? this.cancellationRequested ? "Cancelling Resume library rescan…" : "Rescanning Resume library locally…" : this.cancellationRequested ? "Cancelling deterministic Career Core action…" : "Running deterministic Career Core action…";
   }
   get operationCancelling() {
     return this.operationActive && this.cancellationRequested;
@@ -7607,7 +7648,7 @@ var CareerUiSession = class {
     return (this.current === "setup" || this.current === "library") && this.actions.addRoot !== void 0 && !this.busyFlag;
   }
   get canRemoveRoot() {
-    return this.current === "setup" && this.selected !== void 0 && this.actions.removeRoot !== void 0 && !this.busyFlag;
+    return (this.current === "setup" || this.current === "library") && this.selected !== void 0 && (this.current !== "library" || this.selected.libraryRootId !== void 0) && this.actions.removeRoot !== void 0 && !this.busyFlag;
   }
   get canRescan() {
     return (this.current === "setup" || this.current === "library") && this.actions.rescan !== void 0 && !this.busyFlag;
@@ -7616,7 +7657,8 @@ var CareerUiSession = class {
     return this.current === "applications" && this.actions.createApplication !== void 0 && !this.busyFlag;
   }
   get canAnalyze() {
-    return this.current === "analyze" && this.actions.analyze !== void 0 && !this.busyFlag;
+    let libraryOriginal = this.current === "library" && this.selected?.preview?.source === "library";
+    return (this.current === "analyze" || libraryOriginal) && this.actions.analyze !== void 0 && !this.busyFlag;
   }
   get canMatch() {
     return this.current === "match" && this.actions.match !== void 0 && !this.busyFlag;
@@ -7688,16 +7730,21 @@ var CareerUiSession = class {
   back() {
     return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview(), "list") : "close";
   }
-  async runBound(enabled, operation, cancellable = !1) {
+  async runBound(enabled, operation, activity) {
     if (!enabled || this.busyFlag) return !1;
-    this.busyFlag = !0, this.cancellableOperation = cancellable, this.cancellationRequested = !1;
+    this.busyFlag = !0, this.activity = activity, this.cancellationRequested = !1;
     try {
       let ok = await operation();
-      return ok === !0 && this.reloadModel !== void 0 && (this.model = await this.reloadModel(), this.applicationCatalog = [...this.model.applications.items], this.applicationIntro = this.model.applications.intro, this.applyApplicationFilter()), ok === !0;
+      if (ok === !0 && this.reloadModel !== void 0) {
+        let model = await this.reloadModel();
+        if (this.activity === "library" && this.cancellationRequested) return !1;
+        this.model = model, this.applicationCatalog = [...this.model.applications.items], this.applicationIntro = this.model.applications.intro, this.applyApplicationFilter();
+      }
+      return ok === !0 && (this.activity !== "library" || !this.cancellationRequested);
     } catch (error) {
       return error instanceof CareerWorkflowError || this.onFailure?.(error), !1;
     } finally {
-      this.busyFlag = !1, this.cancellableOperation = !1, this.cancellationRequested = !1;
+      this.busyFlag = !1, this.activity = void 0, this.cancellationRequested = !1;
     }
   }
   async openPreview() {
@@ -7737,12 +7784,12 @@ var CareerUiSession = class {
     return action === void 0 ? !1 : this.runBound(this.canAddRoot, action);
   }
   async removeRoot() {
-    let action = this.actions.removeRoot, id = this.selected?.id;
+    let action = this.actions.removeRoot, selected = this.selected, id = this.current === "library" ? selected?.libraryRootId : selected?.id;
     return action === void 0 || id === void 0 ? !1 : this.runBound(this.canRemoveRoot, () => action(id));
   }
   async rescan() {
     let action = this.actions.rescan;
-    return action === void 0 ? !1 : this.runBound(this.canRescan, action);
+    return action === void 0 ? !1 : this.runBound(this.canRescan, action, "library");
   }
   async createApplication() {
     let action = this.actions.createApplication;
@@ -7750,11 +7797,13 @@ var CareerUiSession = class {
   }
   async analyze() {
     let action = this.actions.analyze;
-    return action === void 0 ? !1 : this.runBound(this.canAnalyze, action, !0);
+    if (action === void 0) return !1;
+    let reference = this.current === "library" ? this.selected?.preview : void 0;
+    return this.runBound(this.canAnalyze, () => action(reference), "core");
   }
   async match() {
     let action = this.actions.match;
-    return action === void 0 ? !1 : this.runBound(this.canMatch, action, !0);
+    return action === void 0 ? !1 : this.runBound(this.canMatch, action, "core");
   }
   async editVacancy() {
     let action = this.actions.editVacancy;
@@ -7973,7 +8022,7 @@ var CareerOverlay = class {
     }
     let key = data.length === 1 ? data.toLowerCase() : data, keyed = this.keyedAction(key);
     if (keyed !== void 0) {
-      keyed.finally(() => this.requestRender());
+      this.requestRender(), keyed.finally(() => this.requestRender());
       return;
     }
     this.handleListInput(data);
@@ -8007,7 +8056,7 @@ var CareerOverlay = class {
     }), compactChips = CAREER_UI_VIEWS.map((name, index) => {
       let chip = `${index + 1}${VIEW_MARKS[name]}`;
       return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    }), fullNav = packChips(fullChips, renderWidth), navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav, footer = this.session.operationActive ? this.session.operationCancelling ? "Cancelling Career Core action…" : "Career Core is working · esc cancel" : this.footerHints().join("   ");
+    }), fullNav = packChips(fullChips, renderWidth), navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav, footer = this.session.operationActive ? `${this.session.operationLabel ?? "Career operation in progress…"} · esc cancel` : this.footerHints().join("   ");
     this.session.preview === void 0 && (this.previewPage = 0);
     let body = this.session.preview !== void 0 ? this.renderPreview(this.session.preview, renderWidth) : this.session.showingDetail && selected !== void 0 ? [
       "",
@@ -8017,7 +8066,7 @@ var CareerOverlay = class {
       ...this.session.previewError === void 0 ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))
     ] : [
       ...this.session.operationActive ? styledLines(
-        this.session.operationCancelling ? "Cancelling deterministic Career Core action…" : "Running deterministic Career Core action…",
+        this.session.operationLabel ?? "Career operation in progress…",
         renderWidth,
         (text) => theme.fg("accent", text)
       ) : [],
@@ -8373,6 +8422,16 @@ async function loadLibrary(dependencies) {
   let config = await loadConfig(dependencies.agentDir);
   return { config, scan: await scanLibrary(config) };
 }
+function exactReferencedOriginal(scan, reference) {
+  if (reference.source !== "library") return;
+  let root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+  if (scan.total_capped || root === void 0 || root.capped || root.stale) return;
+  let matches = scan.records.filter((record) => record.kind === "original" && record.id === reference.id && record.root_id === reference.rootId && record.text_sha256 === reference.digest && record.format === reference.format && record.too_large_for_core_input !== !0);
+  return matches.length === 1 ? matches[0] : void 0;
+}
+function sameOriginal(left, right) {
+  return left !== void 0 && right !== void 0 && left.id === right.id && left.root_id === right.root_id && left.text_sha256 === right.text_sha256 && left.format === right.format;
+}
 function appendData(pi, owner, run, ctx, data) {
   owner.assert(run, ctx), pi.appendEntry(WORKFLOW_CUSTOM_TYPE, data);
 }
@@ -8552,16 +8611,21 @@ Application context is session-scoped; no workspace files were created.`,
         let outcome = await applicationWorkspace.selectAttachedOriginal(ctx);
         return outcome === "written" || outcome === "unchanged";
       },
-      analyze: async () => {
-        let attached = await attachedSources(ctx);
+      analyze: async (reference) => {
+        let rejectSelectedAnalyze = () => {
+          throw ctx.ui.notify(workflowErrorMessage("workspace_drift"), "error"), workflowError("workspace_drift");
+        }, attached = await attachedSources(ctx);
         if (attached !== void 0 && attached.selected_original === void 0)
           return ctx.ui.notify("Select an original resume with o before analyzing this attached application.", "warning"), !1;
-        if (await ctx.ui.confirm(
+        if (reference !== void 0 && reference.source !== "library" && rejectSelectedAnalyze(), await ctx.ui.confirm(
           "Run analyze",
           "Run deterministic resume analysis with Career Core? This does not call a model or attach an application."
         ) !== !0) return !1;
         let run = owner.start(ctx), { scan } = await refreshState(ctx), resume = attached?.selected_original;
-        if (resume === void 0) {
+        if (reference !== void 0) {
+          let selected = exactReferencedOriginal(scan, reference);
+          (selected === void 0 || attached !== void 0 && !sameOriginal(resume, selected)) && rejectSelectedAnalyze(), resume = selected;
+        } else if (resume === void 0) {
           let originals = eligibleOriginals(scan);
           if (originals.length === 0) throw workflowError("library_empty");
           if (originals.length === 1)

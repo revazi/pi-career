@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ApplicationWorkspaceWorkflow, selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
-import { loadConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   CAREER_UI_COMMAND_VIEWS,
@@ -17,6 +17,7 @@ import {
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
   CareerUiSession,
+  buildCareerLibraryPane,
   buildCareerUiModel,
   careerPreviewLoader,
 } from "../../src/workflow/career-ui.ts";
@@ -112,6 +113,112 @@ async function openAndClose(fake, command, view) {
   assert.equal(fake.entries.length, before);
   return { context, rendered };
 }
+
+test("library original exposes direct analyze and root removal; variants and unavailable records do not", async () => {
+  const pane = { intro: "library", items: [
+    { id: "original", label: "Original", detail: "Original", libraryRootId: "root-a", preview: { source: "library", id: "original", rootId: "root-a", digest: "abc", format: "text" } },
+    { id: "variant", label: "Variant", detail: "Assisted variant (non-authoritative)" },
+  ] };
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = pane;
+  const calls = [];
+  const session = new CareerUiSession("library", model, {
+    analyze: async (reference) => { calls.push(["analyze", reference?.id]); return true; },
+    removeRoot: async (id) => { calls.push(id); return true; },
+  });
+  assert.equal(session.canAnalyze, true);
+  assert.equal(session.canRemoveRoot, true);
+  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.removeRoot));
+  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.analyze));
+  await session.analyze();
+  await session.removeRoot();
+  assert.deepEqual(calls, [["analyze", "original"], "root-a"]);
+  session.move(1);
+  assert.equal(session.canAnalyze, false);
+  assert.equal(session.canRemoveRoot, false);
+});
+
+test("Resume library pane covers empty, capped, stale, unreadable, oversized, PDF, text, and assisted states", () => {
+  const record = (id, rootId, format, kind = "original", extra = {}) => ({
+    id, root_id: rootId, path: `/synthetic/${id}`, relative_path: `${id}.${format === "markdown" ? "md" : format === "text" ? "txt" : "pdf"}`,
+    label: `Synthetic ${id}`, kind, format, modified_at: "2026-08-12T00:00:00.000Z",
+    size_bytes: 10, text: `Synthetic ${id}`, text_sha256: `${id.at(-1) ?? "a"}`.repeat(64).slice(0, 64), ...extra,
+  });
+  const scan = {
+    records: [
+      record("text-a", "root-a", "text"),
+      record("pdf-b", "root-b", "pdf"),
+      record("assisted-c", "root-a", "markdown", "assisted_variant"),
+      record("oversized-d", "root-a", "markdown", "original", { too_large_for_core_input: true }),
+      record("stale-e", "root-stale", "text"),
+      record("capped-f", "root-capped", "text"),
+    ],
+    warnings: [
+      { code: "root_stale", root_id: "root-stale" },
+      { code: "root_file_cap_reached", root_id: "root-capped" },
+      { code: "total_file_cap_reached", root_id: "root-a" },
+      { code: "raw_file_too_large", root_id: "root-a" },
+      { code: "pdf_text_unavailable", root_id: "root-b" },
+      { code: "invalid_utf8", root_id: "root-a" },
+      { code: "invalid_assisted_sidecar", root_id: "root-a" },
+      { code: "scan_entry_unavailable", root_id: "root-a" },
+    ],
+    roots: [
+      { root_id: "root-a", original_count: 2, assisted_variant_count: 1, too_large_count: 1, stale: false, capped: false },
+      { root_id: "root-b", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: false, capped: false },
+      { root_id: "root-stale", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: true, capped: false },
+      { root_id: "root-capped", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: false, capped: true },
+    ],
+    total_capped: false,
+  };
+  const pane = buildCareerLibraryPane(scan);
+  assert.match(pane.items.find((entry) => entry.id === "text-a").label, /Original.*text/);
+  assert.match(pane.items.find((entry) => entry.id === "pdf-b").detail, /Format: pdf/);
+  assert.match(pane.items.find((entry) => entry.id === "assisted-c").detail, /Assisted variant \(non-authoritative/);
+  assert.match(pane.items.find((entry) => entry.id === "oversized-d").detail, /too large for deterministic analysis/);
+  assert.match(pane.items.find((entry) => entry.id === "stale-e").detail, /root changed or missing/);
+  assert.match(pane.items.find((entry) => entry.id === "capped-f").detail, /root scan capped/);
+  const analyzedPane = buildCareerLibraryPane(scan, [{
+    kind: "result_card", workflow: "analyze", resume_id: "text-a", resume_label: "Synthetic text-a",
+    input_digests: { resume_text_sha256: scan.records[0].text_sha256, vacancy_text_sha256: "" },
+    projection: { summary: { overall_score: 81 }, ui_flags: { adjusted: false, provisional: false, close_cluster: false, stale: false } },
+  }]);
+  assert.match(analyzedPane.items.find((entry) => entry.id === "text-a").detail, /Career analyze: Synthetic text-a\nscore 81/);
+  assert.ok(pane.items.filter((entry) => entry.id.startsWith("notice:")).some((entry) => /text encoding unreadable/.test(entry.detail)));
+  assert.ok(pane.items.filter((entry) => entry.id.startsWith("notice:")).some((entry) => /assisted metadata quarantined/.test(entry.detail)));
+  assert.equal(buildCareerLibraryPane({ records: [], warnings: [], roots: [], total_capped: false }).items.length, 0);
+  assert.match(buildCareerLibraryPane({ records: [], warnings: [{ code: "root_stale", root_id: "root" }], roots: [], total_capped: true }).intro, /scan capped.*notice/s);
+
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = pane;
+  const session = new CareerUiSession("library", model);
+  assert.equal(session.open(), true);
+  const style = (_name, text) => text;
+  const overlay = new CareerOverlay(session, { fg: style, bold: (text) => text }, { matches: () => false }, () => {}, () => {});
+  for (const width of [32, 48, 80]) assert.ok(overlay.render(width).every((line) => visibleWidth(line) <= width));
+});
+
+test("explicit Resume library rescan shows local progress and discards a cancelled refresh", async () => {
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = { intro: "previous complete library", items: [] };
+  let finishReload;
+  const reload = new Promise((resolve) => { finishReload = resolve; });
+  const cancellations = [];
+  const session = new CareerUiSession("library", model, {
+    rescan: async () => true,
+    cancelOperation: () => cancellations.push("cancel"),
+  }, () => reload);
+  const pending = session.rescan();
+  assert.equal(session.operationActive, true);
+  assert.match(session.operationLabel, /Rescanning Resume library locally/);
+  session.cancelOperation();
+  assert.deepEqual(cancellations, ["cancel"]);
+  assert.match(session.operationLabel, /Cancelling Resume library rescan/);
+  finishReload({ ...model, library: { intro: "partial replacement", items: [] } });
+  assert.equal(await pending, false);
+  assert.equal(session.pane.intro, "previous complete library");
+  assert.equal(session.operationActive, false);
+});
 
 test("Analyze and Match keep the mounted overlay busy/cancellable and restore its idle view", async () => {
   for (const view of ["analyze", "match"]) {
@@ -218,6 +325,74 @@ test("RPC career commands render the same view model through select dialogs", as
       assert.equal(fake.entries.length, before);
     }
     assert.equal(calls.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("Resume library Analyze pins the highlighted Original and rejects post-confirm drift without a chooser", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-library-selected-analyze-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    const library = path.join(temp, "library");
+    await prepareConfigDirectory(agentDir);
+    await mkdir(library, { mode: 0o700 });
+    await writeFile(path.join(library, "alpha.md"), "# Alpha\n\nAlpha body\n", { mode: 0o600 });
+    await writeFile(path.join(library, "beta.md"), "# Beta\n\nBeta selected body\n", { mode: 0o600 });
+    await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), library, "Synthetic library"), uuidSequence());
+    const fake = makeFakePi();
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir,
+      uuid: uuidSequence(),
+      now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation);
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
+    });
+    const beta = (await scanLibrary(await loadConfig(agentDir))).records.find((record) => record.label === "Beta");
+    assert.ok(beta);
+    const betaOption = buildCareerLibraryPane(await scanLibrary(await loadConfig(agentDir))).items.find((entry) => entry.id === beta.id).label;
+    const titles = [];
+    const selected = makeContext(fake, { mode: "rpc", persisted: false, confirms: [true] });
+    let opened = false;
+    let analyzed = false;
+    selected.ctx.ui.select = async (title, options) => {
+      titles.push(title);
+      assert.notEqual(title, "Choose an original resume");
+      if (!opened) { opened = true; assert.ok(options.includes(betaOption)); return betaOption; }
+      if (!analyzed && options.includes(CAREER_UI_RPC_ACTIONS.analyze)) {
+        analyzed = true;
+        return CAREER_UI_RPC_ACTIONS.analyze;
+      }
+      return CAREER_UI_RPC_ACTIONS.close;
+    };
+    await fake.commands.get("career-library").handler("", selected.ctx);
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(calls[0].inputJson).text, beta.text);
+    assert.equal(titles.includes("Choose an original resume"), false);
+
+    const drifted = makeContext(fake, { mode: "rpc", persisted: false });
+    let driftOpened = false;
+    let driftAttempted = false;
+    drifted.ctx.ui.select = async (title, options) => {
+      assert.notEqual(title, "Choose an original resume");
+      if (!driftOpened) { driftOpened = true; return options.find((option) => option.includes("Beta")); }
+      if (!driftAttempted && options.includes(CAREER_UI_RPC_ACTIONS.analyze)) {
+        driftAttempted = true;
+        return CAREER_UI_RPC_ACTIONS.analyze;
+      }
+      return CAREER_UI_RPC_ACTIONS.close;
+    };
+    drifted.ctx.ui.confirm = async () => {
+      await writeFile(path.join(library, "beta.md"), "# Beta\n\nChanged after confirmation\n", { mode: 0o600 });
+      return true;
+    };
+    await fake.commands.get("career-library").handler("", drifted.ctx);
+    assert.equal(calls.length, 1);
+    assert.ok(drifted.notifications.some(({ type }) => type === "error"));
+    assert.doesNotMatch(JSON.stringify(drifted.notifications), /Changed after confirmation|beta\.md/);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
@@ -355,6 +530,10 @@ test("overlay lists let users move through applications and resumes without atta
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
     assert.match(overlay.currentItem.label, /Synthetic Alpha|Synthetic Beta/);
+    const resumeDetail = overlay.render(80).join("\n");
+    assert.match(resumeDetail, /Authority: Original/);
+    assert.match(resumeDetail, /Format: markdown/);
+    assert.match(resumeDetail, /Availability: Available — indexed locally/);
     overlay.handleInput("esc");
     overlay.handleInput("esc");
     await pending;
