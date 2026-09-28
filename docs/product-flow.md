@@ -36,7 +36,7 @@ Restart, `/new`, branch, detach, unavailable-root, and identity-drift behavior m
 
 ### Ordered delivery and acceptance invariants
 
-Persistence foundations #60–#65 remain ahead of overlay implementation. #64's exact attachment, command-authority, and context-on-demand lifecycle are specified in [`application-workspaces.md`](application-workspaces.md). Attachment, activation, and attached vacancy/Resume command authority are implemented without a second application authority. After those foundations are accepted, #54–#58 deliver the Resume, application, match/tailoring, cover-letter, and integrated overlay slices; #59 validates the complete product.
+The single application-state simplification in [#140](single-application-state.md) and its implementation #141 precede further overlay work. Application state uses one schema; former state `.v1`/`.v2` identifiers are unsupported, and append-only revision numbers remain only integrity/history controls. #64's exact attachment, command-authority, and context-on-demand lifecycle remain specified in [`application-workspaces.md`](application-workspaces.md). After #141, work resumes at #54, followed by the remaining user-visible overlay slices; #59 validates the complete product.
 
 Every overlay slice must prove with synthetic scenarios that:
 
