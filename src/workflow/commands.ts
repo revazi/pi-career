@@ -552,6 +552,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         if (status === undefined) return false;
         const attached = await attachedSources(ctx);
         if (attached !== undefined) {
+          if (status === "applied" && attached.readiness.readiness !== "Ready 3/3") {
+            const confirmed = await ctx.ui.confirm(
+              "Mark incomplete application Applied",
+              `${attached.readiness.readiness}. Record Applied as workflow status anyway? This does not claim employer submission or change readiness.`,
+            );
+            if (confirmed !== true) return false;
+          }
           const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
           return outcome === "written";
         }

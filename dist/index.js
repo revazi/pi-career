@@ -3795,7 +3795,7 @@ function catalogReadiness(inspected, scan) {
     resume_artifact: "valid",
     cover_letter_artifact: "valid",
     library_scan: scan
-  }).readiness;
+  });
 }
 async function readOverlayApplications(agentDir, scan) {
   let snapshot = await loadConfigSnapshot(agentDir), configured = snapshot.config.application_workspace;
@@ -3807,7 +3807,7 @@ async function readOverlayApplications(agentDir, scan) {
   return initial.projection.applications.map((record) => {
     let inspected = inspectedById.get(record.application_id);
     if (inspected === void 0) throw workflowError("workspace_drift");
-    let identity2 = record.identity;
+    let identity2 = record.identity, readiness = catalogReadiness(inspected, scan);
     return {
       application_id: record.application_id,
       classification: record.classification,
@@ -3816,7 +3816,10 @@ async function readOverlayApplications(agentDir, scan) {
         role_label: identity2.role_label
       },
       status: record.status,
-      readiness: catalogReadiness(inspected, scan),
+      updated_at: record.updated_at,
+      readiness: readiness.readiness,
+      components: readiness.components,
+      effective_resume: readiness.effective_resume,
       vacancy_bound: inspected.head.vacancy !== null,
       original_bound: inspected.head.selected_original !== null,
       ...record.classification !== "valid" || identity2 === void 0 ? {} : {
@@ -7268,6 +7271,7 @@ var CAREER_UI_VIEW_LABELS = {
   selectOriginal: "Select original resume",
   preview: "Preview document (local only)",
   filterApplications: "Filter applications",
+  filterApplicationLifecycle: "Filter by lifecycle",
   clearApplicationFilter: "Clear application filter"
 };
 function unavailablePane() {
@@ -7292,6 +7296,17 @@ function packageChecklist(vacancy, original) {
   return `Package checklist
 Job description: ${vacancy ? "Ready" : "Incomplete"}
 Selected original: ${original ? "Ready" : "Incomplete"}`;
+}
+function applicationPackageChecklist(components, effectiveResume) {
+  let effective = effectiveResume === null ? "none" : effectiveResume === "original" ? "Original" : "Assisted variant (non-authoritative)";
+  return [
+    "Package checklist",
+    `Job description: ${components.job_description === "Available" ? "Ready" : components.job_description}`,
+    `Selected original: ${components.resume === "Available" ? "Ready" : components.resume}`,
+    `Cover letter: ${components.cover_letter}`,
+    `Effective Resume: ${components.resume} • ${effective}`
+  ].join(`
+`);
 }
 function resumePreview(source, record) {
   return { source, digest: record.text_sha256, id: record.id, rootId: record.root_id, format: record.format };
@@ -7438,16 +7453,18 @@ Indexed resumes stay local. Opening a root does not call Core.`
       empty.applications = {
         intro: catalog.length === 0 ? "No applications yet. Press c to create one in this workspace; creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
         items: catalog.map((application) => {
-          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, detail = application.company_label === void 0 ? `Legacy application
+          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, matchState = state.result_cards.some((card) => card.workflow === "match" && card.application_id === application.application_id) ? "Reviewed in this session" : "Not analyzed in this session", detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}
 Classification: ${application.classification}
 Opening does not attach this application.` : `${application.company_label} — ${application.role_label}
 Status: ${status}
-${packageChecklist(application.vacancy_bound, application.original_bound)}
 Readiness: ${application.readiness}
+${applicationPackageChecklist(application.components, application.effective_resume)}
+Match: ${matchState}
+Last updated: ${application.updated_at}
 Classification: ${application.classification}
 Opening does not attach. Press a to attach this application without activating assistance.`, row = item(application.application_id, label, detail, application.pointer);
-          return application.classification === "legacy" && (row.legacyMigration = !0), row;
+          return row.applicationStatus = application.status, application.classification === "legacy" && (row.legacyMigration = !0), row;
         })
       };
     }
@@ -7455,7 +7472,16 @@ Opening does not attach. Press a to attach this application without activating a
     empty.setup = unavailablePane(), empty.library = unavailablePane(), empty.applications = unavailablePane();
   }
   try {
-    let attachedRecords = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()), attachment = attachedRecords.integrity === "valid" ? attachedRecords.attachment : void 0, metadata = attachment === void 0 ? void 0 : await validateApplicationAttachment(agentDir, attachment), attached = attachment === void 0 ? void 0 : await attachedApplicationSourcesForSession(
+    let attachedRecords = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()), attachment = attachedRecords.integrity === "valid" ? attachedRecords.attachment : void 0;
+    if (attachment !== void 0) {
+      let attachedRow = empty.applications.items.find((entry) => {
+        let pointer = entry.pointer;
+        return entry.id === attachment.application_id && pointer !== void 0 && pointer.applicationId === attachment.application_id && pointer.rootId === attachment.root_id && pointer.rootCreatedAt === attachment.root_created_at && pointer.applicationCreatedAt === attachment.application_created_at && pointer.workspaceCreatedAt === attachment.workspace_created_at;
+      });
+      attachedRow !== void 0 && (attachedRow.attachedApplication = !0, attachedRow.canUpdateApplication = !0, attachedRow.label += " — Attached", attachedRow.detail += `
+Attached to this Pi session. Lifecycle and package actions apply only to this exact application.`);
+    }
+    let metadata = attachment === void 0 ? void 0 : await validateApplicationAttachment(agentDir, attachment), attached = attachment === void 0 ? void 0 : await attachedApplicationSourcesForSession(
       agentDir,
       ctx.sessionManager.getBranch(),
       ctx.sessionManager.getEntries()
@@ -7526,7 +7552,7 @@ Opening this view does not mutate files or attach another application.`)]
 Status: ${application.status}
 Current session · Not persisted. Opening does not attach this application.`
     );
-    empty.applications.items.length === 0 && (empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach."), empty.applications.items = [sessionRow, ...empty.applications.items];
+    sessionRow.applicationStatus = application.status, sessionRow.canUpdateApplication = !0, empty.applications.items.length === 0 && (empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach."), empty.applications.items = [sessionRow, ...empty.applications.items];
   }
   let analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5), matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
   return analyzeCards.length > 0 && (empty.analyze.items = [
@@ -7540,9 +7566,11 @@ Current session · Not persisted. Opening does not attach this application.`
   ]), empty;
 }
 var MAX_APPLICATION_FILTER_CHARACTERS = 200;
-function filterApplicationItems(items, filter) {
-  return filter.length === 0 ? items : items.filter((entry) => `${entry.label}
-${entry.detail}`.includes(filter));
+function filterApplicationItems(items, filter, lifecycle = "all") {
+  return items.filter(
+    (entry) => (lifecycle === "all" || entry.applicationStatus === lifecycle) && (filter.length === 0 || `${entry.label}
+${entry.detail}`.includes(filter))
+  );
 }
 function validApplicationFilter(value) {
   return value.length <= MAX_APPLICATION_FILTER_CHARACTERS && !/[\u0000-\u001f\u007f]/.test(value);
@@ -7553,7 +7581,10 @@ var CareerUiSession = class {
     this.reloadModel = reloadModel;
     this.loadPreview = loadPreview;
     this.onFailure = onFailure;
-    this.current = view, this.model = model, this.applicationCatalog = [...model.applications.items], this.applicationIntro = model.applications.intro, this.cursors = emptyCursors();
+    if (this.current = view, this.model = model, this.applicationCatalog = [...model.applications.items], this.applicationIntro = model.applications.intro, this.cursors = emptyCursors(), view === "applications") {
+      let attachedIndex = this.applicationCatalog.findIndex((entry) => entry.attachedApplication === !0);
+      attachedIndex >= 0 && (this.cursors.applications = attachedIndex, this.detail = !0, this.detailApplicationId = this.applicationCatalog[attachedIndex]?.id);
+    }
   }
   actions;
   reloadModel;
@@ -7570,6 +7601,7 @@ var CareerUiSession = class {
   activity;
   cancellationRequested = !1;
   filterText = "";
+  lifecycleFilter = "all";
   applicationCatalog;
   applicationIntro;
   model;
@@ -7619,19 +7651,25 @@ var CareerUiSession = class {
   get applicationFilter() {
     return this.filterText;
   }
+  get applicationLifecycleFilter() {
+    return this.lifecycleFilter;
+  }
   get canFilterApplications() {
     return this.current === "applications" && this.actions.filterApplications !== void 0 && !this.busyFlag;
   }
+  get canFilterApplicationLifecycle() {
+    return this.current === "applications" && this.actions.filterApplicationLifecycle !== void 0 && !this.busyFlag;
+  }
   get canClearApplicationFilter() {
-    return this.current === "applications" && this.filterText.length > 0 && !this.busyFlag;
+    return this.current === "applications" && (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
   }
   applyApplicationFilter() {
     if (this.current !== "applications") return;
     let pane = this.model.applications;
     if (this.model = { ...this.model, applications: {
       ...pane,
-      intro: this.applicationIntro + (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
-      items: filterApplicationItems(this.applicationCatalog, this.filterText)
+      intro: this.applicationIntro + (this.lifecycleFilter === "all" ? "" : ` Lifecycle: ${applicationStatusLabel(this.lifecycleFilter)}.`) + (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
+      items: filterApplicationItems(this.applicationCatalog, this.filterText, this.lifecycleFilter)
     } }, this.pane.items.length === 0) this.cursors.applications = 0;
     else {
       let detailIndex = this.detailApplicationId === void 0 ? -1 : this.pane.items.findIndex((entry) => entry.id === this.detailApplicationId);
@@ -7639,7 +7677,7 @@ var CareerUiSession = class {
     }
   }
   get canAttach() {
-    return this.selected?.pointer !== void 0 && this.actions.attach !== void 0 && !this.busyFlag;
+    return this.selected?.pointer !== void 0 && this.selected.attachedApplication !== !0 && this.actions.attach !== void 0 && !this.busyFlag;
   }
   get canMigrate() {
     return this.current === "applications" && this.selected?.legacyMigration === !0 && this.actions.migrate !== void 0 && !this.busyFlag;
@@ -7667,7 +7705,7 @@ var CareerUiSession = class {
     return this.current === "vacancy" && this.actions.editVacancy !== void 0 && !this.busyFlag;
   }
   get canUpdateStatus() {
-    return this.current === "applications" && this.actions.updateStatus !== void 0 && !this.busyFlag;
+    return this.current === "applications" && this.selected?.canUpdateApplication === !0 && this.actions.updateStatus !== void 0 && !this.busyFlag;
   }
   get canWorkspace() {
     return this.current === "workspace" && this.actions.workspace !== void 0 && !this.busyFlag;
@@ -7676,7 +7714,7 @@ var CareerUiSession = class {
     return this.current === "workbench" && this.actions.askPi !== void 0 && !this.busyFlag;
   }
   get canDetach() {
-    return this.current === "applications" && this.actions.detach !== void 0 && !this.busyFlag;
+    return this.current === "applications" && this.selected?.attachedApplication === !0 && this.actions.detach !== void 0 && !this.busyFlag;
   }
   get canClearVacancy() {
     return this.current === "vacancy" && this.actions.clearVacancy !== void 0 && !this.busyFlag;
@@ -7687,6 +7725,7 @@ var CareerUiSession = class {
   actionEntries() {
     return [
       [CAREER_UI_RPC_ACTIONS.filterApplications, this.canFilterApplications, () => this.filterApplications()],
+      [CAREER_UI_RPC_ACTIONS.filterApplicationLifecycle, this.canFilterApplicationLifecycle, () => this.filterApplicationLifecycle()],
       [CAREER_UI_RPC_ACTIONS.clearApplicationFilter, this.canClearApplicationFilter, async () => (this.clearApplicationFilter(), !0)],
       [CAREER_UI_RPC_ACTIONS.attach, this.canAttach, () => this.attach()],
       [CAREER_UI_RPC_ACTIONS.migrate, this.canMigrate, () => this.migrate()],
@@ -7768,8 +7807,14 @@ var CareerUiSession = class {
     let value = await action();
     return value === void 0 || !validApplicationFilter(value) ? !1 : (this.filterText = value, this.applyApplicationFilter(), !0);
   }
+  async filterApplicationLifecycle() {
+    let action = this.actions.filterApplicationLifecycle;
+    if (!this.canFilterApplicationLifecycle || action === void 0) return !1;
+    let value = await action();
+    return value === void 0 ? !1 : (this.lifecycleFilter = value, this.applyApplicationFilter(), !0);
+  }
   clearApplicationFilter() {
-    this.filterText = "", this.applyApplicationFilter();
+    this.filterText = "", this.lifecycleFilter = "all", this.applyApplicationFilter();
   }
   async attach() {
     let pointer = this.selected?.pointer, action = this.actions.attach;
@@ -7962,6 +8007,7 @@ var CareerOverlay = class {
   keyedAction(key) {
     return [
       ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
+      ["l", this.session.canFilterApplicationLifecycle, () => this.session.filterApplicationLifecycle()],
       ["k", this.session.canClearApplicationFilter, async () => (this.session.clearApplicationFilter(), !0)],
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
@@ -8029,7 +8075,7 @@ var CareerOverlay = class {
   }
   footerHints() {
     let hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
-    this.session.canFilterApplications && hints.push("/ filter"), this.session.canClearApplicationFilter && hints.push("k clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
+    this.session.canFilterApplications && hints.push("/ filter"), this.session.canFilterApplicationLifecycle && hints.push("l lifecycle"), this.session.canClearApplicationFilter && hints.push("k clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
     let actions = [
       [this.session.preview === void 0 && this.session.canAttach, "a attach"],
       [this.session.canMigrate, "i migrate"],
@@ -8117,7 +8163,17 @@ async function openCareerUi(ctx, view, agentDir, actions = {}) {
     await reload(),
     {
       ...actions,
-      filterApplications: actions.filterApplications ?? (async () => await ctx.ui.input("Application filter", "Case-sensitive text from company, role, status, readiness, or classification"))
+      filterApplications: actions.filterApplications ?? (async () => await ctx.ui.input("Application filter", "Case-sensitive text from company, role, status, readiness, or classification")),
+      filterApplicationLifecycle: actions.filterApplicationLifecycle ?? (async () => {
+        let choices = /* @__PURE__ */ new Map([
+          ["All", "all"],
+          ["Preparing", "preparing"],
+          ["Applied", "applied"],
+          ["Interviewing", "interviewing"],
+          ["Closed", "closed"]
+        ]), selected = await ctx.ui.select("Application lifecycle filter", [...choices.keys()]);
+        return selected === void 0 ? void 0 : choices.get(selected);
+      })
     },
     reload,
     careerPreviewLoader(agentDir, ctx),
@@ -8567,8 +8623,12 @@ Application context is session-scoped; no workspace files were created.`,
           ["Closed", "closed"]
         ]), selected = await ctx.ui.select("Application status", [...statuses.keys()]), status = selected === void 0 ? void 0 : statuses.get(selected);
         if (status === void 0) return !1;
-        if (await attachedSources(ctx) !== void 0)
-          return await applicationWorkspace.writeAttachedStatus(ctx, status) === "written";
+        let attached = await attachedSources(ctx);
+        if (attached !== void 0)
+          return status === "applied" && attached.readiness.readiness !== "Ready 3/3" && await ctx.ui.confirm(
+            "Mark incomplete application Applied",
+            `${attached.readiness.readiness}. Record Applied as workflow status anyway? This does not claim employer submission or change readiness.`
+          ) !== !0 ? !1 : await applicationWorkspace.writeAttachedStatus(ctx, status) === "written";
         let state = reconstructWorkflowState(ctx.sessionManager.getBranch());
         if (state.application === void 0)
           return ctx.ui.notify("No active career application.", "warning"), !1;

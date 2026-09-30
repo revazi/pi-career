@@ -50,8 +50,8 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   const model = {
     setup: pane("setup"), library: pane("library"),
     applications: pane("applications", [
-      { id: "uuid-a", label: "Acme · Engineer", detail: "Applied · Ready · persistent" },
-      { id: "uuid-b", label: "Acme · Engineer", detail: "Interviewing · Not ready · persistent" },
+      { id: "uuid-a", label: "Acme · Engineer", detail: "Applied · Ready · persistent", applicationStatus: "applied" },
+      { id: "uuid-b", label: "Acme · Engineer", detail: "Interviewing · Not ready · persistent", applicationStatus: "interviewing" },
     ]),
     vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
     workbench: pane("workbench"), workspace: pane("workspace"),
@@ -59,6 +59,7 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   const effects = [];
   const session = new CareerUiSession("applications", model, {
     filterApplications: async () => "Acme",
+    filterApplicationLifecycle: async () => "applied",
     attach: async () => { effects.push("attach"); return true; },
   });
   assert.equal(session.pane.items.length, 2);
@@ -71,6 +72,10 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   session.clearApplicationFilter();
   assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
   assert.equal(await session.filterApplications(), true);
+  assert.equal(await session.filterApplicationLifecycle(), true);
+  assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a"]);
+  assert.match(session.pane.intro, /Lifecycle: Applied/);
+  session.clearApplicationFilter();
   // A query with no matches is safe and does not destroy the catalog snapshot.
   const empty = new CareerUiSession("applications", model, { filterApplications: async () => "absent" });
   assert.equal(await empty.filterApplications(), true);
@@ -88,6 +93,37 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   detailSession.clearApplicationFilter();
   assert.equal(detailSession.selected.id, "uuid-a", "clearing an open detail preserves its UUID identity");
   assert.deepEqual(effects, []);
+});
+
+test("attached application is the initial detail and lifecycle actions stay bound to it", async () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const model = {
+    setup: pane("setup"), library: pane("library"),
+    applications: pane("applications", [
+      { id: "other", label: "Other", detail: "Preparing", applicationStatus: "preparing", pointer: { applicationId: "other" } },
+      { id: "attached", label: "Attached", detail: "Applied", applicationStatus: "applied", attachedApplication: true, canUpdateApplication: true, pointer: { applicationId: "attached" } },
+    ]),
+    vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("workbench"), workspace: pane("workspace"),
+  };
+  const calls = [];
+  const session = new CareerUiSession("applications", model, {
+    attach: async (pointer) => { calls.push(["attach", pointer.applicationId]); return true; },
+    updateStatus: async () => { calls.push(["status", session.selected.id]); return true; },
+    detach: async () => { calls.push(["detach", session.selected.id]); return true; },
+  });
+  assert.equal(session.showingDetail, true);
+  assert.equal(session.selected.id, "attached");
+  assert.equal(session.canAttach, false);
+  assert.equal(session.canUpdateStatus, true);
+  assert.equal(await session.updateStatus(), true);
+  assert.equal(await session.detach(), true);
+  session.back();
+  session.highlight(0);
+  assert.equal(session.canAttach, true);
+  assert.equal(session.canUpdateStatus, false);
+  assert.equal(session.canDetach, false);
+  assert.deepEqual(calls, [["status", "attached"], ["detach", "attached"]]);
 });
 
 async function openAndClose(fake, command, view) {

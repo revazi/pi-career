@@ -189,11 +189,15 @@ test("S1-02/S1-07/P3-45 public attached status reads a canonical chain and appro
     assert.equal(await value.workspace.writeAttachedStatus(cancelledConfirm.ctx, "applied"), "cancelled");
     assert.deepEqual(await snapshot(value.temp), before);
 
+    const confirmationTitles = [];
     const saved = makeContext(value.fake, {
       mode: "rpc", persisted: false,
       selects: [CAREER_UI_RPC_ACTIONS.updateStatus, "Applied", CAREER_UI_RPC_ACTIONS.close],
       editors: [(_title, preview) => preview],
-      confirms: [true],
+      confirms: [
+        (title, message) => { confirmationTitles.push(title); assert.match(message, /Incomplete 0\/3.*does not claim employer submission/s); return true; },
+        (title) => { confirmationTitles.push(title); return true; },
+      ],
     });
     await value.fake.commands.get("career").handler("", saved.ctx);
 
@@ -210,6 +214,7 @@ test("S1-02/S1-07/P3-45 public attached status reads a canonical chain and appro
       cover_letter_artifact: null,
       updated_at: "2026-08-12T00:00:12.000Z",
     });
+    assert.deepEqual(confirmationTitles, ["Mark incomplete application Applied", "Apply application workspace mutation?"]);
     assert.deepEqual(await readFile(path.join(value.directory, ".pi-career-state-000003.json")), mutation);
     assert.deepEqual(Object.keys(JSON.parse(mutation)), stateKeys);
 

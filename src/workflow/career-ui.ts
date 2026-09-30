@@ -86,6 +86,7 @@ export const CAREER_UI_RPC_ACTIONS = {
   selectOriginal: "Select original resume",
   preview: "Preview document (local only)",
   filterApplications: "Filter applications",
+  filterApplicationLifecycle: "Filter by lifecycle",
   clearApplicationFilter: "Clear application filter",
 } as const;
 
@@ -95,6 +96,9 @@ export interface CareerUiItem {
   detail: string;
   pointer?: ApplicationAttachmentPointer;
   legacyMigration?: boolean;
+  applicationStatus?: ApplicationStatus;
+  attachedApplication?: boolean;
+  canUpdateApplication?: boolean;
   /** In-memory root identity only; never rendered or persisted. */
   libraryRootId?: string;
   /** In-memory identity only; never rendered in list/detail or persisted. */
@@ -115,6 +119,7 @@ export interface CareerUiActions {
   cancelOperation?: () => void;
   /** Returns a transient, exact-text application filter; never persisted. */
   filterApplications?: () => Promise<string | undefined>;
+  filterApplicationLifecycle?: () => Promise<"all" | ApplicationStatus | undefined>;
   attach?: (pointer: ApplicationAttachmentPointer) => Promise<boolean>;
   migrate?: (applicationId: string) => Promise<boolean>;
   addRoot?: () => Promise<boolean>;
@@ -156,6 +161,20 @@ function applicationStatusLabel(status: ApplicationStatus): string {
 
 function packageChecklist(vacancy: boolean, original: boolean): string {
   return `Package checklist\nJob description: ${vacancy ? "Ready" : "Incomplete"}\nSelected original: ${original ? "Ready" : "Incomplete"}`;
+}
+
+function applicationPackageChecklist(
+  components: { job_description: string; resume: string; cover_letter: string },
+  effectiveResume: "original" | "tailored" | null,
+): string {
+  const effective = effectiveResume === null ? "none" : effectiveResume === "original" ? "Original" : "Assisted variant (non-authoritative)";
+  return [
+    "Package checklist",
+    `Job description: ${components.job_description === "Available" ? "Ready" : components.job_description}`,
+    `Selected original: ${components.resume === "Available" ? "Ready" : components.resume}`,
+    `Cover letter: ${components.cover_letter}`,
+    `Effective Resume: ${components.resume} • ${effective}`,
+  ].join("\n");
 }
 
 function resumePreview(source: "library" | "original" | "effective", record: ResumeRecord): NonNullable<CareerUiItem["preview"]> {
@@ -354,10 +373,15 @@ export async function buildCareerUiModel(
           const label = application.company_label === undefined
             ? `Legacy application — ${application.status}`
             : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
+          const matchState = state.result_cards.some((card) => card.workflow === "match" &&
+            card.application_id === application.application_id)
+            ? "Reviewed in this session"
+            : "Not analyzed in this session";
           const detail = application.company_label === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
-            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\n${packageChecklist(application.vacancy_bound, application.original_bound)}\nReadiness: ${application.readiness}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nMatch: ${matchState}\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
           const row = item(application.application_id, label, detail, application.pointer);
+          row.applicationStatus = application.status;
           if (application.classification === "legacy") row.legacyMigration = true;
           return row;
         }),
@@ -372,6 +396,22 @@ export async function buildCareerUiModel(
   try {
     const attachedRecords = replayApplicationSessionRecords(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries());
     const attachment = attachedRecords.integrity === "valid" ? attachedRecords.attachment : undefined;
+    if (attachment !== undefined) {
+      const attachedRow = empty.applications.items.find((entry) => {
+        const pointer = entry.pointer;
+        return entry.id === attachment.application_id && pointer !== undefined &&
+          pointer.applicationId === attachment.application_id && pointer.rootId === attachment.root_id &&
+          pointer.rootCreatedAt === attachment.root_created_at &&
+          pointer.applicationCreatedAt === attachment.application_created_at &&
+          pointer.workspaceCreatedAt === attachment.workspace_created_at;
+      });
+      if (attachedRow !== undefined) {
+        attachedRow.attachedApplication = true;
+        attachedRow.canUpdateApplication = true;
+        attachedRow.label += " — Attached";
+        attachedRow.detail += "\nAttached to this Pi session. Lifecycle and package actions apply only to this exact application.";
+      }
+    }
     const metadata = attachment === undefined ? undefined : await validateApplicationAttachment(agentDir, attachment);
     const attached = attachment === undefined ? undefined : await attachedApplicationSourcesForSession(
       agentDir, ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries(),
@@ -438,6 +478,8 @@ export async function buildCareerUiModel(
       `Current session · Not persisted — ${application.company_label} — ${application.role_label} — ${application.status}`,
       `${application.company_label} — ${application.role_label}\nStatus: ${application.status}\nCurrent session · Not persisted. Opening does not attach this application.`,
     );
+    sessionRow.applicationStatus = application.status;
+    sessionRow.canUpdateApplication = true;
     if (empty.applications.items.length === 0) {
       empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach.";
     }
@@ -464,9 +506,15 @@ export async function buildCareerUiModel(
 const MAX_APPLICATION_FILTER_CHARACTERS = 200;
 
 /** Match only safe, rendered application projection text; no normalization or identity conflation. */
-export function filterApplicationItems(items: CareerUiItem[], filter: string): CareerUiItem[] {
-  if (filter.length === 0) return items;
-  return items.filter((entry) => `${entry.label}\n${entry.detail}`.includes(filter));
+export function filterApplicationItems(
+  items: CareerUiItem[],
+  filter: string,
+  lifecycle: "all" | ApplicationStatus = "all",
+): CareerUiItem[] {
+  return items.filter((entry) =>
+    (lifecycle === "all" || entry.applicationStatus === lifecycle) &&
+    (filter.length === 0 || `${entry.label}\n${entry.detail}`.includes(filter)),
+  );
 }
 
 function validApplicationFilter(value: string): boolean {
@@ -485,6 +533,7 @@ export class CareerUiSession {
   private activity: "core" | "library" | undefined;
   private cancellationRequested = false;
   private filterText = "";
+  private lifecycleFilter: "all" | ApplicationStatus = "all";
   private applicationCatalog: CareerUiItem[];
   private applicationIntro: string;
   private model: CareerUiModel;
@@ -502,6 +551,14 @@ export class CareerUiSession {
     this.applicationCatalog = [...model.applications.items];
     this.applicationIntro = model.applications.intro;
     this.cursors = emptyCursors();
+    if (view === "applications") {
+      const attachedIndex = this.applicationCatalog.findIndex((entry) => entry.attachedApplication === true);
+      if (attachedIndex >= 0) {
+        this.cursors.applications = attachedIndex;
+        this.detail = true;
+        this.detailApplicationId = this.applicationCatalog[attachedIndex]?.id;
+      }
+    }
   }
 
   get view(): CareerUiView {
@@ -575,13 +632,18 @@ export class CareerUiSession {
   }
 
   get applicationFilter(): string { return this.filterText; }
+  get applicationLifecycleFilter(): "all" | ApplicationStatus { return this.lifecycleFilter; }
 
   get canFilterApplications(): boolean {
     return this.current === "applications" && this.actions.filterApplications !== undefined && !this.busyFlag;
   }
 
+  get canFilterApplicationLifecycle(): boolean {
+    return this.current === "applications" && this.actions.filterApplicationLifecycle !== undefined && !this.busyFlag;
+  }
+
   get canClearApplicationFilter(): boolean {
-    return this.current === "applications" && this.filterText.length > 0 && !this.busyFlag;
+    return this.current === "applications" && (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
   }
 
   private applyApplicationFilter(): void {
@@ -589,8 +651,10 @@ export class CareerUiSession {
     const pane = this.model.applications;
     this.model = { ...this.model, applications: {
       ...pane,
-      intro: this.applicationIntro + (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
-      items: filterApplicationItems(this.applicationCatalog, this.filterText),
+      intro: this.applicationIntro +
+        (this.lifecycleFilter === "all" ? "" : ` Lifecycle: ${applicationStatusLabel(this.lifecycleFilter)}.`) +
+        (this.filterText.length === 0 ? "" : ` Filter: ${this.filterText} (case-sensitive; transient).`),
+      items: filterApplicationItems(this.applicationCatalog, this.filterText, this.lifecycleFilter),
     } };
     if (this.pane.items.length === 0) this.cursors.applications = 0;
     else {
@@ -600,7 +664,8 @@ export class CareerUiSession {
   }
 
   get canAttach(): boolean {
-    return this.selected?.pointer !== undefined && this.actions.attach !== undefined && !this.busyFlag;
+    return this.selected?.pointer !== undefined && this.selected.attachedApplication !== true &&
+      this.actions.attach !== undefined && !this.busyFlag;
   }
 
   get canMigrate(): boolean {
@@ -640,7 +705,8 @@ export class CareerUiSession {
   }
 
   get canUpdateStatus(): boolean {
-    return this.current === "applications" && this.actions.updateStatus !== undefined && !this.busyFlag;
+    return this.current === "applications" && this.selected?.canUpdateApplication === true &&
+      this.actions.updateStatus !== undefined && !this.busyFlag;
   }
 
   get canWorkspace(): boolean {
@@ -652,7 +718,8 @@ export class CareerUiSession {
   }
 
   get canDetach(): boolean {
-    return this.current === "applications" && this.actions.detach !== undefined && !this.busyFlag;
+    return this.current === "applications" && this.selected?.attachedApplication === true &&
+      this.actions.detach !== undefined && !this.busyFlag;
   }
 
   get canClearVacancy(): boolean {
@@ -666,6 +733,7 @@ export class CareerUiSession {
   private actionEntries(): Array<[string, boolean, () => Promise<boolean>]> {
     return [
       [CAREER_UI_RPC_ACTIONS.filterApplications, this.canFilterApplications, () => this.filterApplications()],
+      [CAREER_UI_RPC_ACTIONS.filterApplicationLifecycle, this.canFilterApplicationLifecycle, () => this.filterApplicationLifecycle()],
       [CAREER_UI_RPC_ACTIONS.clearApplicationFilter, this.canClearApplicationFilter, async () => { this.clearApplicationFilter(); return true; }],
       [CAREER_UI_RPC_ACTIONS.attach, this.canAttach, () => this.attach()],
       [CAREER_UI_RPC_ACTIONS.migrate, this.canMigrate, () => this.migrate()],
@@ -807,8 +875,19 @@ export class CareerUiSession {
     return true;
   }
 
+  async filterApplicationLifecycle(): Promise<boolean> {
+    const action = this.actions.filterApplicationLifecycle;
+    if (!this.canFilterApplicationLifecycle || action === undefined) return false;
+    const value = await action();
+    if (value === undefined) return false;
+    this.lifecycleFilter = value;
+    this.applyApplicationFilter();
+    return true;
+  }
+
   clearApplicationFilter(): void {
     this.filterText = "";
+    this.lifecycleFilter = "all";
     this.applyApplicationFilter();
   }
 
@@ -1093,6 +1172,7 @@ export class CareerOverlay implements Component {
   private keyedAction(key: string): Promise<boolean> | undefined {
     const entries: Array<[string, boolean, () => Promise<boolean>]> = [
       ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
+      ["l", this.session.canFilterApplicationLifecycle, () => this.session.filterApplicationLifecycle()],
       ["k", this.session.canClearApplicationFilter, async () => { this.session.clearApplicationFilter(); return true; }],
       ["v", this.session.canPreview, () => this.session.openPreview()],
       ["a", this.session.canAttach, () => this.session.attach()],
@@ -1179,6 +1259,7 @@ export class CareerOverlay implements Component {
   private footerHints(): string[] {
     const hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
     if (this.session.canFilterApplications) hints.push("/ filter");
+    if (this.session.canFilterApplicationLifecycle) hints.push("l lifecycle");
     if (this.session.canClearApplicationFilter) hints.push("k clear filter");
     if (this.session.canPreview) hints.push("v preview locally");
     if (this.session.preview !== undefined) hints.push("↑↓ preview pages · soft-wrapped");
@@ -1302,6 +1383,14 @@ export async function openCareerUi(
       filterApplications: actions.filterApplications ?? (async () => {
         const value = await ctx.ui.input("Application filter", "Case-sensitive text from company, role, status, readiness, or classification");
         return value;
+      }),
+      filterApplicationLifecycle: actions.filterApplicationLifecycle ?? (async () => {
+        const choices = new Map<string, "all" | ApplicationStatus>([
+          ["All", "all"], ["Preparing", "preparing"], ["Applied", "applied"],
+          ["Interviewing", "interviewing"], ["Closed", "closed"],
+        ]);
+        const selected = await ctx.ui.select("Application lifecycle filter", [...choices.keys()]);
+        return selected === undefined ? undefined : choices.get(selected);
       }),
     },
     reload,
