@@ -1485,13 +1485,16 @@ export interface OverlayCatalogApplication {
   company_label?: string;
   role_label?: string;
   status: ApplicationStatus;
+  updated_at: string;
   readiness: ApplicationReadinessProjection["readiness"];
+  components: ApplicationReadinessProjection["components"];
+  effective_resume: ApplicationReadinessProjection["effective_resume"];
   vacancy_bound: boolean;
   original_bound: boolean;
   pointer?: ApplicationAttachmentPointer;
 }
 
-function catalogReadiness(inspected: InspectedApplication, scan: LibraryScan): ApplicationReadinessProjection["readiness"] {
+function catalogReadiness(inspected: InspectedApplication, scan: LibraryScan): ApplicationReadinessProjection {
   return deriveApplicationReadiness({
     vacancy: inspected.head.vacancy === null ? null : { content_sha256: inspected.head.vacancy.content_sha256 },
     selected_original: inspected.head.selected_original,
@@ -1504,7 +1507,7 @@ function catalogReadiness(inspected: InspectedApplication, scan: LibraryScan): A
     resume_artifact: "valid",
     cover_letter_artifact: "valid",
     library_scan: scan,
-  }).readiness;
+  });
 }
 
 // Display projection only. It does not change the catalog schema or adopt invalid children.
@@ -1524,6 +1527,7 @@ export async function readOverlayApplications(
     const inspected = inspectedById.get(record.application_id);
     if (inspected === undefined) throw workflowError("workspace_drift");
     const identity = record.identity;
+    const readiness = catalogReadiness(inspected, scan);
     return {
       application_id: record.application_id,
       classification: record.classification,
@@ -1532,7 +1536,10 @@ export async function readOverlayApplications(
         role_label: identity.role_label,
       }),
       status: record.status,
-      readiness: catalogReadiness(inspected, scan),
+      updated_at: record.updated_at,
+      readiness: readiness.readiness,
+      components: readiness.components,
+      effective_resume: readiness.effective_resume,
       vacancy_bound: inspected.head.vacancy !== null,
       original_bound: inspected.head.selected_original !== null,
       ...(record.classification !== "valid" || identity === undefined ? {} : {

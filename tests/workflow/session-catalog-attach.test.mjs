@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { ApplicationWorkspaceWorkflow } from "../../src/workflow/application-workspace.ts";
+import { CAREER_UI_RPC_ACTIONS } from "../../src/workflow/career-ui.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_ASSISTANCE_HANDOFF } from "../../src/workflow/session-attachment.ts";
 import { makeContext, makeFakePi, prepareConfigDirectory, uuidSequence } from "./helpers.mjs";
@@ -263,7 +264,7 @@ test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-
       const rejectedNewSessions = [];
       const rejectedReplacementEntries = [];
       const rejected = await runApplications(value, {
-        selects: [OVERLAY_OTHER_OPTION, "Attach", "Close"],
+        selects: [...(claimLocation === "active" ? [CAREER_UI_RPC_ACTIONS.back] : []), OVERLAY_OTHER_OPTION, "Attach", "Close"],
         confirms: [(title, message) => {
           offerTitles.push([title, message]);
           return false;
@@ -294,7 +295,7 @@ test("P3-29/P3-54 public attach rejects another UUID on active and replayed non-
       const replacementEntries = [];
       const newSessions = [];
       const accepted = await runApplications(value, {
-        selects: [OVERLAY_OTHER_OPTION, "Attach", "Close"],
+        selects: [...(claimLocation === "active" ? [CAREER_UI_RPC_ACTIONS.back] : []), OVERLAY_OTHER_OPTION, "Attach", "Close"],
         confirms: [(title, message) => {
           acceptedTitles.push([title, message]);
           return true;

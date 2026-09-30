@@ -245,7 +245,7 @@ class RpcProcess {
             : step.value;
           if (value === undefined || !message.options.includes(value)) {
             cancel();
-            this.#fail(new Error(`select options did not include the expected local choice`));
+            this.#fail(new Error(`select options did not include expected ${String(value)}; got ${message.options.join(" | ")}`));
             return;
           }
           this.child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: message.id, value })}\n`);
@@ -788,17 +788,21 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
   const status = await live.prompt("/career", [
     { method: "select", value: CAREER_UI_RPC_ACTIONS.updateStatus },
     { method: "select", value: "Applied" },
+    { method: "confirm", confirmed: true },
     { method: "editor", cancel: true },
     { method: "select", value: CAREER_UI_RPC_ACTIONS.updateStatus },
     { method: "select", value: "Applied" },
+    { method: "confirm", confirmed: true },
     { method: "editor", echo: true },
     { method: "confirm", confirmed: false },
     { method: "select", value: CAREER_UI_RPC_ACTIONS.updateStatus },
     { method: "select", value: "Applied" },
+    { method: "confirm", confirmed: true },
     { method: "editor", echo: true },
     { method: "confirm", confirmed: true },
     { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
   ]);
+  assert.equal(status.filter((request) => request.method === "confirm" && request.title === "Mark incomplete application Applied").length, 3);
   assert.equal(status.filter((request) => request.method === "confirm" && request.title === APPLY_TITLE).length, 2);
   assert.equal(status.some((request) => request.method === "notify" && String(request.message).startsWith("Recorded immutable workspace status revision ")), true);
   assert.deepEqual(live.operations.slice(6, 9), ["record_state", "record_state", "record_state"]);
@@ -898,7 +902,6 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
   assert.equal(live.localEvents.filter((type) => type === "entry_appended").length, 3);
   assert.equal(live.localEvents.every((type) => type === "entry_appended" || type === "session_info_changed"), true);
   const repeatDetach = await live.prompt("/career", [
-    { method: "select", value: CAREER_UI_RPC_ACTIONS.detach },
     { method: "select", value: CAREER_UI_RPC_ACTIONS.close },
   ]);
   assert.equal(repeatDetach.some((request) => request.method === "confirm" || request.method === "notify" || request.method === "editor"), false);
