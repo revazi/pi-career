@@ -8241,12 +8241,12 @@ var CareerOverlay = class {
       ...pane.intro.split(`
 `).flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
       "",
-      ...pane.items.length === 0 ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text)) : pane.items.map((entry, index) => {
-        let mark = itemMark(view, entry), line = index === this.session.cursor ? `▸ ${mark}  ${entry.label}` : `  ${mark}  ${entry.label}`;
-        return truncateToWidth2(
-          index === this.session.cursor ? theme.bold(theme.fg("accent", line)) : theme.fg("text", line),
+      ...pane.items.length === 0 ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text)) : pane.items.flatMap((entry, index) => {
+        let selectedRow = index === this.session.cursor, fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `, prefix = renderWidth >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ", available = Math.max(1, renderWidth - visibleWidth(prefix));
+        return styledLines(entry.label, available, (text) => selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text)).map((label, lineIndex) => truncateToWidth2(
+          `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), renderWidth))}${label}`,
           renderWidth
-        );
+        ));
       })
     ];
     return [

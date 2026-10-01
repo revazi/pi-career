@@ -1379,13 +1379,17 @@ export class CareerOverlay implements Component {
         "",
         ...(pane.items.length === 0
           ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text))
-          : pane.items.map((entry, index) => {
-            const mark = itemMark(view, entry);
-            const line = index === this.session.cursor ? `▸ ${mark}  ${entry.label}` : `  ${mark}  ${entry.label}`;
-            return truncateToWidth(
-              index === this.session.cursor ? theme.bold(theme.fg("accent", line)) : theme.fg("text", line),
+          : pane.items.flatMap((entry, index) => {
+            const selectedRow = index === this.session.cursor;
+            const fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `;
+            const prefix = renderWidth >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ";
+            const available = Math.max(1, renderWidth - visibleWidth(prefix));
+            const labelLines = styledLines(entry.label, available, (text) =>
+              selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text));
+            return labelLines.map((label, lineIndex) => truncateToWidth(
+              `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), renderWidth))}${label}`,
               renderWidth,
-            );
+            ));
           })),
       ];
     return [

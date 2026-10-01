@@ -281,6 +281,31 @@ test("Resume library pane covers empty, capped, stale, unreadable, oversized, PD
   for (const width of [32, 48, 80]) assert.ok(overlay.render(width).every((line) => visibleWidth(line) <= width));
 });
 
+test("list labels wrap without losing Unicode warning/state text across widths and themes", () => {
+  const label = "⚠️ Synthetic résumé notice — very-long-unbroken-警告-document-label — Recovery required";
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = { intro: "Synthetic library warning state remains explicit", items: [{ id: "warning", label, detail: "Warning: synthetic recovery required." }] };
+  const session = new CareerUiSession("library", model);
+  const themes = [
+    { fg: (_name, text) => text, bold: (text) => text },
+    { fg: (name, text) => `\u001b[${name === "accent" ? "1" : "2"}m${text}\u001b[0m`, bold: (text) => `\u001b[1m${text}\u001b[22m` },
+  ];
+  for (const theme of themes) {
+    const overlay = new CareerOverlay(session, theme, { matches: () => false }, () => {}, () => {});
+    for (const width of [8, 16, 32, 48, 80, 120]) {
+      const lines = overlay.render(width);
+      assert.ok(lines.every((line) => visibleWidth(line) <= width), `overflow at ${width}`);
+      const plain = lines.join("").replace(/\u001b\[[0-9;]*m/g, "");
+      const compact = plain.replace(/\s+/g, "");
+      for (const part of ["⚠️", "Synthetic", "résumé", "警告", "Recovery", "required"]) {
+        assert.ok(compact.includes(part.replace(/\s+/g, "")), `lost ${part} at ${width}`);
+      }
+      assert.match(plain, /[▸>]/, "selection remains identifiable without color");
+      assert.match(compact, /warningstateremainsexplicit/);
+    }
+  }
+});
+
 test("explicit Resume library rescan shows local progress and discards a cancelled refresh", async () => {
   const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
   model.library = { intro: "previous complete library", items: [] };
