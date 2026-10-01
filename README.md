@@ -467,7 +467,7 @@ Possible persistence surfaces are distinct:
 
 `pi-career` does not create payload/result temporary files, export full Core JSON, overwrite originals, or automatically save assisted resumes. Explicit `/career-save` files are local, private-mode, assisted/non-authoritative, and excluded from analysis/matching. Searchable PDF extraction is local, bounded, and network-disabled.
 
-See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs/product-flow.md`](docs/product-flow.md) for the complete boundary and threat model.
+See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs/product-flow.md`](docs/product-flow.md) for the complete boundary and threat model. Synthetic hardening evidence and its limitations are indexed in [`docs/hardening-validation.md`](docs/hardening-validation.md).
 
 ## Current limitations
 

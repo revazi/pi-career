@@ -119,6 +119,24 @@ test("catalog sorts valid and legacy applications and marks slug presentation no
   assert.deepEqual(await snapshot(root), before);
 });
 
+test("#59 catalog remains bounded and read-only across a large synthetic application collection", async (t) => {
+  const root = await fixture(t);
+  const count = 128;
+  for (let index = 1; index <= count; index += 1) {
+    await application(root, index, {
+      updatedAt: new Date(Date.parse(createdAt) + index * 1_000).toISOString(),
+    });
+  }
+  const before = await snapshot(root);
+  const catalog = await readApplicationCatalog(root, rootId);
+  assert.equal(catalog.applications.length, count);
+  assert.deepEqual(catalog.applications.slice(0, 3).map(({ application_id }) => application_id), [
+    uuid(count), uuid(count - 1), uuid(count - 2),
+  ]);
+  assert.deepEqual(catalog.reconciliation, emptyReconciliation());
+  assert.deepEqual(await snapshot(root), before, "catalog browsing must not mutate any application bytes");
+});
+
 test("catalog classifies a mixed root exactly once per child without exposing invalid details", async (t) => {
   const root = await fixture(t);
   await application(root, 1);

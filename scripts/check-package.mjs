@@ -48,6 +48,7 @@ const allowed = new Set([
   "docs/career-run-roadmap.md",
   "docs/cover-letter-contract.md",
   "docs/design.md",
+  "docs/hardening-validation.md",
   "docs/licenses/MIT-aho-corasick-memchr.txt",
   "docs/licenses/MIT-anstyle-clap-family.txt",
   "docs/licenses/MIT-dtolnay-family.txt",
