@@ -15,7 +15,7 @@ import { plainResultCard, privacyDisplayPath, setupSummary } from "./renderers.t
 import { scanLibrary } from "./scan.ts";
 import type { ApplicationStatus, LibraryScan, ResultCardEntry, ResumeRecord } from "./types.ts";
 import { replayApplicationSessionRecords, type ApplicationAttachmentPointer } from "./session-attachment.ts";
-import { reconstructWorkflowState, workspaceApplicationIdentity } from "./session-state.ts";
+import { reconstructWorkflowState, workflowResultCards, workspaceApplicationIdentity } from "./session-state.ts";
 import { CareerWorkflowError, workflowErrorMessage } from "./types.ts";
 
 export const CAREER_UI_VIEWS = [
@@ -163,6 +163,20 @@ function packageChecklist(vacancy: boolean, original: boolean): string {
   return `Package checklist\nJob description: ${vacancy ? "Ready" : "Incomplete"}\nSelected original: ${original ? "Ready" : "Incomplete"}`;
 }
 
+export function applicationNextAction(
+  components: { job_description: string; resume: string; cover_letter: string },
+  analyzed: boolean,
+  matched: boolean,
+): string {
+  if (components.job_description !== "Available") return "Next action: add or refresh the job description (e).";
+  if (components.resume === "Missing") return "Next action: select an eligible Original (o), or inspect the library (2).";
+  if (components.resume !== "Available") return "Next action: review the selected Resume source in the library (2) and application workspace (m).";
+  if (!analyzed) return "Next action: analyze the selected Original (g).";
+  if (!matched) return "Next action: analyze match for the effective Resume (g).";
+  if (components.cover_letter !== "Available") return "Next action: review the application workspace (m) to refresh or add the user-authored cover letter; tailored Resume materialization is optional.";
+  return "Next action: review the complete package in Applications; Ready is derived, not a status.";
+}
+
 function applicationPackageChecklist(
   components: { job_description: string; resume: string; cover_letter: string },
   effectiveResume: "original" | "tailored" | null,
@@ -268,6 +282,23 @@ const LIBRARY_NOTICE_LABELS: Record<LibraryScan["warnings"][number]["code"], str
   scan_entry_unavailable: "entry unavailable",
 };
 
+export function currentApplicationResults(
+  cards: readonly ResultCardEntry[],
+  application: NonNullable<Awaited<ReturnType<typeof attachedApplicationSourcesForSession>>>,
+): { analyzed: boolean; matched: boolean } {
+  const selected = application.selected_original;
+  const effective = application.effective_resume;
+  const vacancyDigest = application.vacancy?.vacancy_text_sha256;
+  const current = cards.filter((card) => card.application_id === application.application_id);
+  return {
+    analyzed: selected !== undefined && current.some((card) => card.workflow === "analyze" &&
+      card.resume_id === selected.id && card.input_digests.resume_text_sha256 === selected.text_sha256),
+    matched: effective !== undefined && vacancyDigest !== undefined && current.some((card) => card.workflow === "match" &&
+      card.resume_id === effective.id && card.input_digests.resume_text_sha256 === effective.text_sha256 &&
+      card.input_digests.vacancy_text_sha256 === vacancyDigest),
+  };
+}
+
 function currentAnalysis(record: ResumeRecord, cards: readonly ResultCardEntry[]): string {
   const card = [...cards].reverse().find((entry) => entry.workflow === "analyze" &&
     entry.resume_id === record.id && entry.input_digests.resume_text_sha256 === record.text_sha256);
@@ -336,6 +367,10 @@ export async function buildCareerUiModel(
   const persisted = ctx.sessionManager.getSessionFile() !== undefined;
   const branch = ctx.sessionManager.getBranch();
   const state = reconstructWorkflowState(branch);
+  const attachedApplicationId = replayApplicationSessionRecords(branch, ctx.sessionManager.getEntries()).attachment?.application_id;
+  const visibleResultCards = attachedApplicationId === undefined
+    ? state.result_cards
+    : workflowResultCards(branch).filter((card) => card.application_id === attachedApplicationId);
   const empty: CareerUiModel = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
@@ -360,20 +395,25 @@ export async function buildCareerUiModel(
         `${root.label}\n${privacyDisplayPath(root.path)}\nIndexed resumes stay local. Opening a root does not call Core.`,
       )),
     };
-    empty.library = buildCareerLibraryPane(scan, state.result_cards);
+    empty.library = buildCareerLibraryPane(scan, visibleResultCards);
     const workspace = config.application_workspace;
     if (workspace !== null) {
       const catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
         intro: catalog.length === 0
-          ? "No applications yet. Press c to create one in this workspace; creating does not attach."
-          : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
+          ? "No applications yet. Press c to create one. Next action: create an application; creating does not attach."
+          : `Browse applications without attaching. ${(() => {
+            const attached = catalog.find((application) => application.application_id === attachedApplicationId);
+            return attached === undefined
+              ? "Next action: open an application and attach it (a) to continue."
+              : "Next action: open package review (Enter) to inspect current source bindings and component state.";
+          })()} Enter opens local package review. a attaches, c creates, s updates status, d detaches.`,
         items: catalog.map((application) => {
           const status = applicationStatusLabel(application.status);
           const label = application.company_label === undefined
             ? `Legacy application — ${application.status}`
             : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
-          const matchState = state.result_cards.some((card) => card.workflow === "match" &&
+          const matchState = visibleResultCards.some((card) => card.workflow === "match" &&
             card.application_id === application.application_id)
             ? "Reviewed in this session"
             : "Not analyzed in this session";
@@ -419,9 +459,15 @@ export async function buildCareerUiModel(
     if (attached !== undefined && metadata !== undefined) {
       const heading = `${metadata.company_label} — ${metadata.role_label} — ${metadata.status}`;
       const pack = packageChecklist(metadata.vacancy_bound, metadata.original_bound);
+      const resultEvidence = currentApplicationResults(visibleResultCards, attached);
+      const nextAction = applicationNextAction(
+        attached.readiness.components,
+        resultEvidence.analyzed,
+        resultEvidence.matched,
+      );
       empty.library.canSelectOriginal = attached.can_select_original;
       empty.vacancy = {
-        intro: `${heading}\n${pack}`,
+        intro: `${heading}\n${pack}\n${nextAction}`,
         items: attached.vacancy === undefined
           ? []
           : [{ ...item("vacancy", "Current job description", `${heading}\nCurrent job description is ready. Browse does not replace workspace files.`),
@@ -432,29 +478,29 @@ export async function buildCareerUiModel(
         ? "Selected original source: unavailable"
         : `Selected original source: ${attached.selected_original.label}`;
       empty.match = {
-        intro: `${heading}\n${pack}\n${originalBinding}`,
+        intro: `${heading}\n${pack}\n${originalBinding}\n${nextAction}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === undefined
           ? []
           : [{ ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}\n${originalBinding}\nEffective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}\nMatch is not run by opening this view.`),
             preview: resumePreview("effective", attached.effective_resume) }],
       };
-      if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.`;
+      if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.\n${nextAction}`;
       empty.analyze = {
-        intro: `${heading}\n${pack}`,
+        intro: `${heading}\n${pack}\n${nextAction}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.selected_original === undefined
           ? []
           : [{ ...item("original", attached.selected_original.label, `${heading}\nSelected original: ${attached.selected_original.label}\nAnalyze is not run by opening this view.`),
             preview: resumePreview("original", attached.selected_original) }],
       };
-      if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\n${pack}\nNo selected original Resume is available.`;
+      if (attached.selected_original === undefined) empty.analyze.intro = `${heading}\n${pack}\nNo selected original Resume is available.\n${nextAction}`;
       empty.workbench = {
-        intro: `${heading}\n${pack}\nPress p to prepare Ask Pi. Nothing is submitted.`,
+        intro: `${heading}\n${pack}\n${nextAction}\nPress p to prepare Ask Pi. Nothing is submitted.`,
         items: [item("workbench", "Career assistance", `${heading}\nExplicit activation remains a separate action. Overlay browse does not submit a message.`)],
       };
       empty.workspace = {
-        intro: `${heading}\nWorkspace files are the current application authority.`,
+        intro: `${heading}\n${pack}\n${nextAction}\nWorkspace files are the current application authority.`,
         items: [item("workspace", "Workspace", `${heading}\nOpening this view does not mutate files or attach another application.`)],
       };
     }
@@ -488,8 +534,8 @@ export async function buildCareerUiModel(
     }
     empty.applications.items = [sessionRow, ...empty.applications.items];
   }
-  const analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5);
-  const matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
+  const analyzeCards = visibleResultCards.filter((card) => card.workflow === "analyze").slice(-5);
+  const matchCards = visibleResultCards.filter((card) => card.workflow === "match").slice(-5);
   if (analyzeCards.length > 0) {
     empty.analyze.items = [
       ...empty.analyze.items,

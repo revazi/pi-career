@@ -7391,6 +7391,9 @@ function packageChecklist(vacancy, original) {
 Job description: ${vacancy ? "Ready" : "Incomplete"}
 Selected original: ${original ? "Ready" : "Incomplete"}`;
 }
+function applicationNextAction(components, analyzed, matched) {
+  return components.job_description !== "Available" ? "Next action: add or refresh the job description (e)." : components.resume === "Missing" ? "Next action: select an eligible Original (o), or inspect the library (2)." : components.resume !== "Available" ? "Next action: review the selected Resume source in the library (2) and application workspace (m)." : analyzed ? matched ? components.cover_letter !== "Available" ? "Next action: review the application workspace (m) to refresh or add the user-authored cover letter; tailored Resume materialization is optional." : "Next action: review the complete package in Applications; Ready is derived, not a status." : "Next action: analyze match for the effective Resume (g)." : "Next action: analyze the selected Original (g).";
+}
 function applicationPackageChecklist(components, effectiveResume) {
   let effective = effectiveResume === null ? "none" : effectiveResume === "original" ? "Original" : "Assisted variant (non-authoritative)";
   return [
@@ -7476,6 +7479,13 @@ var LIBRARY_NOTICE_LABELS = {
   invalid_assisted_sidecar: "assisted metadata quarantined",
   scan_entry_unavailable: "entry unavailable"
 };
+function currentApplicationResults(cards, application) {
+  let selected = application.selected_original, effective = application.effective_resume, vacancyDigest = application.vacancy?.vacancy_text_sha256, current = cards.filter((card) => card.application_id === application.application_id);
+  return {
+    analyzed: selected !== void 0 && current.some((card) => card.workflow === "analyze" && card.resume_id === selected.id && card.input_digests.resume_text_sha256 === selected.text_sha256),
+    matched: effective !== void 0 && vacancyDigest !== void 0 && current.some((card) => card.workflow === "match" && card.resume_id === effective.id && card.input_digests.resume_text_sha256 === effective.text_sha256 && card.input_digests.vacancy_text_sha256 === vacancyDigest)
+  };
+}
 function currentAnalysis(record, cards) {
   let card = [...cards].reverse().find((entry) => entry.workflow === "analyze" && entry.resume_id === record.id && entry.input_digests.resume_text_sha256 === record.text_sha256);
   return card === void 0 ? "Analysis: Not analyzed in this session." : `Analysis:
@@ -7520,7 +7530,7 @@ Recovery: inspect the configured root, then run an explicit rescan.`
   };
 }
 async function buildCareerUiModel(agentDir, ctx) {
-  let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, branch = ctx.sessionManager.getBranch(), state = reconstructWorkflowState(branch), empty = {
+  let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, branch = ctx.sessionManager.getBranch(), state = reconstructWorkflowState(branch), attachedApplicationId = replayApplicationSessionRecords(branch, ctx.sessionManager.getEntries()).attachment?.application_id, visibleResultCards = attachedApplicationId === void 0 ? state.result_cards : workflowResultCards(branch).filter((card) => card.application_id === attachedApplicationId), empty = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
     applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
@@ -7542,12 +7552,12 @@ Press n to add a resume root.` : setupSummary(config, scan, persisted3),
 ${privacyDisplayPath(root.path)}
 Indexed resumes stay local. Opening a root does not call Core.`
       ))
-    }, empty.library = buildCareerLibraryPane(scan, state.result_cards), config.application_workspace !== null) {
+    }, empty.library = buildCareerLibraryPane(scan, visibleResultCards), config.application_workspace !== null) {
       let catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
-        intro: catalog.length === 0 ? "No applications yet. Press c to create one in this workspace; creating does not attach." : "Browse applications without attaching. Enter opens local detail. a attaches, c creates, s updates status, d detaches.",
+        intro: catalog.length === 0 ? "No applications yet. Press c to create one. Next action: create an application; creating does not attach." : `Browse applications without attaching. ${catalog.find((application) => application.application_id === attachedApplicationId) === void 0 ? "Next action: open an application and attach it (a) to continue." : "Next action: open package review (Enter) to inspect current source bindings and component state."} Enter opens local package review. a attaches, c creates, s updates status, d detaches.`,
         items: catalog.map((application) => {
-          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, matchState = state.result_cards.some((card) => card.workflow === "match" && card.application_id === application.application_id) ? "Reviewed in this session" : "Not analyzed in this session", detail = application.company_label === void 0 ? `Legacy application
+          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, matchState = visibleResultCards.some((card) => card.workflow === "match" && card.application_id === application.application_id) ? "Reviewed in this session" : "Not analyzed in this session", detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}
 Classification: ${application.classification}
 Opening does not attach this application.` : `${application.company_label} — ${application.role_label}
@@ -7581,10 +7591,15 @@ Attached to this Pi session. Lifecycle and package actions apply only to this ex
       ctx.sessionManager.getEntries()
     );
     if (attached !== void 0 && metadata !== void 0) {
-      let heading = `${metadata.company_label} — ${metadata.role_label} — ${metadata.status}`, pack = packageChecklist(metadata.vacancy_bound, metadata.original_bound);
+      let heading = `${metadata.company_label} — ${metadata.role_label} — ${metadata.status}`, pack = packageChecklist(metadata.vacancy_bound, metadata.original_bound), resultEvidence = currentApplicationResults(visibleResultCards, attached), nextAction = applicationNextAction(
+        attached.readiness.components,
+        resultEvidence.analyzed,
+        resultEvidence.matched
+      );
       empty.library.canSelectOriginal = attached.can_select_original, empty.vacancy = {
         intro: `${heading}
-${pack}`,
+${pack}
+${nextAction}`,
         items: attached.vacancy === void 0 ? [] : [{
           ...item("vacancy", "Current job description", `${heading}
 Current job description is ready. Browse does not replace workspace files.`),
@@ -7597,7 +7612,8 @@ No current job description. Press e to paste one.`);
       empty.match = {
         intro: `${heading}
 ${pack}
-${originalBinding}`,
+${originalBinding}
+${nextAction}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === void 0 ? [] : [{
           ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}
@@ -7608,9 +7624,11 @@ Match is not run by opening this view.`),
         }]
       }, attached.effective_resume === void 0 && (empty.match.intro = `${heading}
 ${pack}
-No effective Resume is available.`), empty.analyze = {
+No effective Resume is available.
+${nextAction}`), empty.analyze = {
         intro: `${heading}
-${pack}`,
+${pack}
+${nextAction}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.selected_original === void 0 ? [] : [{
           ...item("original", attached.selected_original.label, `${heading}
@@ -7620,14 +7638,18 @@ Analyze is not run by opening this view.`),
         }]
       }, attached.selected_original === void 0 && (empty.analyze.intro = `${heading}
 ${pack}
-No selected original Resume is available.`), empty.workbench = {
+No selected original Resume is available.
+${nextAction}`), empty.workbench = {
         intro: `${heading}
 ${pack}
+${nextAction}
 Press p to prepare Ask Pi. Nothing is submitted.`,
         items: [item("workbench", "Career assistance", `${heading}
 Explicit activation remains a separate action. Overlay browse does not submit a message.`)]
       }, empty.workspace = {
         intro: `${heading}
+${pack}
+${nextAction}
 Workspace files are the current application authority.`,
         items: [item("workspace", "Workspace", `${heading}
 Opening this view does not mutate files or attach another application.`)]
@@ -7652,7 +7674,7 @@ Current session · Not persisted. Opening does not attach this application.`
     );
     sessionRow.applicationStatus = application.status, sessionRow.canUpdateApplication = !0, empty.applications.items.length === 0 && (empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach."), empty.applications.items = [sessionRow, ...empty.applications.items];
   }
-  let analyzeCards = state.result_cards.filter((card) => card.workflow === "analyze").slice(-5), matchCards = state.result_cards.filter((card) => card.workflow === "match").slice(-5);
+  let analyzeCards = visibleResultCards.filter((card) => card.workflow === "analyze").slice(-5), matchCards = visibleResultCards.filter((card) => card.workflow === "match").slice(-5);
   return analyzeCards.length > 0 && (empty.analyze.items = [
     ...empty.analyze.items,
     ...analyzeCards.map((card) => item(`analyze:${card.state_id}`, plainResultCard(card).split(`
