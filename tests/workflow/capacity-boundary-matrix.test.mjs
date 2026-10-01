@@ -130,7 +130,7 @@ function identityBytes(applicationId = APPLICATION_ID, company = "Synthetic Comp
 
 function stateBytes(fields) {
   return canonical({
-    schema_version: "pi.career.application_state.v2",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: fields.applicationId ?? APPLICATION_ID,
     sequence: fields.sequence,
@@ -513,7 +513,7 @@ test("P3-44 application entries, revisions, and registered status mutation prese
   }
 });
 
-test("P3-44 under-lock application-entry and revision crossings do not publish a new head", async () => {
+test("S1-10/P3-44 under-lock application-entry and revision crossings do not publish a new head", async () => {
   const entries = await fixture("entry-race");
   try {
     const { directory, attachment } = await writePackage(entries, { revisions: 1, userFiles: ENTRY_MAX - 4 });

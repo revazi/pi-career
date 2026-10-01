@@ -17,8 +17,8 @@ import {
   attachedApplicationSourcesForSession,
   selectedOriginalOptions,
 } from "./application-workspace.ts";
-import { openCareerUi, type CareerUiView } from "./career-ui.ts";
-import { addLibraryRoot, loadConfig, removeLibraryRoot, writeConfig } from "./config.ts";
+import { openCareerUi, type CareerUiPreviewReference, type CareerUiView } from "./career-ui.ts";
+import { addLibraryRoot, loadConfig, removeLibraryRoot, suggestedGeneratedVariantsRoot, writeConfig } from "./config.ts";
 import { buildJobInput, buildJobMatchInput, buildResumeInput, serializeCoreInput } from "./core-input.ts";
 import {
   deriveMatchTieStateIds,
@@ -26,6 +26,7 @@ import {
   libraryWarningPreview,
   oversizeResultMessage,
   plainResultCard,
+  privacyDisplayPath,
   registerWorkflowEntryRenderer,
   setupSummary,
   unavailableMatchResultMessage,
@@ -38,6 +39,7 @@ import {
   type CoreResult,
 } from "./result-projection.ts";
 import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
+import { buildWorkbenchPrompt, defaultWorkbenchQuestion, validWorkbenchQuestion, type WorkbenchMode } from "./workbench.ts";
 import {
   createApplicationClearEntry,
   createApplicationEntry,
@@ -117,6 +119,8 @@ class RunOwner {
       ctx.sessionManager.getSessionId() !== run.sessionId
     ) throw workflowError("workflow_stale");
   }
+
+  cancel(): void { this.current?.controller.abort(); }
 
   invalidate(): void {
     this.sequence += 1;
@@ -212,6 +216,7 @@ async function runOperation<T>(
   run: OwnedRun,
   label: string,
   operation: (signal: AbortSignal) => Promise<T>,
+  inOverlay = false,
 ): Promise<T> {
   owner.assert(run, ctx);
   try {
@@ -220,6 +225,20 @@ async function runOperation<T>(
       const value = await operation(run.controller.signal);
       owner.assert(run, ctx);
       return value;
+    }
+    if (inOverlay) {
+      const aborted = new Promise<null>((resolve) => {
+        run.controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+      });
+      const result = await Promise.race([
+        operation(run.controller.signal).then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error: boundedOperationError(error) })),
+        aborted,
+      ]);
+      if (result === null) throw workflowError("workflow_cancelled");
+      if (!result.ok) throw result.error;
+      owner.assert(run, ctx);
+      return result.value;
     }
     const result = await ctx.ui.custom<LoaderResult<T>>((tui, theme, _keybindings, done) => {
       const loader = new BorderedLoader(tui, theme, label);
@@ -316,6 +335,25 @@ async function loadLibrary(dependencies: WorkflowDependencies): Promise<{
   return { config, scan: await scanLibrary(config) };
 }
 
+function exactReferencedOriginal(
+  scan: LibraryScan,
+  reference: CareerUiPreviewReference,
+): ResumeRecord | undefined {
+  if (reference.source !== "library") return undefined;
+  const root = scan.roots.find((entry) => entry.root_id === reference.rootId);
+  if (scan.total_capped || root === undefined || root.capped || root.stale) return undefined;
+  const matches = scan.records.filter((record) => record.kind === "original" &&
+    record.id === reference.id && record.root_id === reference.rootId &&
+    record.text_sha256 === reference.digest && record.format === reference.format &&
+    record.too_large_for_core_input !== true);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function sameOriginal(left: ResumeRecord | undefined, right: ResumeRecord | undefined): boolean {
+  return left !== undefined && right !== undefined && left.id === right.id && left.root_id === right.root_id &&
+    left.text_sha256 === right.text_sha256 && left.format === right.format;
+}
+
 function appendData(
   pi: ExtensionAPI,
   owner: RunOwner,
@@ -393,6 +431,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
 
   const openUi = async (ctx: ExtensionCommandContext, view: CareerUiView): Promise<void> => {
     await openCareerUi(ctx, view, dependencies.agentDir, {
+      cancelOperation: () => owner.cancel(),
       attach: (pointer) => applicationWorkspace.attachCatalogPointer(ctx, pointer),
       migrate: async (applicationId) => {
         const company = await ctx.ui.input("Exact company label", "Company name");
@@ -513,6 +552,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         if (status === undefined) return false;
         const attached = await attachedSources(ctx);
         if (attached !== undefined) {
+          if (status === "applied" && attached.readiness.readiness !== "Ready 3/3") {
+            const confirmed = await ctx.ui.confirm(
+              "Mark incomplete application Applied",
+              `${attached.readiness.readiness}. Record Applied as workflow status anyway? This does not claim employer submission or change readiness.`,
+            );
+            if (confirmed !== true) return false;
+          }
           const outcome = await applicationWorkspace.writeAttachedStatus(ctx, status);
           return outcome === "written";
         }
@@ -579,12 +625,17 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const outcome = await applicationWorkspace.selectAttachedOriginal(ctx);
         return outcome === "written" || outcome === "unchanged";
       },
-      analyze: async () => {
+      analyze: async (reference) => {
+        const rejectSelectedAnalyze = (): never => {
+          ctx.ui.notify(workflowErrorMessage("workspace_drift"), "error");
+          throw workflowError("workspace_drift");
+        };
         const attached = await attachedSources(ctx);
         if (attached !== undefined && attached.selected_original === undefined) {
           ctx.ui.notify("Select an original resume with o before analyzing this attached application.", "warning");
           return false;
         }
+        if (reference !== undefined && reference.source !== "library") rejectSelectedAnalyze();
         const confirmed = await ctx.ui.confirm(
           "Run analyze",
           "Run deterministic resume analysis with Career Core? This does not call a model or attach an application.",
@@ -593,7 +644,13 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
         const run = owner.start(ctx);
         const { scan } = await refreshState(ctx);
         let resume: ResumeRecord | undefined = attached?.selected_original;
-        if (resume === undefined) {
+        if (reference !== undefined) {
+          const selected = exactReferencedOriginal(scan, reference);
+          if (selected === undefined || (attached !== undefined && !sameOriginal(resume, selected))) {
+            rejectSelectedAnalyze();
+          }
+          resume = selected;
+        } else if (resume === undefined) {
           const originals = eligibleOriginals(scan);
           if (originals.length === 0) throw workflowError("library_empty");
           if (originals.length === 1) {
@@ -630,7 +687,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
               signal,
             );
             return parseCoreJson(invocation.json);
-          });
+          }, true);
         } catch (error) {
           const code = safeAdapterCode(error);
           if (isOversizeCode(code)) {
@@ -712,7 +769,7 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
               return { resume: current, vacancy: currentVacancy };
             };
             return executeMatchQueue(dependencies, selected, vacancy, signal, freshSources);
-          },
+          }, true,
         );
         const ranked = rankMatches(queue.matches);
         const applicationId = attached?.application_id ?? state.application?.application_id;
@@ -751,11 +808,50 @@ export function registerCareerCommands(pi: ExtensionAPI, options: CommandRuntime
       },
       askPi: async () => {
         const attached = await attachedSources(ctx);
-        if (attached === undefined) {
-          ctx.ui.notify("Attach an application before Ask Pi. Nothing was submitted.", "warning");
-          return false;
+        if (attached !== undefined) {
+          await applicationWorkspace.prepareAssistanceHandoff(ctx);
+          return true;
         }
-        await applicationWorkspace.prepareAssistanceHandoff(ctx);
+        const run = owner.start(ctx);
+        const { config, scan } = await refreshState(ctx);
+        const originals = eligibleOriginals(scan);
+        if (originals.length === 0) throw workflowError("library_empty");
+        const byOption = new Map(selectedOriginalOptions(originals).map(({ option, record }) => [option, record]));
+        const chosen = await ctx.ui.select("Choose an original resume", [...byOption.keys()]);
+        const resume = chosen === undefined ? undefined : byOption.get(chosen);
+        if (resume === undefined) return false;
+        const state = reconstructWorkflowState(ctx.sessionManager.getBranch());
+        const modes = new Map<string, WorkbenchMode>([
+          ["Explain my score — resume only", "explain"],
+          ["Create a reviewed improvement plan — resume only", "plan"],
+          ["Guided rewrite interview — resume only", "rewrite"],
+          ["Draft reviewed replacements — resume only", "replacements"],
+          ...(state.vacancy === undefined ? [] : [[resume.format === "pdf"
+            ? "Create reviewed tailoring changes — PDF manual application"
+            : "Create a tailored variation — current vacancy", "tailor"] as [string, WorkbenchMode]]),
+          ["Ask my own question — resume only", "question"],
+        ]);
+        const selected = await ctx.ui.select("Career workbench", [...modes.keys(), "Cancel"]);
+        const mode = selected === undefined ? undefined : modes.get(selected);
+        if (mode === undefined) return false;
+        const question = await ctx.ui.editor("Question for Pi", defaultWorkbenchQuestion(mode));
+        if (question === undefined) return false;
+        if (!validWorkbenchQuestion(question)) throw workflowError("invalid_command_arguments");
+        const approved = await ctx.ui.confirm(
+          "Prepare workbench prompt",
+          "Include the selected original visibly in the editor for your review? Nothing will be submitted.",
+        );
+        if (approved !== true) return false;
+        owner.assert(run, ctx);
+        const current = await freshOriginal(resume);
+        const vacancy = mode === "tailor" ? state.vacancy : undefined;
+        const variantsRoot = suggestedGeneratedVariantsRoot(config, current.root_id);
+        const prompt = buildWorkbenchPrompt(current, vacancy, state.application, mode, question,
+          variantsRoot === undefined ? undefined : privacyDisplayPath(variantsRoot));
+        if (prompt === undefined) throw workflowError("workbench_too_large");
+        owner.assert(run, ctx);
+        ctx.ui.setEditorText(prompt);
+        ctx.ui.notify("Career workbench prompt prepared. Review it, then submit it normally. Nothing was sent automatically.", "info");
         return true;
       },
       detach: async () => {

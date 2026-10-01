@@ -9,7 +9,7 @@ import { readApplicationCatalog } from "../../src/workflow/application-workspace
 import {
   SYNTHETIC, buildChain, canonicalJson, completeApplicationFixture,
   makeManifest, materializeApplicationFixture, mixedChainFixtures,
-} from "./fixtures/persistence-v2.mjs";
+} from "./fixtures/persistence-state.mjs";
 
 // These oracles are constructed from literal synthetic contract bytes, never from
 // the catalog parser's output. Each root is disposable and private.
@@ -59,7 +59,7 @@ for (const [id, company, role] of [
       reconciliation: clean,
     });
     assert.deepEqual(await bytesAndNames(root), before);
-    assert.doesNotMatch(JSON.stringify(first), /synthetic-company--synthetic-engineer--|pi-career-persistence-v2-/);
+    assert.doesNotMatch(JSON.stringify(first), /synthetic-company--synthetic-engineer--|pi-career-persistence-state-/);
   });
 }
 
@@ -93,7 +93,7 @@ test("catalog retains byte-distinct Unicode-equivalent labels on separate UUIDs"
   assert.deepEqual(await bytesAndNames(root), before);
 });
 
-test("mixed-chain catalog classifications preserve bytes and expose no partial head", async (t) => {
+test("single-schema catalog classifications preserve bytes and expose no partial head", async (t) => {
   for (const fixture of mixedChainFixtures()) {
     const { root } = await rootFor(t, completeApplicationFixture(fixture.chain));
     const before = await bytesAndNames(root);
@@ -137,7 +137,7 @@ test("crash-left root lock blocks catalog reads without cleanup or read repair",
   await assert.rejects(readApplicationCatalog(root, SYNTHETIC.rootId), (error) => {
     assert.equal(error.name, "CareerWorkflowError");
     assert.match(error.message, /workspace_busy/);
-    assert.doesNotMatch(error.message, /Synthetic|pi-career-persistence-v2-|crash-left/);
+    assert.doesNotMatch(error.message, /Synthetic|pi-career-persistence-state-|crash-left/);
     return true;
   });
   assert.deepEqual(await bytesAndNames(root), before);

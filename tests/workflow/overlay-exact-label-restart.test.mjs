@@ -12,7 +12,7 @@ import { CAREER_UI_RPC_ACTIONS, buildCareerUiModel } from "../../src/workflow/ca
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { configPath, rootId } from "../../src/workflow/config.ts";
 import { reconstructWorkflowState } from "../../src/workflow/session-state.ts";
-import { canonicalJson } from "./fixtures/persistence-v2.mjs";
+import { canonicalJson } from "./fixtures/persistence-state.mjs";
 import { makeContext, makeFakePi, prepareConfigDirectory } from "./helpers.mjs";
 
 const ROOT_ID = "00000000-0000-4000-8000-000000000061";
@@ -53,8 +53,14 @@ function rowLabel(company, role) {
   return `${company} — ${role} — ${STATUS} — ${READINESS}`;
 }
 
-function detail(company, role) {
-  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+const UPDATED_AT = new Map([
+  [EXACT_ID, "2026-08-12T00:00:03.000Z"],
+  [NFC_ID, "2026-08-12T00:00:02.000Z"],
+  [NFD_ID, "2026-08-12T00:00:01.000Z"],
+]);
+
+function detail(id, company, role) {
+  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${UPDATED_AT.get(id)}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
 }
 
 function containsExact(text, value) {
@@ -104,7 +110,7 @@ async function writePackage(root, {
   });
   await privateFile(path.join(directory, ".pi-career-identity.json"), identity);
   await privateFile(path.join(directory, ".pi-career-state-000001.json"), canonicalJson({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: id,
     sequence: 1,
@@ -113,6 +119,7 @@ async function writePackage(root, {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: updatedAt,
   }));
   assert.equal((await lstat(directory)).mode & 0o777, 0o700);
@@ -195,7 +202,7 @@ const EXPECTED = [
 async function assertModel(agentDir, ctx) {
   const model = await buildCareerUiModel(agentDir, ctx);
   assert.deepEqual(model.applications.items.map((item) => [item.id, item.label, item.detail]), EXPECTED.map(([id, company, role]) => [
-    id, rowLabel(company, role), detail(company, role),
+    id, rowLabel(company, role), detail(id, company, role),
   ]));
   assert.equal(model.applications.items[1].label.normalize("NFC"), model.applications.items[2].label.normalize("NFC"));
   assert.notEqual(model.applications.items[1].label, model.applications.items[2].label);
@@ -221,7 +228,7 @@ async function exerciseRpc(agentDir, temp) {
   const lists = dialogs.filter((dialog) => dialog.title.startsWith("Career • Applications\n"));
   const details = dialogs.filter((dialog) => !dialog.title.startsWith("Career • Applications\n"));
   assert.equal(lists.length, 4);
-  assert.deepEqual(details.map((dialog) => dialog.title), EXPECTED.map(([, company, role]) => detail(company, role)));
+  assert.deepEqual(details.map((dialog) => dialog.title), EXPECTED.map(([id, company, role]) => detail(id, company, role)));
   for (const dialog of lists) {
     assert.deepEqual(dialog.options.slice(0, 3), EXPECTED.map(([, company, role]) => rowLabel(company, role)));
   }
@@ -268,12 +275,12 @@ async function exerciseTui(agentDir, temp) {
   };
   assert.equal(overlay.showingDetail, false);
   assertExactSurfaces(capture());
-  for (const [, company, role] of EXPECTED) {
+  for (const [id, company, role] of EXPECTED) {
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
     const opened = capture();
     assert.equal(containsExact(opened, rowLabel(company, role)), true);
-    assert.equal(containsExact(opened, detail(company, role)), true);
+    assert.equal(containsExact(opened, detail(id, company, role)), true);
     overlay.handleInput("esc");
     assert.equal(overlay.showingDetail, false);
     overlay.handleInput("down");

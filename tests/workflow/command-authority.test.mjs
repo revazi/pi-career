@@ -9,7 +9,12 @@ import test from "node:test";
 
 import { MANAGED_OUTPUT_MAX_BYTES } from "../../src/managed/catalog.ts";
 import { registerCareerRun } from "../../src/managed/tool.ts";
-import { ApplicationWorkspaceWorkflow, loadAttachedApplicationSources, readApplicationCatalog } from "../../src/workflow/application-workspace.ts";
+import {
+  ApplicationWorkspaceWorkflow,
+  loadAttachedApplicationSources,
+  readApplicationCatalog,
+  validateApplicationAttachment,
+} from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import { CAREER_UI_RPC_ACTIONS, CareerUiSession, buildCareerUiModel, careerPreviewLoader } from "../../src/workflow/career-ui.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
@@ -167,7 +172,7 @@ async function materializePackage({ tailored = false } = {}) {
     await writeFile(path.join(variants, "linked.pi-career.json"), sidecarBytes, { mode: 0o600 });
   }
   const state = {
-    schema_version: "pi.career.application_state.v2",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence: 1,
@@ -184,20 +189,7 @@ async function materializePackage({ tailored = false } = {}) {
     cover_letter_artifact: null,
     updated_at: WORKSPACE_CREATED_AT,
   };
-  if (tailored) {
-    // Existing v1 head followed by the exact null-cover v2 transition that links the artifact.
-    const legacy = { ...state, schema_version: "pi.career.application_state.v1", resume_artifact: null };
-    delete legacy.cover_letter_artifact;
-    const legacyBytes = canonical(legacy);
-    await writeFile(path.join(directory, ".pi-career-state-000001.json"), legacyBytes, { mode: 0o600 });
-    const transition = { ...state, sequence: 2, parent_sha256: hash(legacyBytes), resume_artifact: null,
-      updated_at: "2026-08-03T00:00:01.000Z" };
-    await privateJson(path.join(directory, ".pi-career-state-000002.json"), transition);
-    await privateJson(path.join(directory, ".pi-career-state-000003.json"), {
-      ...state, sequence: 3, parent_sha256: hash(canonical(transition)),
-      updated_at: "2026-08-03T00:00:02.000Z",
-    });
-  } else await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
+  await privateJson(path.join(directory, ".pi-career-state-000001.json"), state);
   return { temp, agentDir, library, root, directory, original, other, tailored: resumeArtifact };
 }
 
@@ -308,6 +300,82 @@ test("tailored effective Resume previews as assisted only and drift fails closed
     assert.equal(session.preview, undefined);
     assert.match(session.previewError, /unavailable or changed/);
     assert.doesNotMatch(session.previewError, /Built tailored APIs/);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#109 package checklist uses validated workspace metadata and renders across attached views", async () => {
+  const value = await materializePackage();
+  try {
+    const fake = makeFakePi();
+    const attachment = attach(fake);
+    const before = structuredClone(fake.entries);
+    const metadata = await validateApplicationAttachment(value.agentDir, attachment);
+    assert.deepEqual(metadata, {
+      attachment_id: attachment.attachment_id,
+      application_id: APPLICATION_ID,
+      root_id: ROOT_ID,
+      company_label: "Synthetic Company",
+      role_label: "Synthetic Engineer",
+      status: "preparing",
+      updated_at: WORKSPACE_CREATED_AT,
+      vacancy_bound: true,
+      original_bound: true,
+    });
+
+    const context = makeContext(fake, { mode: "rpc", persisted: false });
+    const model = await buildCareerUiModel(value.agentDir, context.ctx);
+    const checklist = /Package checklist\nJob description: Ready\nSelected original: Ready/;
+    assert.match(model.applications.items[0].detail, checklist);
+    assert.match(model.applications.items[0].detail, /Readiness: Incomplete 2\/3/);
+    assert.match(model.applications.items[0].detail, /Cover letter: Missing/);
+    assert.match(model.applications.items[0].detail, /Effective Resume: Available • Original/);
+    assert.match(model.applications.items[0].detail, /Match: Not analyzed in this session/);
+    assert.equal(model.applications.items[0].attachedApplication, true);
+    for (const view of ["vacancy", "match", "analyze"]) assert.match(model[view].intro, checklist);
+    assert.deepEqual(fake.entries, before);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#109 attached package metadata does not require library document bodies", async () => {
+  const value = await materializePackage();
+  try {
+    const fake = makeFakePi();
+    const attachment = attach(fake);
+    for (const entry of await readdir(value.library)) await unlink(path.join(value.library, entry));
+    const metadata = await validateApplicationAttachment(value.agentDir, attachment);
+    assert.equal(metadata.vacancy_bound, true);
+    assert.equal(metadata.original_bound, true);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#109 overlay vacancy clear remains preview-and-confirm gated", async () => {
+  const value = await materializePackage();
+  try {
+    const fake = makeFakePi();
+    attach(fake);
+    registerCommands(fake, value.agentDir, async () => {
+      throw new Error("vacancy clear must not invoke Career Core");
+    });
+    const before = await authoritySnapshot(value, fake);
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.clearVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [false],
+    }).ctx);
+    assert.deepEqual(await authoritySnapshot(value, fake), before);
+
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.clearVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    assert.notDeepEqual((await authoritySnapshot(value, fake)).applications, before.applications);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
@@ -501,7 +569,7 @@ test("P3-23 public attached-source validation rejects a valid tailored artifact 
   try {
     const artifactPath = path.join(value.directory, "resume.md");
     const sidecarPath = path.join(value.directory, "resume.pi-career.json");
-    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const headPath = path.join(value.directory, ".pi-career-state-000001.json");
     const artifactBytes = Buffer.from(TAILORED_TEXT);
     const sidecar = {
       schema_version: "pi.career.assisted_variant_meta.v2",
@@ -689,7 +757,7 @@ test("P3-48 linked assisted artifact stays out of Analyze/Match original authori
     sidecar.base_text_sha256 = value.other.text_sha256;
     const mismatchedBytes = canonical(sidecar);
     await writeFile(sidecarPath, mismatchedBytes);
-    const headPath = path.join(value.directory, ".pi-career-state-000003.json");
+    const headPath = path.join(value.directory, ".pi-career-state-000001.json");
     const head = JSON.parse(await readFile(headPath, "utf8"));
     head.resume_artifact.sidecar_sha256 = hash(mismatchedBytes);
     await writeFile(headPath, canonical(head));

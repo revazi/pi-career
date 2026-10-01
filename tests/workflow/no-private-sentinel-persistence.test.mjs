@@ -131,7 +131,7 @@ async function fixture() {
   });
   await privateFile(path.join(legacyDirectory, "application.json"), manifest);
   await privateFile(path.join(legacyDirectory, ".pi-career-state-000001.json"), canonical({
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: LEGACY_ID,
     sequence: 1,
@@ -140,6 +140,7 @@ async function fixture() {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: LEGACY_UPDATED_AT,
   }));
 
@@ -571,7 +572,7 @@ test("P3-33 registered create, migrate, list, and readiness derivation leave in-
       created_at: CREATED_AT,
     });
     const createdState = canonical({
-      schema_version: "pi.career.application_state.v1",
+      schema_version: "pi.career.application_state",
       kind: "application_state_revision",
       application_id: application.application_id,
       sequence: 1,
@@ -580,6 +581,7 @@ test("P3-33 registered create, migrate, list, and readiness derivation leave in-
       vacancy: null,
       selected_original: null,
       resume_artifact: null,
+      cover_letter_artifact: null,
       updated_at: CREATED_AT,
     });
     const createdEntries = createdTree.applications.entries[createdDirectory].entries;

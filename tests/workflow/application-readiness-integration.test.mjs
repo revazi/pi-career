@@ -36,9 +36,9 @@ async function tree(directory) {
   return result;
 }
 
-function state(version, sequence, parentSha256, values) {
-  const shared = {
-    schema_version: `pi.career.application_state.v${version}`,
+function state(_legacyVersion, sequence, parentSha256, values) {
+  return {
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: APPLICATION_ID,
     sequence,
@@ -47,14 +47,9 @@ function state(version, sequence, parentSha256, values) {
     vacancy: values.vacancy,
     selected_original: values.selectedOriginal,
     resume_artifact: null,
+    cover_letter_artifact: values.coverLetter ?? null,
+    updated_at: `2026-08-12T00:00:0${sequence}.000Z`,
   };
-  return version === 1
-    ? { ...shared, updated_at: `2026-08-12T00:00:0${sequence}.000Z` }
-    : {
-      ...shared,
-      cover_letter_artifact: values.coverLetter,
-      updated_at: `2026-08-12T00:00:0${sequence}.000Z`,
-    };
 }
 
 async function fixture(t, transition) {

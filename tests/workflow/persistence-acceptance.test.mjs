@@ -32,15 +32,15 @@ const behavioral = {
   5: ["unknown-child-attachment-boundary", "P3-05 registered configure-root and Applications discovery/attach leave an unknown direct child aggregate drifted and non-attachable"],
   6: ["overlay-exact-label-restart", "P3-06/P3-07 registered Applications restart-like reconstruction lists and opens exact identity labels without slug or Unicode conflation"],
   7: ["overlay-exact-label-restart", "P3-06/P3-07 registered Applications restart-like reconstruction lists and opens exact identity labels without slug or Unicode conflation"],
-  8: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
-  9: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
-  10: ["application-state-v2-reader", "P3-04/P3-10: complete-chain validation rejects downgrade, gap, mismatch, fork, and future schema"],
+  8: ["application-status-authority", "S1-02/S1-07/P3-45 public attached status reads a canonical chain and approved mutation appends exactly one revision"],
+  9: ["application-status-authority", "S1-02/S1-07/P3-45 public attached status reads a canonical chain and approved mutation appends exactly one revision"],
+  10: ["application-state-reader", "S1-03/S1-04/S1-05/S1-11: former and invalid schemas fail closed without a trusted current record"],
   11: ["legacy-overlay-migration-acceptance", "P3-11/P3-14 legacy Applications browse and open are read-only without session identity"],
   12: ["legacy-overlay-migration-acceptance", "P3-12 legacy Applications migration cancellation and post-preview byte race create nothing"],
-  13: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
-  14: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
+  13: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered identity migration writes only canonical identity and preserves state bytes"],
+  14: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered identity migration writes only canonical identity and preserves state bytes"],
   15: ["legacy-overlay-migration-acceptance", "P3-15 independently prepared legacy migration plans have one no-clobber winner"],
-  16: ["persistent-overlay-creation", "P3-16 configured-root Applications create resolves consent before exact preview, commits one canonical package, and renders Preparing Incomplete 0/3 after restart-like reconstruction"],
+  16: ["persistent-overlay-creation", "S1-06/P3-16 configured-root Applications create commits canonical sequence 1 and renders Preparing Incomplete 0/3"],
   17: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   18: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
   19: ["application-readiness", "P3-16 through P3-25: pure readiness implements every reachable availability row"],
@@ -63,14 +63,14 @@ const behavioral = {
   36: ["noninteractive-private-read-boundary", "P3-36 installed print and JSON /career reject before denied private config, session, root, library, and document reads"],
   37: ["payload-free-error-boundaries", "P3-37 registered and installed payload-free errors omit synthetic sentinels across resolver, source, catalog, session, UI, persistence, and public tools"],
   38: ["application-concurrency-acceptance", "P3-38 two same-UUID creators commit concurrently with one exact no-retry winner"],
-  39: ["application-concurrency-acceptance", "P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
+  39: ["application-concurrency-acceptance", "S1-09/P3-39 two independently prepared same-next-revision plans commit concurrently without fork"],
   40: ["application-artifact-reconciliation-acceptance", "P3-40 artifact-published state-absent fault leaves a non-authoritative orphan and registered reconciliation never adopts it"],
   41: ["application-concurrency-acceptance", "P3-41 exact durably published state settles success and equivalent retry is idempotent"],
   42: ["application-concurrency-acceptance", "P3-42 crash-left canonical lock blocks one public mutation attempt without replacement"],
   43: ["application-concurrency-acceptance", "P3-43 post-preview referenced-byte drift blocks commit without blessing or side effects"],
-  45: ["application-status-authority", "P3-08/P3-09/P3-45 public attached status reads a complete v1 chain and approved mutation appends the exact v2 transition"],
+  45: ["application-status-authority", "S1-02/S1-07/P3-45 public attached status reads a canonical chain and approved mutation appends exactly one revision"],
   46: ["overlay", "P3-46 one Applications view distinguishes a session-only application from persistent records without changing authority"],
-  47: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered legacy migration writes only canonical identity and preserves v1 bytes"],
+  47: ["legacy-overlay-migration-acceptance", "P3-13/P3-14/P3-47 registered identity migration writes only canonical identity and preserves state bytes"],
   48: ["command-authority", "P3-48 linked assisted artifact stays out of Analyze/Match original authority while attached Match uses effective Resume"],
   49: ["no-automatic-provider-submission", "P3-49 installed/public browse-open-filter-clear-empty-repeated reads keep all five forbidden effects absent"],
   50: ["inactive-model-context", "P3-50 attached inactive session ordinary model turn omits Career Skill metadata, Skill content, and Career tool schemas"],
@@ -80,19 +80,19 @@ const behavioral = {
   55: ["session-catalog-attach", "P3-55 an activated session opens a replacement with attachment only and no conversation"],
   56: ["lifecycle-restore-acceptance", "P3-56 installed invalid restore/action matrix fails closed without append or mutation"],
   57: ["inactive-model-context", "P3-57 inactive raw-tool request is rejected and the following ordinary model turn omits all four Career tool schemas"],
+  58: ["transient-process-shutdown-acceptance", "P3-58 native TUI reload reconstructs the active surface, then a fresh transient process is empty"],
 };
 
 const deferred = {
   53: "Installed session_tree receives ExtensionContext and has no reload(); reload() exists only on ExtensionCommandContext. Host resources_discover runs on startup/reload, not after tree navigation, so Skill reload cannot be requested from that event without inventing a command-context seam.",
   44: "Capacity matrix covers root entries, application entries, revisions, managed bytes, document reads, metadata size classification, and 80-character config labels at public plan/commit/read boundaries, including under-lock entry, revision, document, and metadata crossings. Still missing: canonical mutation-preview exactly-at/just-above 5,242,880 and an under-lock preview recheck, because public planners cannot emit that encoding and commit does not remeasure it; a schema-valid 16,384-byte metadata success; a 262,144-byte vacancy write, which invalid_command_arguments rejects before the byte ceiling; and config/label under-lock injection, which has no existing hook.",
-  58: "Pinned RPC get_commands omits built-in TUI /reload, and prompting it is not a host reload. Activation ctx.reload() retained entries in the same pid, but that is not an independent post-activation reload, so shutdown loss alone cannot witness P3-58.",
 };
 
 test("#60 evidence map assigns every P3 row exactly one behavioral witness or owned deferral", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  assert.equal(Object.keys(behavioral).length, 55, "reviewed map has exactly 55 scoped witnesses");
-  assert.equal(Object.keys(deferred).length, 3, "reviewed map retains exactly 3 deferrals");
-  assert.match(markdown, /Currently 55 have scoped witnesses and 3 remain deferred\./);
+  assert.equal(Object.keys(behavioral).length, 56, "reviewed map has exactly 56 scoped witnesses");
+  assert.equal(Object.keys(deferred).length, 2, "reviewed map retains exactly 2 deferrals");
+  assert.match(markdown, /Currently 56 have scoped witnesses and 2 remain deferred\./);
   const rows = markdown.split("\n").filter((line) => /^\| P3-/.test(line));
   assert.equal(rows.length, 58);
   for (const [index, row] of rows.entries()) {
@@ -119,18 +119,17 @@ test("#60 evidence map assigns every P3 row exactly one behavioral witness or ow
   assert.equal(Object.keys(behavioral).length + Object.keys(deferred).length, 58);
 });
 
-// Contract bookkeeping only: this fixes the reviewed byte shape and fixture map
-// without claiming that v2 parsing or readiness derivation is implemented.
-test("state-v2 contract fixes canonical field order and #60 fixture ownership", async () => {
+// Contract bookkeeping only: this fixes the reviewed byte shape and fixture map.
+test("single-state contract fixes canonical field order and #141 fixture ownership", async () => {
   const markdown = await readFile(contractUrl, "utf8");
   const match = markdown.match(/The canonical value is:\n\n```json\n([\s\S]*?)\n```/);
-  assert.ok(match, "state-v2 canonical JSON example must remain present");
+  assert.ok(match, "canonical application-state JSON example must remain present");
   const state = JSON.parse(match[1]);
   assert.deepEqual(Object.keys(state), [
     "schema_version", "kind", "application_id", "sequence", "parent_sha256", "status",
     "vacancy", "selected_original", "resume_artifact", "cover_letter_artifact", "updated_at",
   ]);
-  assert.equal(state.schema_version, "pi.career.application_state.v2");
+  assert.equal(state.schema_version, "pi.career.application_state");
   assert.deepEqual(Object.keys(state.cover_letter_artifact), [
     "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
     "job_description_sha256", "effective_resume_sha256",
@@ -141,7 +140,7 @@ test("state-v2 contract fixes canonical field order and #60 fixture ownership", 
     assert.match(markdown, new RegExp(`\\b${classification}\\b`));
   }
   for (const family of [
-    "state-v2-canonical", "mixed-chain", "historical-references", "cover-letter-reference",
+    "single-schema-chain", "unsupported-state-schema", "historical-references", "cover-letter-reference",
     "package-completeness", "source-authority", "read-races-and-privacy", "transaction-orphans",
   ]) assert.ok(markdown.includes(`| \`${family}\` |`));
   assert.equal(markdown.split("\n").filter((line) => /^\| (?:yes|no) \| (?:yes|no) \| (?:yes|no) \|/.test(line)).length, 8);

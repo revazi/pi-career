@@ -159,7 +159,7 @@ function assertNoForbidden(value, dialogs, notifications) {
   assert.equal(value.fake.activeTools.length, 0);
 }
 
-test("P3-16 configured-root Applications create resolves consent before exact preview, commits one canonical package, and renders Preparing Incomplete 0/3 after restart-like reconstruction", async () => {
+test("S1-06/P3-16 configured-root Applications create commits canonical sequence 1 and renders Preparing Incomplete 0/3", async () => {
   const value = await fixture();
   try {
     const before = await snapshot(value.temp);
@@ -303,7 +303,7 @@ test("P3-16 configured-root Applications create resolves consent before exact pr
       created_at: CREATED_AT,
     });
     const state = canonical({
-      schema_version: "pi.career.application_state.v1",
+      schema_version: "pi.career.application_state",
       kind: "application_state_revision",
       application_id: entry.application_id,
       sequence: 1,
@@ -312,6 +312,7 @@ test("P3-16 configured-root Applications create resolves consent before exact pr
       vacancy: null,
       selected_original: null,
       resume_artifact: null,
+      cover_letter_artifact: null,
       updated_at: CREATED_AT,
     });
     assert.equal((await lstat(directory)).mode & 0o777, 0o700);
@@ -370,7 +371,7 @@ test("P3-16 configured-root Applications create resolves consent before exact pr
     assert.equal(restarted.entries.length, 0);
     assert.equal(model.applications.items.length, 1);
     assert.equal(model.applications.items[0].label, ROW_LABEL);
-    assert.match(model.applications.items[0].detail, /Status: Preparing\nReadiness: Incomplete 0\/3/);
+    assert.match(model.applications.items[0].detail, /Status: Preparing\nReadiness: Incomplete 0\/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none/);
     assert.equal(model.applications.items[0].pointer === undefined, false);
     assert.ok(restartDialogs[0].options.includes(ROW_LABEL));
     assert.equal(restartDialogs[0].options.some((option) => option.includes("Not persisted")), false);

@@ -62,6 +62,7 @@ const allowed = new Set([
   "docs/persistence-acceptance.md",
   "docs/product-flow.md",
   "docs/releasing.md",
+  "docs/single-application-state.md",
   "docs/unpdf-LICENSE-MIT.txt",
   "docs/variant-save-workflow.md",
   "package.json",

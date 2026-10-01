@@ -2,7 +2,7 @@
 
 ## Status and authorization boundary
 
-**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, #63 explicit legacy migration, and #64 attachment/command-authority slices through application/vacancy/Resume convergence are implemented in the current unreleased source for independent security/architecture review. They include strict config-v2 migration/CAS, one existing private disjoint application root, marker attach/detach, immutable manifest/display identity and full state/vacancy/selected-original revisions, bounded catalog derivation, fail-closed mixed-chain validation, pure readiness derivation, identity-only legacy migration, an exact null-cover v1→v2 transition only when the next approved state mutation requires it, session attachment/activation, and attached `/career-application` / `/career-vacancy` / `/career-match` / `/career-analyze` / `/career-workbench` / `career_run context` using workspace files as the only current application/vacancy/Resume authority. The attached read-only source detail returns the readiness projection derived during its validated package/library read; no catalog or overlay list projection calls readiness yet. This status does not authorize merge, release, publication, tagging, cover-letter writes, overlay UI, or any later gate.
+**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, #63 explicit identity migration, #64 attachment/command-authority slices through application/vacancy/Resume convergence, and #141's single application-state schema are implemented in the current unreleased source for independent security/architecture review. Every application-state revision now uses [`pi.career.application_state`](single-application-state.md); former state `.v1`/`.v2` identifiers fail closed without migration or compatibility parsing. Config migration, display-identity migration, session attachment/activation, and other independently versioned package contracts are unchanged. The attached source detail and persistent Applications catalog derive readiness from each validated package plus the same bounded library-scan evidence; readiness is never persisted. The overlay renders all three component classifications, effective-Resume authority, lifecycle, and exact validated update time without exposing document bodies or paths. This status does not authorize release, publication, tagging, cover-letter writes, or any later gate.
 
 Career Core remains authoritative for every career-domain operation, schema, algorithm, warning, error, evidence rule, and assisted/non-authoritative result. This design defines only pi-career-owned configuration and local-file protocols. It does not copy a Core schema or algorithm.
 
@@ -402,7 +402,7 @@ The current state is the highest complete contiguous revision named `.pi-career-
 
 ```json
 {
-  "schema_version": "pi.career.application_state.v1",
+  "schema_version": "pi.career.application_state",
   "kind": "application_state_revision",
   "application_id": "<lowercase UUID>",
   "sequence": 1,
@@ -421,6 +421,7 @@ The current state is the highest complete contiguous revision named `.pi-career-
     "format": "markdown"
   },
   "resume_artifact": null,
+  "cover_letter_artifact": null,
   "updated_at": "<canonical UTC timestamp with milliseconds>"
 }
 ```
@@ -446,14 +447,14 @@ The chain is valid only when:
 
 - `application.json` is exact, its UUID/root match the active session and root marker, and its enclosing directory is the exact safe basename derived for that active session UUID/labels;
 - when display identity is present, it is exact and its UUID/timestamp match the manifest; attached-session labels must match it byte-for-byte;
-- revisions start at 1, are contiguous, and do not exceed 64 in v1;
+- revisions start at 1, are contiguous, use only `pi.career.application_state`, and do not exceed 64;
 - sequence 1 hashes the exact manifest as parent and every later revision hashes the exact prior revision;
 - every referenced package file exists with exact type/owner/mode/link-count/size/hash and remains inside the direct-child directory; and
 - there is no malformed or duplicate state-shaped basename.
 
-A missing, forked, gapped, oversized, or hash-drifted chain is not partially trusted. No revision is overwritten, compacted, or deleted in v1.
+A missing, forked, gapped, oversized, hash-drifted, or unsupported-schema chain is not partially trusted. No revision is overwritten, compacted, migrated, or deleted.
 
-The reviewed next-schema decision is documented in [the exact state-v2 and derived-readiness contract](persistence-acceptance.md#exact-state-v2-and-derived-readiness-contract). It adds only `cover_letter_artifact` after `resume_artifact`, defines mixed v1/v2 reading and pure readiness, and leaves every v1 byte valid and immutable. The reader accepts only complete all-v1, all-v2, or one-way v1→v2 chains and validates every historical managed reference. A separate pure function derives the closed component vocabulary, exact effective-resume choice, and readiness count from an already validated snapshot and bounded library-scan evidence without reading or mutating storage. After exact display-identity migration, the first later status/vacancy or selected-original mutation on a v1 head plans two immutable revisions: an unchanged null-cover v2 transition and then the requested v2 change. A v2 head appends one v2 revision and carries any cover reference unchanged. Insufficient capacity for the complete plan fails before preview; migration itself never appends a transition merely to upgrade schema.
+The sole application-state contract is [`pi.career.application_state`](single-application-state.md). Every immutable revision uses that exact schema, including the nullable `cover_letter_artifact` field. Former `.v1` and `.v2` state identifiers are unsupported and fail closed; there is no compatibility parser, transition revision, upgrade, downgrade, or state migration. The separate pure function continues to derive the closed component vocabulary, exact effective-resume choice, and readiness count from an already validated snapshot and bounded library-scan evidence without reading or mutating storage. Retaining a nullable cover-letter reference does not authorize cover-letter persistence.
 
 ## Eligible sources and artifact decisions
 
@@ -591,8 +592,8 @@ Config is the sole mutable file. A present config uses the cooperative config lo
 - **Configure an empty root:** publish and sync the root marker, then no-clobber-create or compare-and-swap the config as planned and sync its directory. A known pre-config failure may remove only the exact marker inode created by this plan if the root otherwise remains empty. A crash may leave a valid unattached marker, which is explicitly attachable later.
 - **Initialize application:** create/sync the application directory; publish `application.json`; publish `.pi-career-identity.json`; publish optional `vacancy.md`; publish `.pi-career-state-000001.json` last; sync the application directory and then root. The final state revision is the commit record.
 - **Finish legacy migration:** publish only `.pi-career-identity.json`, then sync the application directory and root. Existing manifest, state, vacancy/artifact, and directory bytes remain unchanged; no schema transition is appended.
-- **Status/selection/vacancy update:** for a v1 head, publish the unchanged null-cover v2 transition, then a new vacancy file when needed, then the requested v2 state last. For a v2 head, publish only the new vacancy when needed and requested next v2 state. Existing files are immutable, and the complete one- or two-revision plan must fit all bounds before publication.
-- **Resume artifact (later gate):** publish the v2 sidecar first, artifact second, and state revision last. Thus an intentionally committed artifact is never unmarked, and an exact state commit references both.
+- **Status/selection/vacancy update:** publish a new vacancy file when needed, then publish exactly one requested `pi.career.application_state` revision last. Existing files are immutable, and the complete plan must fit all bounds before publication.
+- **Resume artifact (later gate):** publish the independently versioned assisted-variant sidecar first, artifact second, and canonical state revision last. Thus an intentionally committed artifact is never unmarked, and an exact state commit references both.
 - **Deletion (later gate):** use the deletion protocol below; deletion has no rollback claim.
 
 Cancellation is honored through editor review, confirmation, guard acquisition, locked revalidation, and one final check immediately before the first temp/directory/final mutation. Once commit starts, the bounded sequence ignores cancellation and runs to settlement. It never launches another route or retries under another name.

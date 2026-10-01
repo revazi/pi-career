@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ApplicationWorkspaceWorkflow, selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
-import { loadConfig } from "../../src/workflow/config.ts";
+import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   CAREER_UI_COMMAND_VIEWS,
@@ -17,6 +17,7 @@ import {
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
   CareerUiSession,
+  buildCareerLibraryPane,
   buildCareerUiModel,
   careerPreviewLoader,
 } from "../../src/workflow/career-ui.ts";
@@ -49,8 +50,8 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   const model = {
     setup: pane("setup"), library: pane("library"),
     applications: pane("applications", [
-      { id: "uuid-a", label: "Acme · Engineer", detail: "Applied · Ready · persistent" },
-      { id: "uuid-b", label: "Acme · Engineer", detail: "Interviewing · Not ready · persistent" },
+      { id: "uuid-a", label: "Acme · Engineer", detail: "Applied · Ready · persistent", applicationStatus: "applied" },
+      { id: "uuid-b", label: "Acme · Engineer", detail: "Interviewing · Not ready · persistent", applicationStatus: "interviewing" },
     ]),
     vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
     workbench: pane("workbench"), workspace: pane("workspace"),
@@ -58,6 +59,7 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   const effects = [];
   const session = new CareerUiSession("applications", model, {
     filterApplications: async () => "Acme",
+    filterApplicationLifecycle: async () => "applied",
     attach: async () => { effects.push("attach"); return true; },
   });
   assert.equal(session.pane.items.length, 2);
@@ -70,6 +72,10 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   session.clearApplicationFilter();
   assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
   assert.equal(await session.filterApplications(), true);
+  assert.equal(await session.filterApplicationLifecycle(), true);
+  assert.deepEqual(session.pane.items.map((item) => item.id), ["uuid-a"]);
+  assert.match(session.pane.intro, /Lifecycle: Applied/);
+  session.clearApplicationFilter();
   // A query with no matches is safe and does not destroy the catalog snapshot.
   const empty = new CareerUiSession("applications", model, { filterApplications: async () => "absent" });
   assert.equal(await empty.filterApplications(), true);
@@ -87,6 +93,37 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   detailSession.clearApplicationFilter();
   assert.equal(detailSession.selected.id, "uuid-a", "clearing an open detail preserves its UUID identity");
   assert.deepEqual(effects, []);
+});
+
+test("attached application is the initial detail and lifecycle actions stay bound to it", async () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const model = {
+    setup: pane("setup"), library: pane("library"),
+    applications: pane("applications", [
+      { id: "other", label: "Other", detail: "Preparing", applicationStatus: "preparing", pointer: { applicationId: "other" } },
+      { id: "attached", label: "Attached", detail: "Applied", applicationStatus: "applied", attachedApplication: true, canUpdateApplication: true, pointer: { applicationId: "attached" } },
+    ]),
+    vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("workbench"), workspace: pane("workspace"),
+  };
+  const calls = [];
+  const session = new CareerUiSession("applications", model, {
+    attach: async (pointer) => { calls.push(["attach", pointer.applicationId]); return true; },
+    updateStatus: async () => { calls.push(["status", session.selected.id]); return true; },
+    detach: async () => { calls.push(["detach", session.selected.id]); return true; },
+  });
+  assert.equal(session.showingDetail, true);
+  assert.equal(session.selected.id, "attached");
+  assert.equal(session.canAttach, false);
+  assert.equal(session.canUpdateStatus, true);
+  assert.equal(await session.updateStatus(), true);
+  assert.equal(await session.detach(), true);
+  session.back();
+  session.highlight(0);
+  assert.equal(session.canAttach, true);
+  assert.equal(session.canUpdateStatus, false);
+  assert.equal(session.canDetach, false);
+  assert.deepEqual(calls, [["status", "attached"], ["detach", "attached"]]);
 });
 
 async function openAndClose(fake, command, view) {
@@ -112,6 +149,190 @@ async function openAndClose(fake, command, view) {
   assert.equal(fake.entries.length, before);
   return { context, rendered };
 }
+
+test("library original exposes direct analyze and root removal; variants and unavailable records do not", async () => {
+  const pane = { intro: "library", items: [
+    { id: "original", label: "Original", detail: "Original", libraryRootId: "root-a", preview: { source: "library", id: "original", rootId: "root-a", digest: "abc", format: "text" } },
+    { id: "variant", label: "Variant", detail: "Assisted variant (non-authoritative)" },
+  ] };
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = pane;
+  const calls = [];
+  const session = new CareerUiSession("library", model, {
+    analyze: async (reference) => { calls.push(["analyze", reference?.id]); return true; },
+    removeRoot: async (id) => { calls.push(id); return true; },
+  });
+  assert.equal(session.canAnalyze, true);
+  assert.equal(session.canRemoveRoot, true);
+  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.removeRoot));
+  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.analyze));
+  await session.analyze();
+  await session.removeRoot();
+  assert.deepEqual(calls, [["analyze", "original"], "root-a"]);
+  session.move(1);
+  assert.equal(session.canAnalyze, false);
+  assert.equal(session.canRemoveRoot, false);
+});
+
+test("Resume library pane covers empty, capped, stale, unreadable, oversized, PDF, text, and assisted states", () => {
+  const record = (id, rootId, format, kind = "original", extra = {}) => ({
+    id, root_id: rootId, path: `/synthetic/${id}`, relative_path: `${id}.${format === "markdown" ? "md" : format === "text" ? "txt" : "pdf"}`,
+    label: `Synthetic ${id}`, kind, format, modified_at: "2026-08-12T00:00:00.000Z",
+    size_bytes: 10, text: `Synthetic ${id}`, text_sha256: `${id.at(-1) ?? "a"}`.repeat(64).slice(0, 64), ...extra,
+  });
+  const scan = {
+    records: [
+      record("text-a", "root-a", "text"),
+      record("pdf-b", "root-b", "pdf"),
+      record("assisted-c", "root-a", "markdown", "assisted_variant"),
+      record("oversized-d", "root-a", "markdown", "original", { too_large_for_core_input: true }),
+      record("stale-e", "root-stale", "text"),
+      record("capped-f", "root-capped", "text"),
+    ],
+    warnings: [
+      { code: "root_stale", root_id: "root-stale" },
+      { code: "root_file_cap_reached", root_id: "root-capped" },
+      { code: "total_file_cap_reached", root_id: "root-a" },
+      { code: "raw_file_too_large", root_id: "root-a" },
+      { code: "pdf_text_unavailable", root_id: "root-b" },
+      { code: "invalid_utf8", root_id: "root-a" },
+      { code: "invalid_assisted_sidecar", root_id: "root-a" },
+      { code: "scan_entry_unavailable", root_id: "root-a" },
+    ],
+    roots: [
+      { root_id: "root-a", original_count: 2, assisted_variant_count: 1, too_large_count: 1, stale: false, capped: false },
+      { root_id: "root-b", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: false, capped: false },
+      { root_id: "root-stale", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: true, capped: false },
+      { root_id: "root-capped", original_count: 1, assisted_variant_count: 0, too_large_count: 0, stale: false, capped: true },
+    ],
+    total_capped: false,
+  };
+  const pane = buildCareerLibraryPane(scan);
+  assert.match(pane.items.find((entry) => entry.id === "text-a").label, /Original.*text/);
+  assert.match(pane.items.find((entry) => entry.id === "pdf-b").detail, /Format: pdf/);
+  assert.match(pane.items.find((entry) => entry.id === "assisted-c").detail, /Assisted variant \(non-authoritative/);
+  assert.match(pane.items.find((entry) => entry.id === "oversized-d").detail, /too large for deterministic analysis/);
+  assert.match(pane.items.find((entry) => entry.id === "stale-e").detail, /root changed or missing/);
+  assert.match(pane.items.find((entry) => entry.id === "capped-f").detail, /root scan capped/);
+  const analyzedPane = buildCareerLibraryPane(scan, [{
+    kind: "result_card", workflow: "analyze", resume_id: "text-a", resume_label: "Synthetic text-a",
+    input_digests: { resume_text_sha256: scan.records[0].text_sha256, vacancy_text_sha256: "" },
+    projection: { summary: { overall_score: 81 }, ui_flags: { adjusted: false, provisional: false, close_cluster: false, stale: false } },
+  }]);
+  assert.match(analyzedPane.items.find((entry) => entry.id === "text-a").detail, /Career analyze: Synthetic text-a\nscore 81/);
+  assert.ok(pane.items.filter((entry) => entry.id.startsWith("notice:")).some((entry) => /text encoding unreadable/.test(entry.detail)));
+  assert.ok(pane.items.filter((entry) => entry.id.startsWith("notice:")).some((entry) => /assisted metadata quarantined/.test(entry.detail)));
+  assert.equal(buildCareerLibraryPane({ records: [], warnings: [], roots: [], total_capped: false }).items.length, 0);
+  assert.match(buildCareerLibraryPane({ records: [], warnings: [{ code: "root_stale", root_id: "root" }], roots: [], total_capped: true }).intro, /scan capped.*notice/s);
+
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = pane;
+  const session = new CareerUiSession("library", model);
+  assert.equal(session.open(), true);
+  const style = (_name, text) => text;
+  const overlay = new CareerOverlay(session, { fg: style, bold: (text) => text }, { matches: () => false }, () => {}, () => {});
+  for (const width of [32, 48, 80]) assert.ok(overlay.render(width).every((line) => visibleWidth(line) <= width));
+});
+
+test("explicit Resume library rescan shows local progress and discards a cancelled refresh", async () => {
+  const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
+  model.library = { intro: "previous complete library", items: [] };
+  let finishReload;
+  const reload = new Promise((resolve) => { finishReload = resolve; });
+  const cancellations = [];
+  const session = new CareerUiSession("library", model, {
+    rescan: async () => true,
+    cancelOperation: () => cancellations.push("cancel"),
+  }, () => reload);
+  const pending = session.rescan();
+  assert.equal(session.operationActive, true);
+  assert.match(session.operationLabel, /Rescanning Resume library locally/);
+  session.cancelOperation();
+  assert.deepEqual(cancellations, ["cancel"]);
+  assert.match(session.operationLabel, /Cancelling Resume library rescan/);
+  finishReload({ ...model, library: { intro: "partial replacement", items: [] } });
+  assert.equal(await pending, false);
+  assert.equal(session.pane.intro, "previous complete library");
+  assert.equal(session.operationActive, false);
+});
+
+test("Analyze and Match keep the mounted overlay busy/cancellable and restore its idle view", async () => {
+  for (const view of ["analyze", "match"]) {
+    for (const outcome of ["success", "error", "cancel"]) {
+      const calls = [];
+      const ownedController = new AbortController();
+      let finish;
+      const pending = new Promise((resolve, reject) => { finish = outcome === "error" ? reject : resolve; });
+      const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: `${name} synthetic`, items: [] }]));
+      const session = new CareerUiSession(view, model, {
+        cancelOperation: () => { calls.push("cancel"); ownedController.abort(); },
+        [view]: () => pending.then(() => true),
+      });
+      const style = (_name, text) => text;
+      const overlay = new CareerOverlay(session, { fg: style, bold: (text) => text }, { matches: (data, action) => data === "esc" && action === "tui.select.cancel" }, () => {});
+      const selected = session.selected;
+      const running = view === "analyze" ? session.analyze() : session.match();
+      assert.equal(session.busy, true);
+      assert.match(overlay.render(80).join("\n"), /Running deterministic Career Core action/);
+      assert.match(overlay.render(80).join("\n"), /esc cancel/);
+      overlay.handleInput("esc");
+      assert.deepEqual(calls, ["cancel"]);
+      assert.equal(ownedController.signal.aborted, true);
+      assert.match(overlay.render(80).join("\n"), /Cancelling deterministic Career Core action/);
+      overlay.handleInput("esc");
+      assert.deepEqual(calls, ["cancel"]);
+      assert.equal(session.view, view);
+      assert.equal(session.selected, selected);
+      if (outcome === "cancel") finish(false);
+      else if (outcome === "error") finish(new Error("synthetic failure"));
+      else finish(true);
+      await running;
+      assert.equal(session.busy, false);
+      assert.equal(session.view, view);
+      assert.equal(session.selected, selected);
+      assert.doesNotMatch(overlay.render(80).join("\n"), /Running deterministic Career Core action/);
+    }
+  }
+});
+
+test("empty overlay panes direct setup/library to add-root and Applications to workspace configuration or create", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-empty-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    await prepareConfigDirectory(agentDir);
+    const fake = makeFakePi();
+    const context = makeContext(fake, { mode: "tui", persisted: false });
+    const unbound = await buildCareerUiModel(agentDir, context.ctx);
+    assert.match(unbound.setup.intro, /n to add a resume root/);
+    assert.match(unbound.library.intro, /n to add a root/);
+    assert.match(unbound.applications.intro, /Workspace \(8\).*m to configure/);
+    assert.doesNotMatch(unbound.applications.intro, /press c to create/i);
+
+    const library = path.join(temp, "library");
+    const applications = path.join(temp, "applications");
+    await mkdir(library);
+    await mkdir(applications, { mode: 0o700 });
+    await chmod(applications, 0o700);
+    const rootId = "00000000-0000-4000-8000-000000000099";
+    await privateJson(path.join(agentDir, "career", "config.v1.json"), {
+      schema_version: "pi.career.config.v2",
+      library_roots: [{ id: createHash("sha256").update(await realpath(library)).digest("hex"), path: await realpath(library), label: "Synthetic library" }],
+      generated_variants_root: null,
+      application_workspace: { root_id: rootId, root_path: applications },
+    });
+    await privateJson(path.join(applications, ".pi-career-applications.json"), {
+      schema_version: "pi.career.application_root.v1", kind: "application_workspace_root", root_id: rootId,
+      created_at: "2026-08-01T00:00:00.000Z",
+    });
+    const configured = await buildCareerUiModel(agentDir, context.ctx);
+    assert.match(configured.applications.intro, /Press c to create/);
+    assert.match(configured.applications.intro, /does not attach/);
+    assert.equal(configured.applications.items.length, 0);
+    assert.equal(fake.entries.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
 
 test("TUI career commands open overlay views without Core, provider, or session append", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-")));
@@ -140,6 +361,74 @@ test("RPC career commands render the same view model through select dialogs", as
       assert.equal(fake.entries.length, before);
     }
     assert.equal(calls.length, 0);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("Resume library Analyze pins the highlighted Original and rejects post-confirm drift without a chooser", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-library-selected-analyze-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    const library = path.join(temp, "library");
+    await prepareConfigDirectory(agentDir);
+    await mkdir(library, { mode: 0o700 });
+    await writeFile(path.join(library, "alpha.md"), "# Alpha\n\nAlpha body\n", { mode: 0o600 });
+    await writeFile(path.join(library, "beta.md"), "# Beta\n\nBeta selected body\n", { mode: 0o600 });
+    await writeConfig(agentDir, await addLibraryRoot(emptyConfig(), library, "Synthetic library"), uuidSequence());
+    const fake = makeFakePi();
+    const calls = [];
+    registerCareerCommands(fake.api, {
+      agentDir,
+      uuid: uuidSequence(),
+      now: () => new Date("2026-08-12T00:00:00.000Z"),
+      invoke: async (invocation) => {
+        calls.push(invocation);
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      },
+    });
+    const beta = (await scanLibrary(await loadConfig(agentDir))).records.find((record) => record.label === "Beta");
+    assert.ok(beta);
+    const betaOption = buildCareerLibraryPane(await scanLibrary(await loadConfig(agentDir))).items.find((entry) => entry.id === beta.id).label;
+    const titles = [];
+    const selected = makeContext(fake, { mode: "rpc", persisted: false, confirms: [true] });
+    let opened = false;
+    let analyzed = false;
+    selected.ctx.ui.select = async (title, options) => {
+      titles.push(title);
+      assert.notEqual(title, "Choose an original resume");
+      if (!opened) { opened = true; assert.ok(options.includes(betaOption)); return betaOption; }
+      if (!analyzed && options.includes(CAREER_UI_RPC_ACTIONS.analyze)) {
+        analyzed = true;
+        return CAREER_UI_RPC_ACTIONS.analyze;
+      }
+      return CAREER_UI_RPC_ACTIONS.close;
+    };
+    await fake.commands.get("career-library").handler("", selected.ctx);
+    assert.equal(calls.length, 1);
+    assert.equal(JSON.parse(calls[0].inputJson).text, beta.text);
+    assert.equal(titles.includes("Choose an original resume"), false);
+
+    const drifted = makeContext(fake, { mode: "rpc", persisted: false });
+    let driftOpened = false;
+    let driftAttempted = false;
+    drifted.ctx.ui.select = async (title, options) => {
+      assert.notEqual(title, "Choose an original resume");
+      if (!driftOpened) { driftOpened = true; return options.find((option) => option.includes("Beta")); }
+      if (!driftAttempted && options.includes(CAREER_UI_RPC_ACTIONS.analyze)) {
+        driftAttempted = true;
+        return CAREER_UI_RPC_ACTIONS.analyze;
+      }
+      return CAREER_UI_RPC_ACTIONS.close;
+    };
+    drifted.ctx.ui.confirm = async () => {
+      await writeFile(path.join(library, "beta.md"), "# Beta\n\nChanged after confirmation\n", { mode: 0o600 });
+      return true;
+    };
+    await fake.commands.get("career-library").handler("", drifted.ctx);
+    assert.equal(calls.length, 1);
+    assert.ok(drifted.notifications.some(({ type }) => type === "error"));
+    assert.doesNotMatch(JSON.stringify(drifted.notifications), /Changed after confirmation|beta\.md/);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
@@ -178,7 +467,7 @@ async function writeApplication(root, {
     created_at: createdAt,
   });
   await privateJson(path.join(directory, ".pi-career-state-000001.json"), {
-    schema_version: "pi.career.application_state.v1",
+    schema_version: "pi.career.application_state",
     kind: "application_state_revision",
     application_id: applicationId,
     sequence: 1,
@@ -187,6 +476,7 @@ async function writeApplication(root, {
     vacancy: null,
     selected_original: null,
     resume_artifact: null,
+    cover_letter_artifact: null,
     updated_at: workspaceCreatedAt,
   });
 }
@@ -276,6 +566,10 @@ test("overlay lists let users move through applications and resumes without atta
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
     assert.match(overlay.currentItem.label, /Synthetic Alpha|Synthetic Beta/);
+    const resumeDetail = overlay.render(80).join("\n");
+    assert.match(resumeDetail, /Authority: Original/);
+    assert.match(resumeDetail, /Format: markdown/);
+    assert.match(resumeDetail, /Availability: Available — indexed locally/);
     overlay.handleInput("esc");
     overlay.handleInput("esc");
     await pending;
@@ -820,7 +1114,7 @@ test("RPC overlay binds an attached selected original without calling Core", asy
     const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
     assert.ok(applicationName);
     const selectedState = JSON.parse(await readFile(
-      path.join(value.root, applicationName, ".pi-career-state-000003.json"),
+      path.join(value.root, applicationName, ".pi-career-state-000002.json"),
       "utf8",
     ));
     assert.equal(selectedState.selected_original.document_id, original.id);
@@ -1209,7 +1503,128 @@ test("RPC overlay analyze and match stay confirmation-gated and local", async ()
   }
 });
 
-test("RPC overlay refuses unattached assistance and clears only the current vacancy", async () => {
+test("#108 unattached Ask Pi selects one original and prepares a visible prompt without submission", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-ask-unattached-")));
+  try {
+    const root = path.join(temp, "resumes");
+    await mkdir(root);
+    const alpha = path.join(root, "alpha.md");
+    await writeFile(alpha, "# Synthetic Alpha\nALPHA_PRIVATE_BODY\n");
+    await writeFile(path.join(root, "beta.md"), "# Synthetic Beta\nBETA_PRIVATE_BODY\n");
+    const { fake, calls } = await register(temp);
+    await fake.commands.get("career-setup").handler("", makeContext(fake, {
+      mode: "rpc", persisted: false,
+      selects: [CAREER_UI_RPC_ACTIONS.addRoot, CAREER_UI_RPC_ACTIONS.close],
+      inputs: [root], confirms: [true],
+    }).ctx);
+    const before = structuredClone(fake.entries);
+    const editorText = [];
+    const sends = [];
+    let listStep = 0;
+    const context = makeContext(fake, { mode: "rpc", persisted: false, editorText, editors: [(_title, prefill) => prefill], confirms: [true] });
+    context.ctx.sendMessage = (...args) => sends.push(args);
+    context.ctx.sendUserMessage = (...args) => sends.push(args);
+    context.ctx.ui.select = async (title, options) => {
+      if (title.startsWith("Career • Workbench")) return listStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+      if (title === "Choose an original resume") return options.find((option) => option.includes("alpha.md"));
+      if (title === "Career workbench") return "Explain my score — resume only";
+      return undefined;
+    };
+    await fake.commands.get("career-workbench").handler("", context.ctx);
+    assert.equal(editorText.length, 1);
+    assert.match(editorText[0], /ALPHA_PRIVATE_BODY/);
+    assert.doesNotMatch(editorText[0], /BETA_PRIVATE_BODY|pi-career-ask-unattached-/);
+    assert.equal(editorText[0].match(/ALPHA_PRIVATE_BODY/g)?.length, 1);
+    assert.deepEqual(fake.entries, before);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(calls, []);
+    assert.equal(fake.activeTools.length, 0);
+
+    const tuiEditorText = [];
+    const components = [];
+    const tui = makeContext(fake, {
+      mode: "tui", persisted: false, editorText: tuiEditorText, components,
+      editors: [(_title, prefill) => prefill], confirms: [true],
+      keybindings: { matches(data, action) { return data === "esc" && action === "tui.select.cancel"; } },
+    });
+    tui.ctx.sendMessage = () => assert.fail("Ask Pi must not submit");
+    tui.ctx.sendUserMessage = () => assert.fail("Ask Pi must not submit");
+    tui.ctx.ui.select = async (title, options) => title === "Choose an original resume"
+      ? options.find((option) => option.includes("alpha.md"))
+      : "Explain my score — resume only";
+    const pendingTui = fake.commands.get("career-workbench").handler("", tui.ctx);
+    const deadline = Date.now() + 2_000;
+    while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(components.length, 1);
+    components[0].handleInput("p");
+    while (tuiEditorText.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(tuiEditorText.length, 1);
+    assert.match(tuiEditorText[0], /ALPHA_PRIVATE_BODY/);
+    assert.doesNotMatch(tuiEditorText[0], /BETA_PRIVATE_BODY/);
+    components[0].handleInput("esc");
+    await pendingTui;
+    assert.deepEqual(fake.entries, before);
+
+    for (const stage of ["picker", "mode", "editor", "confirm", "drift"]) {
+      const prepared = [];
+      let viewStep = 0;
+      const attempt = makeContext(fake, {
+        mode: "rpc", persisted: false, editorText: prepared,
+        editors: stage === "editor" ? [undefined] : [(_title, prefill) => prefill],
+        confirms: [stage === "confirm" ? false : async () => {
+          if (stage === "drift") await writeFile(alpha, "# Synthetic Alpha\nCHANGED_AFTER_CONFIRM\n");
+          return true;
+        }],
+      });
+      attempt.ctx.sendMessage = () => assert.fail("Ask Pi must not submit");
+      attempt.ctx.sendUserMessage = () => assert.fail("Ask Pi must not submit");
+      attempt.ctx.ui.select = async (title, options) => {
+        if (title.startsWith("Career • Workbench")) return viewStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+        if (title === "Choose an original resume") return stage === "picker" ? undefined : options.find((option) => option.includes("alpha.md"));
+        if (title === "Career workbench") return stage === "mode" ? "Cancel" : "Explain my score — resume only";
+        return undefined;
+      };
+      await fake.commands.get("career-workbench").handler("", attempt.ctx);
+      assert.deepEqual(prepared, []);
+      assert.deepEqual(fake.entries, before);
+      if (stage === "drift") await writeFile(alpha, "# Synthetic Alpha\nALPHA_PRIVATE_BODY\n");
+    }
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("#108 attached Ask Pi uses one activation confirmation and document-free handoff", async () => {
+  const value = await catalogFixture("pi-career-ask-attached-");
+  try {
+    await value.fake.commands.get("career").handler("", makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3", CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    const editorText = [];
+    const confirmations = [];
+    const sends = [];
+    const asked = makeContext(value.fake, {
+      mode: "rpc", persisted: false, editorText,
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [(title) => { confirmations.push(title); return true; }],
+    });
+    asked.ctx.sendMessage = (...args) => sends.push(args);
+    asked.ctx.sendUserMessage = (...args) => sends.push(args);
+    await value.fake.commands.get("career-workbench").handler("", asked.ctx);
+    assert.deepEqual(confirmations, ["Activate Career assistance"]);
+    assert.equal(editorText.length, 1);
+    assert.doesNotMatch(editorText[0], /Synthetic Alpha|applications[/\\]|resume\.md/);
+    assert.equal(value.fake.entries.filter((entry) => entry.customType === "career.application_assistance").length, 1);
+    assert.deepEqual(sends, []);
+    assert.deepEqual(value.calls, []);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("RPC overlay leaves unavailable unattached assistance inert and clears only the current vacancy", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-vacancy-clear-")));
   try {
     const { fake } = await register(temp);
@@ -1224,12 +1639,13 @@ test("RPC overlay refuses unattached assistance and clears only the current vaca
     });
     const blocked = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     });
     await fake.commands.get("career-workbench").handler("", blocked.ctx);
     assert.equal(fake.entries.length, 0);
     assert.equal(calls.length, 0);
-    assert.ok(blocked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(blocked.customCalls, 0);
+    assert.equal(blocked.notifications.some(({ message }) => message.includes("Attach an application")), false);
     assert.equal(fake.activeTools.length, 0);
 
     const vacancyText = "Synthetic vacancy: Backend Engineer.\nSynthetic requirements only.";
@@ -1337,11 +1753,11 @@ test("overlay keeps created applications and analyze results in the shared UI", 
 
     const asked = makeContext(fake, {
       mode: "rpc", persisted: false,
-      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close],
+      selects: [CAREER_UI_RPC_ACTIONS.askPi, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     });
     await fake.commands.get("career-workbench").handler("", asked.ctx);
     assert.equal(fake.entries.some((entry) => entry.customType === "career.application_assistance"), false);
-    assert.ok(asked.notifications.some(({ message }) => message.includes("Attach an application")));
+    assert.equal(asked.customCalls, 0);
   } finally {
     await rm(temp, { recursive: true, force: true });
   }

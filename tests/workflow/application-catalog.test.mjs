@@ -43,9 +43,9 @@ async function application(root, number, { legacy = false, slug = "untrusted", u
     application_created_at: createdAt, workspace_created_at: createdAt,
   });
   const state = {
-    schema_version: "pi.career.application_state.v1", kind: "application_state_revision",
+    schema_version: "pi.career.application_state", kind: "application_state_revision",
     application_id: uuid(number), sequence: 1, parent_sha256: hash(manifest), status: "preparing",
-    vacancy: null, selected_original: null, resume_artifact: null, updated_at: updatedAt,
+    vacancy: null, selected_original: null, resume_artifact: null, cover_letter_artifact: null, updated_at: updatedAt,
   };
   const stateFile = path.join(directory, ".pi-career-state-000001.json");
   await privateJson(stateFile, state);
