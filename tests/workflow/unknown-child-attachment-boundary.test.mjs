@@ -35,7 +35,7 @@ const VALID_LABEL = `${COMPANY} — ${ROLE} — Preparing — Incomplete 0/3`;
 const LEGACY_LABEL = "Legacy application — preparing";
 const CATALOG_OPTION = `${COMPANY} — ${ROLE} — preparing`;
 const LEGACY_DETAIL = "Legacy application\nStatus: preparing\nClassification: legacy\nOpening does not attach this application.";
-const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nPackage checklist\nJob description: Incomplete\nSelected original: Incomplete\nReadiness: Incomplete 0/3\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${VALID_UPDATED_AT}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
 const DRIFT_NOTICE = "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
 const cancel = () => undefined;
 const canonical = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
@@ -289,10 +289,9 @@ test("P3-05 registered configure-root and Applications discovery/attach leave an
       VALID_LABEL,
       LEGACY_LABEL,
       CAREER_UI_RPC_ACTIONS.filterApplications,
+      CAREER_UI_RPC_ACTIONS.filterApplicationLifecycle,
       CAREER_UI_RPC_ACTIONS.attach,
       CAREER_UI_RPC_ACTIONS.create,
-      CAREER_UI_RPC_ACTIONS.updateStatus,
-      CAREER_UI_RPC_ACTIONS.detach,
       CAREER_UI_RPC_ACTIONS.switchView,
       CAREER_UI_RPC_ACTIONS.close,
     ];
@@ -418,16 +417,19 @@ test("P3-05 registered configure-root and Applications discovery/attach leave an
     assert.deepEqual(await snapshot(value.temp), before);
 
     const repeated = await runCommand(value, "career", {
-      selects: [VALID_LABEL, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
-      confirms: [true],
+      selects: [CAREER_UI_RPC_ACTIONS.close],
     });
-    assert.equal(repeated.dialogs.some((dialog) => dialog.confirm === "Attach application"), true);
+    assert.equal(repeated.dialogs.some((dialog) => dialog.confirm === "Attach application"), false);
+    assert.equal(repeated.dialogs[0].select.includes("Attached to this Pi session"), true);
+    assert.equal(repeated.dialogs[0].options.includes(CAREER_UI_RPC_ACTIONS.attach), false);
+    assert.equal(repeated.dialogs[0].options.includes(CAREER_UI_RPC_ACTIONS.updateStatus), true);
+    assert.equal(repeated.dialogs[0].options.includes(CAREER_UI_RPC_ACTIONS.detach), true);
     assert.deepEqual(repeated.context.notifications, []);
     assert.equal(value.fake.entries.length, 1);
     assert.equal(value.fake.entries[0].data.application_id, VALID_ID);
     assert.equal(value.fake.entries[0].data.attachment_id, ATTACHMENT_ID);
     const rediscovered = await runCommand(value, "career", { selects: [CAREER_UI_RPC_ACTIONS.close] });
-    assert.deepEqual(rediscovered.dialogs[0].options, listOptions);
+    assert.equal(rediscovered.dialogs[0].select.includes("Attached to this Pi session"), true);
     assert.equal(rediscovered.dialogs[0].options.includes(UNKNOWN_NAME), false);
     assert.deepEqual(await readApplicationCatalog(value.root, ROOT_ID), catalog);
     assert.deepEqual(await snapshot(value.temp), before);
