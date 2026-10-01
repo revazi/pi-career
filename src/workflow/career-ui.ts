@@ -428,12 +428,15 @@ export async function buildCareerUiModel(
             preview: { source: "vacancy", id: attached.application_id, digest: attached.vacancy.vacancy_text_sha256 } }],
       };
       if (attached.vacancy === undefined) empty.vacancy.intro = `${heading}\n${pack}\nNo current job description. Press e to paste one.`;
+      const originalBinding = attached.selected_original === undefined
+        ? "Selected original source: unavailable"
+        : `Selected original source: ${attached.selected_original.label}`;
       empty.match = {
-        intro: `${heading}\n${pack}`,
+        intro: `${heading}\n${pack}\n${originalBinding}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === undefined
           ? []
-          : [{ ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}\nEffective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}\nMatch is not run by opening this view.`),
+          : [{ ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}\n${originalBinding}\nEffective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}\nMatch is not run by opening this view.`),
             preview: resumePreview("effective", attached.effective_resume) }],
       };
       if (attached.effective_resume === undefined) empty.match.intro = `${heading}\n${pack}\nNo effective Resume is available.`;

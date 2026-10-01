@@ -259,6 +259,7 @@ test("tailored effective Resume previews as assisted only and drift fails closed
     await fake.commands.get("career-match").handler("", rpc.ctx);
     assert.equal(dialogs.length, 4);
     assert.match(dialogs[1][0], /Effective Resume \(tailored assisted\)/);
+    assert.ok(dialogs[1][0].includes(`Selected original source: ${value.original.label}`));
     assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
     assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("Built tailored APIs")));
     assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), TAILORED_TEXT);
