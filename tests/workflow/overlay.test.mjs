@@ -1331,6 +1331,14 @@ test("TUI overlay stays within width and keeps selected/attachable marks without
       assert.match(rendered, /▸ ◎/);
       assert.doesNotMatch(rendered, /agent|applications[/\\]|resume\.md/);
     }
+    const wide = overlay.render(120).join("\n");
+    assert.match(wide, /↑↓ move/);
+    assert.match(wide, /enter open/);
+    assert.match(wide, /esc close/);
+    overlay.handleInput("down");
+    assert.match(overlay.render(80).join("\n"), /▸/);
+    overlay.handleInput("up");
+    assert.match(overlay.render(80).join("\n"), /▸ ◎/);
     overlay.handleInput("esc");
     await pending;
     assert.equal(value.calls.length, 0);
