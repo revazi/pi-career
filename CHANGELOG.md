@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Proposed release target: 0.4.0; this is planning only. No package version, publication, tag, or release is implied. See the [0.4.0 release plan](docs/release-plan-0.4.0.md). The existing application-centric changes below remain unreleased; defer scope and blockers are recorded in that plan.
+
 ### Added
 
 - Implemented application-workspace Gate 1 behind user-only no-argument TUI/RPC `/career-workspace`: explicit strict config-v1-to-v2 migration, one existing owner-only disjoint application root, marker attach/detach, immutable application manifest and append-only status/workflow-original-vacancy/selected-original revisions, and read-only crash/drift reconciliation.
