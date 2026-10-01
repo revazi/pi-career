@@ -219,7 +219,7 @@ A non-null `cover_letter_artifact` has these rules:
 5. `job_description_sha256` and `effective_resume_sha256` are each 64 lowercase hexadecimal characters and bind the letter to the same revision's package-derived dependency digests defined below.
 6. There is no cover-letter sidecar. Authority, size, exact-byte hash, format, and dependencies live only in the immutable state reference. A draft cannot be attached before both dependencies can be derived. Draft storage outside this exact approved artifact transaction is not introduced.
 7. Carrying an unchanged reference into a later state is allowed and is how a letter becomes stale after a dependency changes. A rebind may retain the exact path, artifact hash, size, format, and authority while changing only the two dependency hashes, but it is a distinct explicitly reviewed future transaction and both new hashes must match that revision's dependencies. New bytes require a new immutable numbered path. One historical path may never claim different bytes, size, format, or authority.
-8. Every referenced cover-letter file is a direct-child owner-only `0600`, one-link, non-symlink regular file with exact size/hash. It counts toward the existing entry and managed-byte ceilings. Publication, preview, confirmation, and commit ordering remain outside this read-contract slice.
+8. Every referenced cover-letter file is a direct-child owner-only `0600`, one-link, non-symlink regular file with exact size/hash. It counts toward the existing entry and managed-byte ceilings. The #57 authoring transaction, including exact preview, separate confirmation, under-lock revalidation, and exclusive no-clobber publication, is specified in [`cover-letter-contract.md`](cover-letter-contract.md) and implemented in the attached workspace workflow.
 
 ### Exact digest domains
 
@@ -318,13 +318,13 @@ Fixtures use fixed synthetic UUIDs/timestamps/labels and generated private tempo
 | `single-schema-chain` | sequence 1; contiguous chain; direct cover introduction; lower/at/above metadata and revision bounds | S1-01, S1-02, S1-06, S1-07 | #141 |
 | `unsupported-state-schema` | former `.v1`; former `.v2`; gap; embedded-sequence mismatch; bad parent/fork; prefixed and unrelated unsupported schemas; malformed future-looking schema | S1-03, S1-04, S1-05, S1-11 | #141 |
 | `historical-references` | carried vacancy/artifact/letter; cleared current references; absent historical external original; missing/changed historical managed file; conflicting path reuse | P3-04, P3-20, P3-21, P3-43, P3-47 | #60 fixtures; #62 reader; #65 integration |
-| `cover-letter-reference` | Markdown/text first and numbered paths; rebind with identical bytes; bad authority/format/path/hash/dependency; bytes 0/1/262,144/262,145 | P3-19, P3-20, P3-21, P3-44 | #60 fixtures; #62 validation; later #57 writer |
+| `cover-letter-reference` | Markdown/text first and numbered paths; immutable user-authored revisions; bad authority/format/path/hash/dependency; bytes 0/1/262,144/262,145 | P3-19, P3-20, P3-21, P3-44 | #60 fixtures; #62 validation; #57 writer and workflow tests |
 | `package-completeness` | every reachable availability row; each non-Available class for each component; applied/closed lifecycle; no match result | P3-16 through P3-25 | #60 fixtures; #62 derivation; #55 creation presentation |
 | `source-authority` | current/changed/missing original; stale/capped/ambiguous scan; assisted/quarantined candidate; valid and source-mismatched tailored artifact | P3-18, P3-21, P3-22, P3-23, P3-48 | #60 fixtures; #62 derivation; #64/#56 convergence |
 | `read-races-and-privacy` | revision, historical/current artifact, selected source, and entry-set replacement during read; synthetic private sentinels in failures and spies | P3-33, P3-37, P3-39, P3-43, P3-44 | #60 fixtures; #62 reader; #65 adversarial integration |
 | `transaction-orphans` | cover/artifact published without state and exact state committed after ambiguous failure | P3-40, P3-41 | #60 fixture; registered orphan reconciliation; #65 settlement |
 
-The #60 fixture slice may encode these approved bytes and corruption cases without adding production behavior. Fixture validation alone does not satisfy a behavioral scenario: #62 must exercise the future public read/derivation boundary, and #63/#57/#65 retain their mutation, fault-injection, and integration rows. No fixture may contain a real company, role, resume, job description, cover letter, credential, provider response, session file, machine-specific path, or Core checkout.
+The #60 fixture slice encodes approved bytes and corruption cases without itself adding production behavior. Fixture validation alone does not satisfy a behavioral scenario: #62 exercises the public read/derivation boundary, while #57's separate workflow tests exercise mutation, fault handling, and integration. No fixture may contain a real company, role, resume, job description, cover letter, credential, provider response, session file, machine-specific path, or Core checkout.
 
 ## Synthetic fixture families
 
@@ -380,7 +380,7 @@ Retain limits by default; reject over-capacity plans before preview and under lo
 The canonical application-state schema, cover-letter reference, digest domains, single-schema chain validation, historical-reference behavior, component classes, readiness table, and #64 attachment/activation contract are fixed above and in `application-workspaces.md`. Remaining decisions are:
 
 1. #64 behavior slices must implement strict entry replay, pointer revalidation, command convergence, safe explicit session replacement, and context-on-demand activation without combining them into an unreviewable UI change.
-2. #57 must define cover-letter authoring/rebind preview, confirmation, publication, crash settlement, and user-visible draft behavior. No draft is persisted by the canonical state reference contract.
+2. #57 defines the user-authored cover-letter preview, distinct confirmation, immutable publication, and state-append transaction in [`cover-letter-contract.md`](cover-letter-contract.md). No draft is persisted; assisted authoring and dependency rebind remain out of scope.
 3. Later overlay issues must decide presentation copy and local detail navigation without changing classification/readiness semantics or exposing invalid-entry detail.
 4. #65's integration checks remain scoped: explicit consented attachment/activation entries are permitted by #64; blanket “no session append anywhere” would contradict reviewed session persistence.
 

@@ -111,19 +111,23 @@ test("attached application is the initial detail and lifecycle actions stay boun
     attach: async (pointer) => { calls.push(["attach", pointer.applicationId]); return true; },
     updateStatus: async () => { calls.push(["status", session.selected.id]); return true; },
     detach: async () => { calls.push(["detach", session.selected.id]); return true; },
+    workspace: async () => { calls.push(["workspace", session.selected.id]); return true; },
   });
   assert.equal(session.showingDetail, true);
   assert.equal(session.selected.id, "attached");
   assert.equal(session.canAttach, false);
   assert.equal(session.canUpdateStatus, true);
+  assert.equal(session.canWorkspace, true);
+  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.workspace));
   assert.equal(await session.updateStatus(), true);
+  assert.equal(await session.workspace(), true);
   assert.equal(await session.detach(), true);
   session.back();
   session.highlight(0);
   assert.equal(session.canAttach, true);
   assert.equal(session.canUpdateStatus, false);
   assert.equal(session.canDetach, false);
-  assert.deepEqual(calls, [["status", "attached"], ["detach", "attached"]]);
+  assert.deepEqual(calls, [["status", "attached"], ["workspace", "attached"], ["detach", "attached"]]);
 });
 
 async function openAndClose(fake, command, view) {
