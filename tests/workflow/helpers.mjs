@@ -193,7 +193,10 @@ export function makeContext(fake, options = {}) {
     },
     ui: {
       theme,
-      async select() { return selects.shift(); },
+      async select(title, choices) {
+        options.selectCalls?.push({ title, options: [...choices] });
+        return selects.shift();
+      },
       async input(title, placeholder) {
         const value = inputs.shift();
         return typeof value === "function" ? value(title, placeholder) : value;

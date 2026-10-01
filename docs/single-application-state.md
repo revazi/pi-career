@@ -60,7 +60,7 @@ A non-null cover-letter reference has exactly these ordered keys:
 }
 ```
 
-Retaining this nullable shape does not authorize a cover-letter writer, rebind, publication, deletion, or adoption flow. Those remain separately gated by #57. A future approved writer must use this shape rather than introduce another application-state schema.
+Issue #57 separately authorizes a narrowly scoped user-authored writer using this exact reference shape. It does not authorize rebind, artifact deletion/adoption, or model-assisted content. The transaction, byte bound, authority, preview, confirmation, and immutable-history rules are specified in [`cover-letter-contract.md`](cover-letter-contract.md).
 
 ## Complete-chain rules
 

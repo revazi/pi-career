@@ -32,7 +32,7 @@ test("#140 defines one application-state schema with no compatibility path", asy
   assert.match(markdown, /Revision numbers and parent hashes protect immutable history, concurrency, crash settlement, and no-clobber publication; they are not schema versions\./);
 });
 
-test("#140 retains the exact nullable cover-letter reference without write authority", async () => {
+test("#57 implements the approved user-authored cover-letter contract on the #140 reference", async () => {
   const markdown = await readFile(contractUrl, "utf8");
   const cover = jsonAfter(markdown, "A non-null cover-letter reference");
 
@@ -41,7 +41,11 @@ test("#140 retains the exact nullable cover-letter reference without write autho
     "job_description_sha256", "effective_resume_sha256",
   ]);
   assert.equal(cover.authority, "user_authored");
-  assert.match(markdown, /does not authorize a cover-letter writer, rebind, publication, deletion, or adoption flow/);
+  assert.match(markdown, /Issue #57 separately authorizes a narrowly scoped user-authored writer/);
+  const coverContract = await readFile(new URL("../../docs/cover-letter-contract.md", import.meta.url), "utf8");
+  assert.match(coverContract, /authority: "user_authored"/);
+  assert.match(coverContract, /state is the commit record/);
+  assert.match(coverContract, /Clear appends a state revision with a null reference/);
 });
 
 test("#140 assigns focused single-schema acceptance scenarios to #141", async () => {

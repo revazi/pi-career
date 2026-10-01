@@ -22,6 +22,7 @@ import test from "node:test";
 import {
   ApplicationWorkspaceWorkflow,
   readApplicationCatalog,
+  readOverlayApplications,
   selectedOriginalOptions,
 } from "../../src/workflow/application-workspace.ts";
 import {
@@ -126,7 +127,7 @@ async function workspaceFixture({ legacy = false, vacancy = true } = {}) {
     appendEntry: (customType, data) => fake.api.appendEntry(customType, data),
   });
   workspaces.set(fake, workspace);
-  return { temp, library, root, agentDir, configFile, fake, ids, identity, vacancyEntry, workspace, get invocations() { return invocations; } };
+  return { temp, library, root, agentDir, configFile, fake, ids, identity, vacancyEntry, workspace, workspaceNow, get invocations() { return invocations; } };
 }
 
 const workspaces = new WeakMap();
@@ -1054,6 +1055,327 @@ test("marked-root audits reject malformed children and duplicate application UUI
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
+});
+
+async function prepareAttachedCoverLetterFixture(value) {
+  await runWorkspace(value.fake, {
+    selects: ["Configure application root"], inputs: [value.root],
+    editors: [(_title, preview) => preview], confirms: [true],
+  });
+  await runWorkspace(value.fake, {
+    selects: ["Initialize current application"],
+    editors: [(_title, preview) => preview], confirms: [true],
+  });
+  const original = eligibleOriginals(await scanLibrary(await loadConfig(value.agentDir)))[0];
+  await runWorkspace(value.fake, {
+    selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
+    editors: [(_title, preview) => preview], confirms: [true],
+  });
+  await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
+  return path.join(value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`);
+}
+
+test("cover letters persist as user-authored immutable revisions and clear only the current reference", async () => {
+  const value = await workspaceFixture();
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const original = eligibleOriginals(await scanLibrary(await loadConfig(value.agentDir)))[0];
+    await runWorkspace(value.fake, {
+      selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
+    const menuCalls = [];
+    const attachedMenu = makeContext(value.fake, { selects: ["Close"], selectCalls: menuCalls });
+    await value.workspace.run("", attachedMenu.ctx);
+    const workspaceMenu = menuCalls.find(({ title }) => title === "Career application workspace");
+    assert.ok(workspaceMenu.options.includes("Write or revise user-authored cover letter"));
+    assert.ok(workspaceMenu.options.includes("View current cover letter"));
+    assert.ok(workspaceMenu.options.includes("Clear current cover-letter reference"));
+    assert.ok(!workspaceMenu.options.includes("Record current status and vacancy"), "cover-letter actions remain available when session state is synchronized");
+    const directory = path.join(value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`);
+    const authored = "# Synthetic letter\n\nWritten by the user.\n";
+    let seenPreview;
+    await runWorkspace(value.fake, {
+      selects: ["Write or revise user-authored cover letter", "Markdown (.md)"],
+      editors: [() => authored, (_title, preview) => { seenPreview = preview; return preview; }, (_title, preview) => preview],
+      confirms: [true, true],
+    });
+    assert.equal(seenPreview, authored);
+    const stateFilesAfterCover = (await readdir(directory)).filter((name) => name.includes("state-"));
+    const firstStateName = stateFilesAfterCover.sort().at(-1);
+    const first = JSON.parse(await readFile(path.join(directory, firstStateName), "utf8"));
+    assert.deepEqual(first.cover_letter_artifact, {
+      relative_path: `cover-letter-${String(first.sequence).padStart(6, "0")}.md`, artifact_sha256: sha256Bytes(Buffer.from(authored)),
+      utf8_bytes: Buffer.byteLength(authored), format: "markdown", authority: "user_authored",
+      job_description_sha256: first.vacancy.content_sha256,
+      effective_resume_sha256: first.selected_original.text_sha256,
+    });
+    assert.equal(await readFile(path.join(directory, first.cover_letter_artifact.relative_path), "utf8"), authored);
+    const readiness = async () => (await readOverlayApplications(
+      value.agentDir,
+      await scanLibrary(await loadConfig(value.agentDir)),
+    )).find(({ application_id }) => application_id === value.identity.application_id);
+    assert.equal((await readiness()).readiness, "Ready 3/3");
+
+    // A reconstructed workflow can view the persisted current artifact without session-local state.
+    const restarted = new ApplicationWorkspaceWorkflow({
+      agentDir: value.agentDir,
+      now: value.workspaceNow,
+      uuid: value.ids,
+      appendEntry: (customType, data) => value.fake.api.appendEntry(customType, data),
+    });
+    workspaces.set(value.fake, restarted);
+    const viewEditorText = [];
+    const viewed = makeContext(value.fake, {
+      selects: ["View current cover letter"],
+      editors: [(title, text) => { viewEditorText.push({ title, text }); return undefined; }],
+    });
+    await value.workspace.run("", viewed.ctx);
+    assert.deepEqual(viewEditorText, [{ title: "View current user_authored cover letter (markdown)", text: authored }]);
+    assert.ok(viewed.notifications.every(({ message }) => !message.includes(authored)));
+    const revised = "Revised by the user.\n";
+    await runWorkspace(value.fake, {
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => revised, (_title, preview) => preview, (_title, preview) => preview], confirms: [true, true],
+    });
+    const second = JSON.parse(await readFile(path.join(directory, `.pi-career-state-${String(first.sequence + 1).padStart(6, "0")}.json`), "utf8"));
+    assert.equal(second.cover_letter_artifact.relative_path, `cover-letter-${String(second.sequence).padStart(6, "0")}.txt`);
+    assert.equal(await readFile(path.join(directory, first.cover_letter_artifact.relative_path), "utf8"), authored);
+    assert.equal((await readiness()).readiness, "Ready 3/3");
+    const currentLetterPath = path.join(directory, second.cover_letter_artifact.relative_path);
+    await writeFile(currentLetterPath, "drifted synthetic bytes\n");
+    const afterDrift = await readOverlayApplications(
+      value.agentDir,
+      await scanLibrary(await loadConfig(value.agentDir)),
+    );
+    assert.equal(afterDrift.some(({ application_id }) => application_id === value.identity.application_id), false);
+    await writeFile(currentLetterPath, revised, { mode: 0o600 });
+    await chmod(currentLetterPath, 0o600);
+    await runWorkspace(value.fake, {
+      selects: ["Clear current cover-letter reference"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const cleared = JSON.parse(await readFile(path.join(directory, `.pi-career-state-${String(second.sequence + 1).padStart(6, "0")}.json`), "utf8"));
+    assert.equal(cleared.cover_letter_artifact, null);
+    assert.equal(await readFile(path.join(directory, first.cover_letter_artifact.relative_path), "utf8"), authored);
+    assert.equal(await readFile(path.join(directory, second.cover_letter_artifact.relative_path), "utf8"), revised);
+    assert.equal((await readiness()).readiness, "Incomplete 2/3");
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("cover-letter confirmation cancellation and occupied artifact target publish nothing", async () => {
+  const value = await workspaceFixture();
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const original = eligibleOriginals(await scanLibrary(await loadConfig(value.agentDir)))[0];
+    await runWorkspace(value.fake, {
+      selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
+    const directory = path.join(value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`);
+    const before = await readFile(path.join(directory, ".pi-career-state-000002.json"));
+    const invalidUtf8 = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => "Unpaired surrogate: \uD800"],
+    });
+    await assert.rejects(value.workspace.run("", invalidUtf8.ctx), /workspace_limit_reached/);
+    const nulContent = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => "Synthetic\u0000letter"],
+    });
+    await assert.rejects(value.workspace.run("", nulContent.ctx), /workspace_limit_reached/);
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), before);
+    assert.deepEqual((await readdir(directory)).filter((name) => name.startsWith("cover-letter")), []);
+    const oversized = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => "x".repeat(262_145)],
+    });
+    await assert.rejects(value.workspace.run("", oversized.ctx), /workspace_limit_reached/);
+    const content = "Synthetic private fixture, not real applicant data.\n";
+    await runWorkspace(value.fake, {
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => content, (_title, preview) => preview], confirms: [false],
+    });
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), before);
+    assert.deepEqual((await readdir(directory)).filter((name) => name.startsWith("cover-letter")), []);
+    const collision = path.join(directory, "cover-letter-000003.txt");
+    await writeFile(collision, "unknown existing artifact\n", { mode: 0o600 });
+    await chmod(collision, 0o600);
+    const collisionBefore = await readFile(collision);
+    const failed = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => content, (_title, preview) => preview, (_title, preview) => preview], confirms: [true, true],
+    });
+    await assert.rejects(value.workspace.run("", failed.ctx), /workspace_drift|workspace_identity_conflict|attachment_unavailable/);
+    assert.deepEqual(await readFile(collision), collisionBefore);
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), before);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("cover-letter commit rejects a competing parent revision under the application lock", async () => {
+  const value = await workspaceFixture();
+  try {
+    await runWorkspace(value.fake, {
+      selects: ["Configure application root"], inputs: [value.root],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, {
+      selects: ["Initialize current application"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    const original = eligibleOriginals(await scanLibrary(await loadConfig(value.agentDir)))[0];
+    await runWorkspace(value.fake, {
+      selects: ["Select original resume", selectedOriginalOptions([original])[0].option],
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await runWorkspace(value.fake, { selects: ["Attach current application"], confirms: [true] });
+    const directory = path.join(value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`);
+    const parentBytes = await readFile(path.join(directory, ".pi-career-state-000002.json"));
+    const competing = JSON.parse(parentBytes.toString("utf8"));
+    competing.sequence = 3;
+    competing.parent_sha256 = sha256Bytes(parentBytes);
+    competing.updated_at = "2026-08-12T00:05:00.000Z";
+    const competingBytes = Buffer.from(`${JSON.stringify(competing, null, 2)}\n`);
+    const workflow = new ApplicationWorkspaceWorkflow({
+      agentDir: value.agentDir, now: () => new Date("2026-08-12T00:06:00.000Z"), uuid: value.ids,
+      afterWorkspaceLockAcquired: async (operation) => {
+        if (operation === "record_state") {
+          await writeFile(path.join(directory, ".pi-career-state-000003.json"), competingBytes, { mode: 0o600 });
+          await chmod(path.join(directory, ".pi-career-state-000003.json"), 0o600);
+        }
+      },
+    });
+    const context = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+      editors: [() => "Synthetic authored fixture.\n", (_title, preview) => preview, (_title, preview) => preview],
+      confirms: [true, true],
+    });
+    await assert.rejects(workflow.run("", context.ctx), /workspace_drift|workspace_identity_conflict/);
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), parentBytes);
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000003.json")), competingBytes);
+    assert.equal((await readdir(directory)).some((name) => name.startsWith(".pi-career-") && name.endsWith(".tmp")), false);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("cover-letter publication failures preserve authority and settle owned artifacts safely", async (t) => {
+  await t.test("post-artifact checkpoint ambiguity retains only an unreferenced recoverable artifact", async () => {
+    const value = await workspaceFixture();
+    try {
+      const directory = await prepareAttachedCoverLetterFixture(value);
+      const authored = "Synthetic checkpoint fixture.\n";
+      const priorState = await readFile(path.join(directory, ".pi-career-state-000002.json"));
+      const workflow = new ApplicationWorkspaceWorkflow({
+        agentDir: value.agentDir,
+        now: value.workspaceNow,
+        uuid: value.ids,
+        afterArtifactPublishedBeforeState: async () => { throw new Error(`private:${authored}`); },
+      });
+      const context = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+        editors: [() => authored, (_title, preview) => preview, (_title, preview) => preview],
+        confirms: [true, true],
+      });
+      let error;
+      try {
+        await workflow.run("", context.ctx);
+      } catch (caught) {
+        error = caught;
+      }
+      assert.match(error?.message ?? "", /workspace_status_unknown/);
+      assert.ok(!(error?.message ?? "").includes(authored));
+      assert.deepEqual(await readFile(path.join(directory, "cover-letter-000003.txt")), Buffer.from(authored));
+      await assert.rejects(readFile(path.join(directory, ".pi-career-state-000003.json")), { code: "ENOENT" });
+      assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), priorState);
+      assert.equal((await readOverlayApplications(
+        value.agentDir,
+        await scanLibrary(await loadConfig(value.agentDir)),
+      )).some(({ application_id }) => application_id === value.identity.application_id), false,
+      "an unreferenced recoverable artifact makes the package unavailable rather than becoming current");
+      assert.ok(context.notifications.every(({ message }) => !message.includes("Saved user-authored")));
+      assert.equal((await readdir(directory)).some((name) => name.endsWith(".tmp")), false);
+    } finally {
+      await rm(value.temp, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("state-target collision rolls back the owned artifact without overwriting the competing state", async () => {
+    const value = await workspaceFixture();
+    try {
+      const directory = await prepareAttachedCoverLetterFixture(value);
+      const parentBytes = await readFile(path.join(directory, ".pi-career-state-000002.json"));
+      const competing = JSON.parse(parentBytes.toString("utf8"));
+      competing.sequence = 3;
+      competing.parent_sha256 = sha256Bytes(parentBytes);
+      competing.updated_at = "2026-08-12T00:00:30.000Z";
+      const competingBytes = Buffer.from(`${JSON.stringify(competing, null, 2)}\n`);
+      const authored = "Synthetic state collision fixture.\n";
+      const workflow = new ApplicationWorkspaceWorkflow({
+        agentDir: value.agentDir,
+        now: value.workspaceNow,
+        uuid: value.ids,
+        afterArtifactPublishedBeforeState: async () => {
+          const target = path.join(directory, ".pi-career-state-000003.json");
+          await writeFile(target, competingBytes, { mode: 0o600 });
+          await chmod(target, 0o600);
+        },
+      });
+      const context = makeContext(value.fake, {
+        mode: "rpc", persisted: false,
+        selects: ["Write or revise user-authored cover letter", "Plain text (.txt)"],
+        editors: [() => authored, (_title, preview) => preview, (_title, preview) => preview],
+        confirms: [true, true],
+      });
+      let error;
+      try {
+        await workflow.run("", context.ctx);
+      } catch (caught) {
+        error = caught;
+      }
+      assert.match(error?.message ?? "", /workspace_collision|workspace_identity_conflict|workspace_verification_failed|workspace_status_unknown/);
+      assert.ok(!(error?.message ?? "").includes(authored));
+      assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000003.json")), competingBytes);
+      await assert.rejects(readFile(path.join(directory, "cover-letter-000003.txt")), { code: "ENOENT" });
+      const row = (await readOverlayApplications(
+        value.agentDir,
+        await scanLibrary(await loadConfig(value.agentDir)),
+      )).find(({ application_id }) => application_id === value.identity.application_id);
+      assert.equal(row?.readiness, "Incomplete 2/3");
+      assert.ok(context.notifications.every(({ message }) => !message.includes("Saved user-authored")));
+      assert.equal((await readdir(directory)).some((name) => name.endsWith(".tmp")), false);
+    } finally {
+      await rm(value.temp, { recursive: true, force: true });
+    }
+  });
 });
 
 test("workspace configuration never bootstraps a missing config directory", async () => {

@@ -409,7 +409,7 @@ export async function buildCareerUiModel(
         attachedRow.attachedApplication = true;
         attachedRow.canUpdateApplication = true;
         attachedRow.label += " — Attached";
-        attachedRow.detail += "\nAttached to this Pi session. Lifecycle and package actions apply only to this exact application.";
+        attachedRow.detail += "\nAttached to this Pi session. Lifecycle and package actions apply only to this exact application. Press m to manage its local application workspace, including user-authored cover-letter revisions.";
       }
     }
     const metadata = attachment === undefined ? undefined : await validateApplicationAttachment(agentDir, attachment);
@@ -713,7 +713,10 @@ export class CareerUiSession {
   }
 
   get canWorkspace(): boolean {
-    return this.current === "workspace" && this.actions.workspace !== undefined && !this.busyFlag;
+    const applicationDetail = this.current === "applications" && this.detail &&
+      this.selected?.attachedApplication === true;
+    return (this.current === "workspace" || applicationDetail) &&
+      this.actions.workspace !== undefined && !this.busyFlag;
   }
 
   get canAskPi(): boolean {

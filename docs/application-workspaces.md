@@ -2,11 +2,11 @@
 
 ## Status and authorization boundary
 
-**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, #63 explicit identity migration, #64 attachment/command-authority slices through application/vacancy/Resume convergence, and #141's single application-state schema are implemented in the current unreleased source for independent security/architecture review. Every application-state revision now uses [`pi.career.application_state`](single-application-state.md); former state `.v1`/`.v2` identifiers fail closed without migration or compatibility parsing. Config migration, display-identity migration, session attachment/activation, and other independently versioned package contracts are unchanged. The attached source detail and persistent Applications catalog derive readiness from each validated package plus the same bounded library-scan evidence; readiness is never persisted. The overlay renders all three component classifications, effective-Resume authority, lifecycle, and exact validated update time without exposing document bodies or paths. This status does not authorize release, publication, tagging, cover-letter writes, or any later gate.
+**Implementation status:** Gate 1, the approved #61 catalog foundation, both #62 read slices, #63 explicit identity migration, #64 attachment/command-authority slices through application/vacancy/Resume convergence, #141's single application-state schema, and the user-authored cover-letter transaction authorized by #57 are implemented in the current unreleased source for independent security/architecture review. Every application-state revision now uses [`pi.career.application_state`](single-application-state.md); former state `.v1`/`.v2` identifiers fail closed without migration or compatibility parsing. Config migration, display-identity migration, session attachment/activation, and other independently versioned package contracts are unchanged. The attached source detail and persistent Applications catalog derive readiness from each validated package plus the same bounded library-scan evidence; readiness is never persisted. The overlay renders all three component classifications, effective-Resume authority, lifecycle, and exact validated update time without exposing document bodies or paths. This status does not authorize release, publication, tagging, assisted cover-letter content, or any later gate.
 
 Career Core remains authoritative for every career-domain operation, schema, algorithm, warning, error, evidence rule, and assisted/non-authoritative result. This design defines only pi-career-owned configuration and local-file protocols. It does not copy a Core schema or algorithm.
 
-The deliberately bounded **implemented Gate 1 slice** is:
+The deliberately bounded **implemented Gate 1 and #57 slice** is:
 
 1. migrate an explicitly changed config from `pi.career.config.v1` to the exact v2 shape below;
 2. configure one existing private application root, create or validate its package marker, and enforce complete disjointness from every resume-library root;
@@ -14,9 +14,10 @@ The deliberately bounded **implemented Gate 1 slice** is:
 4. persist immutable application-state revisions containing status, an optional selected-original digest binding, and an optional exact current session-vacancy snapshot;
 5. add later immutable status, selected-original, vacancy, and vacancy-clear revisions;
 6. provide bounded read-only catalog derivation plus status and reconciliation; and
-7. leave every original, current `/career-save` destination, model/provider boundary, session schema, Core result, and unknown file unchanged.
+7. leave every original, current `/career-save` destination, model/provider boundary, session schema, Core result, and unknown file unchanged; and
+8. provide the separately authorized user-authored Markdown/plain-text cover-letter transaction in [`cover-letter-contract.md`](cover-letter-contract.md), without deletion, adoption, rebind, or assisted drafting.
 
-The first slice does **not** implement application-workspace resume saving or package deletion. Those protocols are fully specified here so their risks are auditable, but each requires its own later approval. PDF/DOCX artifacts, cover letters, `changes.md`, notes, interview files, full-result export, provider-response persistence, adoption of user files, and arbitrary application browsing are outside application-workspace v1.
+The first slice does **not** implement application-workspace resume saving or package deletion. Those protocols are fully specified here so their risks are auditable, but each requires its own later approval. PDF/DOCX artifacts, `changes.md`, notes, interview files, full-result export, provider-response persistence, adoption of user files, and arbitrary application browsing are outside application-workspace v1. The separately approved #57 cover-letter writer is limited to user-authored Markdown/plain text and its exact contract.
 
 ## Goals
 
@@ -41,7 +42,7 @@ Application-workspace v1 does not add:
 - a Core call, runtime-resolution attempt, child process, package acquisition, network call, or private Core stdin during a workspace action;
 - mutation, relocation, deletion, or reformatting of an original resume;
 - copying a PDF original or materializing extracted PDF text as a styled resume;
-- DOCX, Pages, HTML, image, OCR, layout-preserving, cover-letter, notes, interview, or full-result persistence;
+- DOCX, Pages, HTML, image, OCR, layout-preserving, notes, interview, or full-result persistence; (cover letters are separately limited by #57);
 - automatic synchronization from session to files, files to session, or files to a provider;
 - broad scanner exclusions based on names such as `applications/`;
 - adoption of an unmarked nonempty root, an unmarked application directory, an edited package file, or a user-created artifact;
@@ -503,7 +504,7 @@ The following are not eligible workspace sources in v1:
 - complete Core JSON, review input, discarded proposal, PDF change plan, or normalization output;
 - provider request/response bodies, prompts, credentials, or telemetry;
 - PDF, DOCX, Pages, HTML, image, OCR, or other styled artifacts;
-- `changes.md`, cover letters, notes, interview preparation, or user-owned editable-source copies; and
+- `changes.md`, notes, interview preparation, or user-owned editable-source copies; user-authored cover-letter artifacts are governed only by #57 and are not eligible assisted sources; and
 - arbitrary files selected by path.
 
 Users may place their own files in an application directory, but pi-career treats every unrecognized entry as user-owned. It never reads it as Core input, references it in state, overwrites it, or deletes it.
@@ -775,7 +776,7 @@ Gate 1 excludes resume artifacts and all package deletion. The implementation st
 
 ### Gate 2 — assisted resume artifact
 
-Only after Gate 1 acceptance and separate explicit authorization, implement `Save current assisted resume` using the current materialization eligibility, existing v2 sidecar authority, artifact-specific preview/confirm, sidecar/artifact/state commit ordering, and artifact tests. This gate does not authorize PDF/DOCX, cover letters, notes, changes, provider output, full results, replacement, or `/career-save` convergence.
+Only after Gate 1 acceptance and separate explicit authorization, implement `Save current assisted resume` using the current materialization eligibility, existing v2 sidecar authority, artifact-specific preview/confirm, sidecar/artifact/state commit ordering, and artifact tests. This gate does not authorize PDF/DOCX, notes, changes, provider output, full results, replacement, or `/career-save` convergence. User-authored cover letters are separately authorized by #57; assisted cover-letter content remains out of scope.
 
 ### Gate 3 — deletion
 
@@ -783,6 +784,6 @@ Only after retained-file behavior and crash reconciliation have real macOS/Linux
 
 ### Gate 4 — later workspace scope
 
-Cover letters, notes, interview files, user-file adoption, additional resume revisions, styled formats, exports, repair, archive, sync, and broader application management each require a new design and approval. None is implied by Gates 0–3.
+Notes, interview files, user-file adoption, additional resume revisions, styled formats, exports, repair, archive, sync, and broader application management each require a new design and approval. User-authored cover letters are separately authorized by #57; assisted cover-letter content remains out of scope.
 
 Release, publication, tagging, deployment, and full application-workspace scope always remain separate owner decisions after implementation review. Design approval alone authorizes none of them.

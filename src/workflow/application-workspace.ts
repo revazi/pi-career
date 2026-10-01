@@ -327,7 +327,9 @@ type WorkspaceOperation =
   | "finish_application_migration"
   | "record_state"
   | "select_original"
-  | "update_vacancy";
+  | "update_vacancy"
+  | "save_cover_letter"
+  | "clear_cover_letter";
 
 interface PreviewEnvelope {
   schema_version: typeof PREVIEW_SCHEMA;
@@ -966,10 +968,11 @@ async function inspectCoverLetterReference(
   }
   const extension = binding.format === "markdown" ? "md" : "txt";
   const earlierCoverCount = [...referencedFiles.keys()].filter((name) => COVER_LETTER_BASENAME.test(name)).length;
-  const expectedName = earlierCoverCount === 0
-    ? `cover-letter.${extension}`
-    : `cover-letter-${String(state.sequence).padStart(6, "0")}.${extension}`;
-  if (binding.relative_path !== expectedName) throw workflowError("workspace_drift");
+  const numberedName = `cover-letter-${String(state.sequence).padStart(6, "0")}.${extension}`;
+  const expectedNames = earlierCoverCount === 0
+    ? new Set([`cover-letter.${extension}`, numberedName])
+    : new Set([numberedName]);
+  if (!expectedNames.has(binding.relative_path)) throw workflowError("workspace_drift");
   const file = await inspectArtifactFile(
     directoryPath, binding.relative_path, binding.artifact_sha256, VACANCY_MAX_BYTES,
   );
@@ -2461,6 +2464,9 @@ export class ApplicationWorkspaceWorkflow {
       ...(menuState.canMigrate ? ["Finish application migration"] : []),
       ...(menuState.canRecord ? ["Record current status and vacancy"] : []),
       ...(menuState.canSelectOriginal ? ["Select original resume"] : []),
+      ...(menuState.canCoverLetter ? ["Write or revise user-authored cover letter"] : []),
+      ...(menuState.canCoverLetter ? ["View current cover letter"] : []),
+      ...(menuState.canCoverLetter ? ["Clear current cover-letter reference"] : []),
       ...(menuState.canAttach ? ["Attach current application"] : []),
       ...(menuState.canAttachCatalog ? ["Attach application"] : []),
       ...(menuState.canOpenInNewSession ? ["Open application in new Pi session"] : []),
@@ -2481,6 +2487,9 @@ export class ApplicationWorkspaceWorkflow {
     if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
+    if (action === "Write or revise user-authored cover letter") return this.writeCoverLetter(ctx);
+    if (action === "View current cover letter") return this.viewCoverLetter(ctx);
+    if (action === "Clear current cover-letter reference") return this.clearCoverLetter(ctx);
     if (action === "Attach current application") return this.attachCurrent(ctx);
     if (action === "Attach application") return this.attachFromCatalog(ctx);
     if (action === "Open application in new Pi session") return this.openInNewSession(ctx);
@@ -2740,6 +2749,7 @@ export class ApplicationWorkspaceWorkflow {
     canInitialize: boolean;
     canMigrate: boolean;
     canRecord: boolean;
+    canCoverLetter: boolean;
     canSelectOriginal: boolean;
     canAttach: boolean;
     canAttachCatalog: boolean;
@@ -2757,7 +2767,7 @@ export class ApplicationWorkspaceWorkflow {
         records.activation === undefined,
     };
     const unavailable = {
-      canInitialize: false, canMigrate: false, canRecord: false, canSelectOriginal: false, ...sessionFlags,
+      canInitialize: false, canMigrate: false, canRecord: false, canCoverLetter: false, canSelectOriginal: false, ...sessionFlags,
     };
     if (identity === undefined) return unavailable;
     try {
@@ -2774,6 +2784,7 @@ export class ApplicationWorkspaceWorkflow {
         canMigrate: false,
         canRecord: attachment.application.head.status !== identity.current.status ||
           !sameSessionVacancy(attachment.application.head, identity.vacancy),
+        canCoverLetter: true,
         canSelectOriginal: attachment.application.head.resume_artifact === null,
         canAttach: records.integrity === "valid" && records.attachment === undefined &&
           (records.used_application_id === undefined ||
@@ -3626,6 +3637,101 @@ export class ApplicationWorkspaceWorkflow {
       roleLabel: identity.identity.role_label,
     });
     ctx.ui.notify(`Recorded immutable workspace state revision ${sequence}. Earlier vacancy files remain unchanged.`, "info");
+  }
+
+  private async writeCoverLetter(ctx: ExtensionCommandContext): Promise<void> {
+    const mutation = await this.attachedMutation(ctx);
+    const application = mutation.application;
+    const previous = application.head.cover_letter_artifact;
+    if (application.head.vacancy === null || effectiveResumeDigest(application.head) === undefined) {
+      throw workflowError("workspace_unavailable");
+    }
+    const formatChoice = await ctx.ui.select("Cover-letter format", ["Markdown (.md)", "Plain text (.txt)"]);
+    if (formatChoice === undefined) return;
+    const authored = await ctx.ui.editor("Write user-authored cover letter", "");
+    if (authored === undefined) return;
+    const bytes = Buffer.from(authored, "utf8");
+    if (bytes.length === 0 || bytes.length > VACANCY_MAX_BYTES || authored.includes("\r") || authored.includes("\0") ||
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== authored ||
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(authored)) {
+      throw workflowError("workspace_limit_reached");
+    }
+    const reviewed = await ctx.ui.editor("Preview exact user-authored cover letter", authored);
+    if (reviewed === undefined) return;
+    if (reviewed !== authored) throw workflowError("workspace_preview_changed");
+    if (await ctx.ui.confirm("Persist this user-authored cover letter?", "A new immutable application artifact revision will be created. No assisted drafting or submission occurs.") !== true) return;
+    const sequence = application.head.sequence + 1;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
+    const mutationId = this.options.uuid().toLowerCase();
+    const extension = formatChoice === "Markdown (.md)" ? "md" : "txt";
+    const relativePath = `cover-letter-${String(sequence).padStart(6, "0")}.${extension}`;
+    const binding: CoverLetterArtifactBinding = {
+      relative_path: relativePath, artifact_sha256: hashBytes(bytes), utf8_bytes: bytes.length,
+      format: extension === "md" ? "markdown" : "text", authority: "user_authored",
+      job_description_sha256: application.head.vacancy.content_sha256,
+      effective_resume_sha256: effectiveResumeDigest(application.head)!,
+    };
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA, kind: "application_state_revision",
+      application_id: application.manifest.application_id, sequence,
+      parent_sha256: application.headFile.sha256, status: application.head.status,
+      vacancy: application.head.vacancy, selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact, cover_letter_artifact: binding,
+      updated_at: createdAt,
+    };
+    const stateBuffer = stateBytes(state);
+    const directory = application.directoryPath;
+    const result = await this.publishAttachedRevision(ctx, mutation, "save_cover_letter", mutationId, createdAt, [
+      { final: path.join(directory, relativePath), temp: path.join(directory, `.pi-career-${mutationId}-cover.tmp`), bytes },
+      { final: path.join(directory, stateName(sequence)), temp: path.join(directory, `.pi-career-${mutationId}-state.tmp`), bytes: stateBuffer },
+    ], stateBuffer, 1, `Saved user-authored cover letter revision ${sequence}.`);
+    if (result === "cancelled") return;
+    // The parent-hash check under the application lock also binds the prior reference.
+    void previous;
+  }
+
+  private async viewCoverLetter(ctx: ExtensionCommandContext): Promise<void> {
+    const mutation = await this.attachedMutation(ctx);
+    const binding = mutation.application.head.cover_letter_artifact;
+    if (binding === null) {
+      ctx.ui.notify("No current cover-letter artifact.", "info");
+      return;
+    }
+    const artifact = mutation.application.managedFiles.find((file) => file.path === path.join(mutation.application.directoryPath, binding.relative_path));
+    if (artifact === undefined || artifact.sha256 !== binding.artifact_sha256 || artifact.bytes.length !== binding.utf8_bytes) {
+      throw workflowError("workspace_drift");
+    }
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(artifact.bytes);
+    await ctx.ui.editor(`View current ${binding.authority} cover letter (${binding.format})`, text);
+  }
+
+  private async clearCoverLetter(ctx: ExtensionCommandContext): Promise<void> {
+    const mutation = await this.attachedMutation(ctx);
+    const application = mutation.application;
+    if (application.head.cover_letter_artifact === null) {
+      ctx.ui.notify("No current cover-letter reference; no revision was added.", "info");
+      return;
+    }
+    const sequence = application.head.sequence + 1;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA, kind: "application_state_revision",
+      application_id: application.manifest.application_id, sequence,
+      parent_sha256: application.headFile.sha256, status: application.head.status,
+      vacancy: application.head.vacancy, selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact, cover_letter_artifact: null,
+      updated_at: createdAt,
+    };
+    const bytes = stateBytes(state);
+    const mutationId = this.options.uuid().toLowerCase();
+    await this.publishAttachedRevision(ctx, mutation, "clear_cover_letter", mutationId, createdAt, [{
+      final: path.join(application.directoryPath, stateName(sequence)),
+      temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`), bytes,
+    }], bytes, 1, `Cleared the current cover-letter reference in revision ${sequence}; artifact history was retained.`);
   }
 
   private async selectOriginal(ctx: ExtensionCommandContext): Promise<void> {
