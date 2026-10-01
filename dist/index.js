@@ -7498,12 +7498,16 @@ Current job description is ready. Browse does not replace workspace files.`),
         }]
       }, attached.vacancy === void 0 && (empty.vacancy.intro = `${heading}
 ${pack}
-No current job description. Press e to paste one.`), empty.match = {
+No current job description. Press e to paste one.`);
+      let originalBinding = attached.selected_original === void 0 ? "Selected original source: unavailable" : `Selected original source: ${attached.selected_original.label}`;
+      empty.match = {
         intro: `${heading}
-${pack}`,
+${pack}
+${originalBinding}`,
         canSelectOriginal: attached.can_select_original,
         items: attached.effective_resume === void 0 ? [] : [{
           ...item("effective", `Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}`, `${heading}
+${originalBinding}
 Effective Resume (${attached.effective_resume.kind === "assisted_variant" ? "tailored assisted" : "original"}): ${attached.effective_resume.label}
 Match is not run by opening this view.`),
           preview: resumePreview("effective", attached.effective_resume)
