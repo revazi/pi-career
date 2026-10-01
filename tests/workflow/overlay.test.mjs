@@ -14,6 +14,8 @@ import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   CAREER_UI_COMMAND_VIEWS,
   CAREER_UI_RPC_ACTIONS,
+  applicationNextAction,
+  currentApplicationResults,
   CAREER_UI_VIEW_LABELS,
   CareerOverlay,
   CareerUiSession,
@@ -44,6 +46,47 @@ async function register(temp) {
   });
   return { fake, calls };
 }
+
+test("#58 contextual result guidance ignores historical cards with drifted application bindings", () => {
+  const selected = { id: "original-1", text_sha256: "a".repeat(64) };
+  const effective = { id: "variant-1", text_sha256: "b".repeat(64) };
+  const attached = {
+    application_id: "application-1",
+    selected_original: selected,
+    effective_resume: effective,
+    vacancy: { vacancy_text_sha256: "c".repeat(64) },
+  };
+  const card = (workflow, resume, vacancy) => ({
+    application_id: "application-1", workflow, resume_id: resume,
+    input_digests: { resume_text_sha256: resume === selected.id ? selected.text_sha256 : effective.text_sha256, vacancy_text_sha256: vacancy },
+  });
+  const historical = [card("analyze", selected.id, "d".repeat(64)), card("match", effective.id, "d".repeat(64))];
+  assert.deepEqual(currentApplicationResults(historical, attached), { analyzed: true, matched: false });
+  assert.deepEqual(currentApplicationResults([card("match", effective.id, "c".repeat(64))], attached), { analyzed: false, matched: true });
+  assert.deepEqual(currentApplicationResults([card("match", "other-resume", "c".repeat(64))], attached), { analyzed: false, matched: false });
+});
+
+test("#58 SBDD journey matrix derives a resumable next action at every persisted package boundary", () => {
+  const base = { job_description: "Available", resume: "Available", cover_letter: "Available" };
+  const cases = [
+    ["created, not attached", { ...base, job_description: "Missing", resume: "Missing", cover_letter: "Missing" }, false, false, /job description/],
+    ["vacancy added; Original not selected", { ...base, resume: "Missing", cover_letter: "Missing" }, false, false, /eligible Original/],
+    ["Original selected; Analyze interrupted or not run", { ...base, cover_letter: "Missing" }, false, false, /analyze the selected Original/],
+    ["Analyze resumed; Match interrupted or not run", { ...base, cover_letter: "Missing" }, true, false, /analyze match/],
+    ["Match complete; optional letter not authored", { ...base, cover_letter: "Missing" }, true, true, /workspace/],
+    ["complete package; review resumed", base, true, true, /Ready is derived/],
+    ["vacancy source stale/drifted/unavailable", { ...base, job_description: "Drifted" }, true, true, /job description/],
+    ["selected Original stale/drifted/unavailable or assisted", { ...base, resume: "Unavailable" }, true, true, /library.*workspace/],
+    ["letter stale/drifted/unavailable", { ...base, cover_letter: "Stale" }, true, true, /user-authored cover letter/],
+  ];
+  for (const [stage, components, analyzed, matched, expected] of cases) {
+    // Rebuilding this derived view after close/reopen or restart uses only the persisted
+    // package classification and explicit session result evidence; no action is invoked.
+    assert.match(applicationNextAction(components, analyzed, matched), expected, stage);
+  }
+  assert.match(applicationNextAction(base, false, false), /analyze the selected Original/,
+    "a complete package does not require a persisted match result to remain Ready");
+});
 
 test("valid catalog browse/open/filter/clear has empty and repeated reads without attachment or model/provider effects", async () => {
   const pane = (intro, items = []) => ({ intro, items });
@@ -911,6 +954,212 @@ test("RPC hierarchical dialogs browse, switch views, and open detail without att
     assert.equal(rpc.customCalls, 0);
     assert.equal(value.calls.length, 0);
     assert.equal(value.fake.entries.length, before);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#58 attached package review reconstructs its next action after close/reopen without implicit progress", async () => {
+  const value = await catalogFixture("pi-career-ui-journey-resume-");
+  try {
+    const appLabel = "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3";
+    const beforeFiles = await treeBytes(value.temp);
+    const cancelled = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [appLabel, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [false],
+    });
+    await value.fake.commands.get("career").handler("", cancelled.ctx);
+    assert.deepEqual(value.fake.entries, [], "cancelling attach leaves application authority untouched");
+    assert.deepEqual(await treeBytes(value.temp), beforeFiles);
+
+    const attached = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: [appLabel, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    });
+    await value.fake.commands.get("career").handler("", attached.ctx);
+    assert.equal(value.fake.entries.length, 1);
+    assert.equal(value.fake.entries[0].customType, "career.application_attachment");
+
+    // A fresh command context models closing/reopening the overlay; the package
+    // recommendation must be rebuilt from persisted workspace/catalog + session authority.
+    const reopened = await buildCareerUiModel(value.agentDir, makeContext(value.fake, { mode: "rpc", persisted: false }).ctx);
+    assert.match(reopened.applications.intro, /Next action: open package review/);
+    assert.match(reopened.workspace.intro, /Next action: add or refresh the job description/);
+    const restarted = await buildCareerUiModel(value.agentDir, makeContext(value.fake, { mode: "rpc", persisted: false }).ctx);
+    assert.equal(restarted.workspace.intro, reopened.workspace.intro);
+    assert.equal(value.fake.entries.length, 1, "deriving the recommendation does not append session progress");
+    assert.deepEqual(value.calls, [], "browsing and reopening do not call Career Core");
+    assert.doesNotMatch(JSON.stringify([reopened, restarted]), /applications[/\\]|alpha\\.md|# Synthetic Alpha/);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("#58 black-box preparation journey cancels and resumes every explicit step across registered restarts", async () => {
+  const value = await catalogFixture("pi-career-ui-integrated-journey-");
+  try {
+    let fake = value.fake;
+    const ids = uuidSequence();
+    let clock = Date.parse("2026-08-12T00:00:10.000Z");
+    const nextNow = () => new Date(clock += 1_000);
+    const coreCalls = [];
+    const invoke = async (invocation) => {
+      coreCalls.push(invocation.operation);
+      if (invocation.operation === "analyze") {
+        return { operation: "resume.analyze", json: JSON.stringify(resumeResult()) };
+      }
+      if (invocation.operation === "normalize") {
+        return { operation: "job.normalize", json: JSON.stringify(normalizationResult()) };
+      }
+      return { operation: "job.match", json: JSON.stringify(matchResult()) };
+    };
+    const registerJourney = (target) => {
+      registerCareerCommands(target.api, { agentDir: value.agentDir, uuid: ids, now: nextNow, invoke });
+      target.api.sendMessage = () => assert.fail("journey actions must not submit a provider message");
+      target.api.sendUserMessage = () => assert.fail("journey actions must not submit a provider message");
+    };
+    registerJourney(fake);
+    const model = () => buildCareerUiModel(
+      value.agentDir,
+      makeContext(fake, { mode: "rpc", persisted: true }).ctx,
+    );
+    const restart = async (expected) => {
+      const entries = structuredClone(fake.entries);
+      const restarted = makeFakePi();
+      restarted.entries.push(...entries);
+      registerJourney(restarted);
+      fake = restarted;
+      const rebuilt = await model();
+      assert.match(rebuilt.workspace.intro, expected);
+      assert.deepEqual(fake.entries, entries, "restart-like reconstruction does not append progress");
+      return rebuilt;
+    };
+    const unchangedAfter = async (run) => {
+      const beforeTree = await treeBytes(value.temp);
+      const beforeEntries = structuredClone(fake.entries);
+      await run();
+      assert.deepEqual(await treeBytes(value.temp), beforeTree);
+      assert.deepEqual(fake.entries, beforeEntries);
+    };
+
+    const applicationRow = "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3";
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [applicationRow, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [false],
+    }).ctx));
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [applicationRow, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
+      confirms: [true],
+    }).ctx);
+    await restart(/add or refresh the job description/);
+
+    const vacancy = "Synthetic platform role\nEvidence-based requirements";
+    await unchangedAfter(() => fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [vacancy, (_title, preview) => preview], confirms: [false],
+    }).ctx));
+    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [vacancy, (_title, preview) => preview], confirms: [true],
+    }).ctx);
+    await restart(/select an eligible Original/);
+
+    const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];
+    const originalOption = selectedOriginalOptions([original])[0].option;
+    await unchangedAfter(() => fake.commands.get("career-analyze").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, originalOption, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [false],
+    }).ctx));
+    await fake.commands.get("career-analyze").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, originalOption, CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    await restart(/analyze the selected Original/);
+
+    await unchangedAfter(() => fake.commands.get("career-analyze").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close], confirms: [false],
+    }).ctx));
+    const analyzeSelects = [];
+    const analyzeContext = makeContext(fake, {
+      mode: "rpc", persisted: true, selectCalls: analyzeSelects,
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, "Continue in this session", CAREER_UI_RPC_ACTIONS.close], confirms: [true],
+    });
+    await fake.commands.get("career-analyze").handler("", analyzeContext.ctx);
+    const analysisCards = fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "analyze");
+    assert.equal(analysisCards.length, 1, JSON.stringify({ notifications: analyzeContext.notifications, selects: analyzeSelects }));
+    assert.equal(analysisCards[0].data.application_id, "00000000-0000-4000-8000-000000000077");
+    assert.equal(analysisCards[0].data.resume_id, original.id);
+    assert.equal(analysisCards[0].data.input_digests.resume_text_sha256, original.text_sha256);
+    const analyzedModel = await model();
+    assert.match(analyzedModel.workspace.intro, /analyze match/, JSON.stringify(analysisCards[0].data));
+    await restart(/analyze match/);
+
+    await unchangedAfter(() => fake.commands.get("career-match").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [false],
+    }).ctx));
+    await fake.commands.get("career-match").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
+    }).ctx);
+    await restart(/user-authored cover letter/);
+
+    const coverText = "# Synthetic cover letter\n\nUser-authored evidence only.\n";
+    const coverWorkflow = () => new ApplicationWorkspaceWorkflow({
+      agentDir: value.agentDir, uuid: ids, now: nextNow,
+    });
+    await unchangedAfter(() => coverWorkflow().run("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: ["Write or revise user-authored cover letter", "Markdown (.md)"],
+      editors: [coverText, (_title, preview) => preview], confirms: [false],
+    }).ctx));
+    await coverWorkflow().run("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: ["Write or revise user-authored cover letter", "Markdown (.md)"],
+      editors: [coverText, (_title, preview) => preview, (_title, preview) => preview],
+      confirms: [true, true],
+    }).ctx);
+    let rebuilt = await restart(/review the complete package.*Ready is derived/);
+    assert.ok(rebuilt.applications.items.some(({ detail }) => /Ready 3\/3/.test(detail)));
+
+    const applicationName = (await readdir(value.root)).find((entry) => !entry.startsWith("."));
+    assert.ok(applicationName);
+    const directory = path.join(value.root, applicationName);
+    const stateName = (await readdir(directory)).filter((name) => name.startsWith(".pi-career-state-")).sort().at(-1);
+    const head = JSON.parse(await readFile(path.join(directory, stateName), "utf8"));
+    const coverPath = path.join(directory, head.cover_letter_artifact.relative_path);
+    const coverBytes = await readFile(coverPath);
+    await writeFile(coverPath, `${coverText}drifted\n`, { mode: 0o600 });
+    rebuilt = await model();
+    assert.equal(rebuilt.applications.items.some(({ detail }) => /Ready 3\/3/.test(detail)), false);
+    assert.doesNotMatch(rebuilt.workspace.intro, /review the complete package/);
+    await writeFile(coverPath, coverBytes, { mode: 0o600 });
+    await restart(/review the complete package.*Ready is derived/);
+
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.updateStatus, undefined, CAREER_UI_RPC_ACTIONS.close],
+    }).ctx));
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.updateStatus, "Applied", CAREER_UI_RPC_ACTIONS.close],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    rebuilt = await restart(/review the complete package.*Ready is derived/);
+    assert.ok(rebuilt.applications.items.some(({ label, detail }) => /Applied/.test(label + detail) && /Ready 3\/3/.test(detail)));
+    assert.ok(coreCalls.includes("analyze"));
+    assert.equal(coreCalls.filter((operation) => operation === "match").length, 1, JSON.stringify(coreCalls));
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "analyze").length, 1);
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "match").length, 1);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }
