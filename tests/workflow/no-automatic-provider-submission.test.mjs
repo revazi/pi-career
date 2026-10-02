@@ -833,7 +833,7 @@ test("P3-32 installed browsing and confirmed no-Core application mutations make 
 
   const selected = await live.prompt("/career", [
     { method: "select", value: CAREER_UI_RPC_ACTIONS.switchView },
-    { method: "select", value: "Library" },
+    { method: "select", value: "Resumes" },
     { method: "select", value: CAREER_UI_RPC_ACTIONS.selectOriginal },
     { method: "select", only: true },
     { method: "editor", echo: true },

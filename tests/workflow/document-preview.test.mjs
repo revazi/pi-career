@@ -51,9 +51,12 @@ test("P3-35 local RPC preview needs separate explicit action; back and cancel di
   await runCareerUiRpc(f.rpc.ctx, f.session());
   assert.equal(dialogs.length, 5);
   assert.ok(dialogs.slice(0, 2).every((dialog) => !JSON.stringify(dialog).includes(sentinel)));
+  assert.match(dialogs[1].title, /^Career › Resumes\nCurrent state · Detail\n/);
   assert.ok(dialogs[1].options.includes(A.preview));
+  assert.match(dialogs[2].title, /^Career › Resumes\nLocal document preview/);
   assert.ok(dialogs[2].title.endsWith(f.text));
   assert.deepEqual(dialogs[2].options, [A.back, A.switchView, A.close]);
+  assert.match(dialogs[3].title, /^Career › Resumes\nCurrent state · Detail\n/);
   assert.ok(dialogs.slice(3).every((dialog) => !JSON.stringify(dialog).includes(sentinel)));
   assert.deepEqual(await readFile(f.file), before);
   assert.equal(f.fake.entries.length, 0);
@@ -98,15 +101,23 @@ test("TUI paginates exact local preview instead of silently clipping a bounded b
   assert.equal(session.preview, undefined);
 });
 
-test("TUI exact preview reconstructs source across soft wraps, hard lines, and pages", async (t) => {
+test("TUI exact preview reconstructs source inside the padded frame across wraps and pages", async (t) => {
   const f = await fixture(t);
   const samples = [
-    { width: 1, text: "a  b\n\nxyz\n" },
-    { width: 2, text: "界🙂e\u0301  Z\n\nQ\n" },
-    { width: 7, text: `${"x".repeat(39)}\nalpha   beta  \n\n${"界🙂á ".repeat(15)}\nlast\n` },
-    { width: 11, text: `${"word ".repeat(15)}  \n\n${"z".repeat(75)}\nend` },
+    { width: 56, text: "a  b\n\nxyz\n" },
+    { width: 56, text: "界🙂e\u0301  Z\n\nQ\n" },
+    { width: 56, text: `${"x".repeat(119)}\nalpha   beta  \n\n${"界🙂á ".repeat(30)}\nlast\n` },
+    { width: 64, text: `${"word ".repeat(30)}  \n\n${"z".repeat(155)}\nend` },
   ];
+  const previewBody = (styled, outerWidth) => {
+    assert.ok(styled.every((line) => visibleWidth(line) === outerWidth), `ANSI frame must equal ${outerWidth} columns`);
+    const rendered = styled.map(stripTerminalSequences);
+    const separators = rendered.flatMap((line, index) => /^├/.test(line) ? [index] : []);
+    assert.equal(separators.length, 3);
+    return rendered.slice(separators[1] + 1, separators[2]).map((line) => line.slice(2, -2));
+  };
   for (const { width, text } of samples) {
+    const outerWidth = width + 4;
     const session = new CareerUiSession("library", f.model, {}, undefined, async () => text);
     const overlay = new CareerOverlay(session, { fg: (_type, value) => `\u001b[36m${value}\u001b[0m`, bold: (value) => `\u001b[1m${value}\u001b[0m` },
       { matches: (data, action) => action === "tui.select.down" && data === "down" ||
@@ -114,8 +125,8 @@ test("TUI exact preview reconstructs source across soft wraps, hard lines, and p
       () => {}, () => {});
     session.open();
     assert.equal(await session.openPreview(), true);
-    // Independent greedy grapheme oracle: no whitespace is discarded on either side
-    // of a wrap. Keep source line boundaries, including a final empty line.
+    // Independent greedy grapheme oracle: no source whitespace is discarded at
+    // either side of a wrap. The frame's right fill is checked separately.
     const expected = text.split("\n").map((line) => {
       const rows = [];
       let row = "";
@@ -130,13 +141,14 @@ test("TUI exact preview reconstructs source across soft wraps, hard lines, and p
     const pages = Math.ceil(allRows.length / 6);
     const observed = [];
     for (let page = 0; page < pages; page++) {
-      const styled = overlay.render(width);
-      assert.ok(styled.every((line) => visibleWidth(line) <= width), `ANSI line exceeds ${width} columns`);
-      const rendered = styled.map(stripTerminalSequences);
-      const bodyStart = rendered.indexOf("");
-      assert.ok(bodyStart >= 0);
-      const rows = rendered.slice(bodyStart + 2, bodyStart + 2 + Math.min(6, allRows.length - page * 6));
-      observed.push(...rows);
+      const body = previewBody(overlay.render(outerWidth), outerWidth);
+      const expectedPage = allRows.slice(page * 6, (page + 1) * 6);
+      const paddedRows = body.slice(2, 2 + expectedPage.length);
+      expectedPage.forEach((row, index) => {
+        assert.ok(paddedRows[index].startsWith(row));
+        assert.match(paddedRows[index].slice(row.length), /^ *$/);
+        observed.push(paddedRows[index].slice(0, row.length));
+      });
       if (page < pages - 1) overlay.handleInput("down");
     }
     assert.deepEqual(observed, allRows);
@@ -149,14 +161,13 @@ test("TUI exact preview reconstructs source across soft wraps, hard lines, and p
     assert.equal(reconstructed, text);
     overlay.handleInput("down");
     overlay.handleInput("down");
-    const clamped = overlay.render(width).map(stripTerminalSequences);
-    const clampedStart = clamped.indexOf("");
-    assert.deepEqual(clamped.slice(clampedStart + 2, clampedStart + 2 + Math.min(6, allRows.length - (pages - 1) * 6)),
-      allRows.slice((pages - 1) * 6));
+    const lastPage = allRows.slice((pages - 1) * 6);
+    const clampedRows = previewBody(overlay.render(outerWidth), outerWidth).slice(2, 2 + lastPage.length);
+    lastPage.forEach((row, index) => assert.ok(clampedRows[index].startsWith(row)));
     overlay.handleInput("up");
     overlay.handleInput("down");
-    assert.deepEqual(overlay.render(width).map(stripTerminalSequences).slice(clampedStart + 2, clampedStart + 2 + Math.min(6, allRows.length - (pages - 1) * 6)),
-      allRows.slice((pages - 1) * 6));
+    const returnedRows = previewBody(overlay.render(outerWidth), outerWidth).slice(2, 2 + lastPage.length);
+    lastPage.forEach((row, index) => assert.ok(returnedRows[index].startsWith(row)));
     overlay.handleInput("esc");
     assert.equal(session.preview, undefined);
     assert.equal(f.fake.entries.length, 0);
@@ -165,7 +176,7 @@ test("TUI exact preview reconstructs source across soft wraps, hard lines, and p
   }
 });
 
-test("too-narrow TUI fails closed for a wide grapheme without a partial preview", async (t) => {
+test("too-narrow TUI hides private preview until a complete padded frame fits", async (t) => {
   const f = await fixture(t);
   const text = `${"a".repeat(50)}\n界🙂\n`;
   const session = new CareerUiSession("library", f.model, {}, undefined, async () => text);
@@ -174,19 +185,19 @@ test("too-narrow TUI fails closed for a wide grapheme without a partial preview"
       action === "tui.select.cancel" && data === "esc" }, () => {}, () => {});
   session.open();
   assert.equal(await session.openPreview(), true);
-  for (let page = 0; page < 60; page++) {
-    const rendered = overlay.render(1);
-    assert.ok(rendered.every((line) => visibleWidth(line) <= 1));
-    const stripped = rendered.map(stripTerminalSequences);
-    const bodyStart = stripped.indexOf("");
-    assert.ok(bodyStart >= 0);
-    assert.doesNotMatch(stripped[bodyStart + 1], /a|界|🙂|exact text/i);
-    assert.equal(stripped[bodyStart + 2], "");
+  for (const width of [1, 8, 32, 59]) {
+    const rendered = overlay.render(width);
+    assert.ok(rendered.every((line) => visibleWidth(line) <= width));
+    assert.doesNotMatch(rendered.map(stripTerminalSequences).join("\n"), /aaaa|界|🙂|exact text/i);
     assert.equal(session.preview, text);
     overlay.handleInput("down");
   }
-  // A larger terminal can display the same in-memory source without reload.
-  assert.ok(overlay.render(2).map(stripTerminalSequences).join("\n").includes("aa"));
+  // A supported width displays the same in-memory source inside a complete frame;
+  // blocked fallback input did not move the preview page.
+  const widened = overlay.render(60).map(stripTerminalSequences).join("\n");
+  assert.match(widened, /^╭─+╮/);
+  assert.match(widened, /page 1\/1/);
+  assert.match(widened, /a{20}/);
   overlay.handleInput("esc");
   assert.equal(session.preview, undefined);
   assert.equal(f.fake.entries.length, 0);

@@ -7,12 +7,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { ApplicationWorkspaceWorkflow, selectedOriginalOptions } from "../../src/workflow/application-workspace.ts";
 import { addLibraryRoot, emptyConfig, loadConfig, writeConfig } from "../../src/workflow/config.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
 import {
   CAREER_UI_COMMAND_VIEWS,
+  CAREER_UI_DESTINATIONS,
   CAREER_UI_RPC_ACTIONS,
   applicationNextAction,
   currentApplicationResults,
@@ -22,6 +23,7 @@ import {
   buildCareerLibraryPane,
   buildCareerUiModel,
   careerPreviewLoader,
+  viewTitle,
 } from "../../src/workflow/career-ui.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import { encodeAssistedVariantMetadataV2, encodeManagedVariantsMarker } from "../../src/workflow/variant-metadata.ts";
@@ -76,7 +78,7 @@ test("#58 SBDD journey matrix derives a resumable next action at every persisted
     ["Match complete; optional letter not authored", { ...base, cover_letter: "Missing" }, true, true, /workspace/],
     ["complete package; review resumed", base, true, true, /Ready is derived/],
     ["vacancy source stale/drifted/unavailable", { ...base, job_description: "Drifted" }, true, true, /job description/],
-    ["selected Original stale/drifted/unavailable or assisted", { ...base, resume: "Unavailable" }, true, true, /library.*workspace/],
+    ["selected Original stale/drifted/unavailable or assisted", { ...base, resume: "Unavailable" }, true, true, /Resumes.*workspace/i],
     ["letter stale/drifted/unavailable", { ...base, cover_letter: "Stale" }, true, true, /user-authored cover letter/],
   ];
   for (const [stage, components, analyzed, matched, expected] of cases) {
@@ -127,14 +129,33 @@ test("valid catalog browse/open/filter/clear has empty and repeated reads withou
   assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
   empty.clearApplicationFilter();
   assert.deepEqual(empty.pane.items.map((item) => item.id), ["uuid-a", "uuid-b"]);
-  const detailSession = new CareerUiSession("applications", model, { filterApplications: async () => "Interviewing" });
+  let detailFilterCalls = 0;
+  let detailLifecycleCalls = 0;
+  const detailSession = new CareerUiSession("applications", model, {
+    filterApplications: async () => { detailFilterCalls++; return "Acme"; },
+    filterApplicationLifecycle: async () => { detailLifecycleCalls++; return "applied"; },
+  });
+  assert.equal(await detailSession.filterApplications(), true, "list filtering remains available");
   assert.equal(detailSession.open(), true);
   assert.equal(detailSession.selected.id, "uuid-a");
-  assert.equal(await detailSession.filterApplications(), true);
-  assert.deepEqual(detailSession.pane.items.map((item) => item.id), ["uuid-b"]);
-  assert.equal(detailSession.selected.id, "uuid-a", "filtering an open detail preserves its UUID identity");
-  detailSession.clearApplicationFilter();
-  assert.equal(detailSession.selected.id, "uuid-a", "clearing an open detail preserves its UUID identity");
+  assert.equal(detailSession.canFilterApplications, false);
+  assert.equal(detailSession.canFilterApplicationLifecycle, false);
+  assert.equal(detailSession.canClearApplicationFilter, false);
+  assert.ok(!detailSession.rpcActions().some((action) => [
+    CAREER_UI_RPC_ACTIONS.filterApplications,
+    CAREER_UI_RPC_ACTIONS.filterApplicationLifecycle,
+    CAREER_UI_RPC_ACTIONS.clearApplicationFilter,
+  ].includes(action)), "RPC detail actions omit application-list filters");
+  const detailOverlay = new CareerOverlay(detailSession, { fg: (_name, text) => text, bold: (text) => text },
+    { matches: () => false }, () => {}, () => {});
+  detailOverlay.handleInput("/");
+  detailOverlay.handleInput("l");
+  detailOverlay.handleInput("k");
+  assert.equal(await detailSession.filterApplications(), false);
+  assert.equal(await detailSession.filterApplicationLifecycle(), false);
+  assert.deepEqual([detailFilterCalls, detailLifecycleCalls], [1, 0], "hidden detail keys do not invoke filter dialogs");
+  assert.equal(detailSession.applicationFilter, "Acme", "hidden clear key does not change list state");
+  assert.equal(detailSession.selected.id, "uuid-a");
   assert.deepEqual(effects, []);
 });
 
@@ -142,10 +163,10 @@ test("attached application is the initial detail and lifecycle actions stay boun
   const pane = (intro, items = []) => ({ intro, items });
   const model = {
     setup: pane("setup"), library: pane("library"),
-    applications: pane("applications", [
+    applications: { ...pane("applications", [
       { id: "other", label: "Other", detail: "Preparing", applicationStatus: "preparing", pointer: { applicationId: "other" } },
-      { id: "attached", label: "Attached", detail: "Applied", applicationStatus: "applied", attachedApplication: true, canUpdateApplication: true, pointer: { applicationId: "attached" } },
-    ]),
+      { id: "attached", label: "Attached", detail: "Applied\nNext action: add or refresh the job description (e).", applicationStatus: "applied", attachedApplication: true, canUpdateApplication: true, pointer: { applicationId: "attached" } },
+    ]), canSelectOriginal: true },
     vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
     workbench: pane("workbench"), workspace: pane("workspace"),
   };
@@ -155,22 +176,56 @@ test("attached application is the initial detail and lifecycle actions stay boun
     updateStatus: async () => { calls.push(["status", session.selected.id]); return true; },
     detach: async () => { calls.push(["detach", session.selected.id]); return true; },
     workspace: async () => { calls.push(["workspace", session.selected.id]); return true; },
+    editVacancy: async () => { calls.push(["job", session.selected.id]); return true; },
+    selectOriginal: async () => { calls.push(["original", session.selected.id]); return true; },
+    analyze: async () => { calls.push(["analyze", session.selected.id]); return true; },
+    match: async () => { calls.push(["match", session.selected.id]); return true; },
+    askPi: async () => { calls.push(["ask", session.selected.id]); return true; },
   });
   assert.equal(session.showingDetail, true);
   assert.equal(session.selected.id, "attached");
   assert.equal(session.canAttach, false);
   assert.equal(session.canUpdateStatus, true);
   assert.equal(session.canWorkspace, true);
-  assert.ok(session.rpcActions().includes(CAREER_UI_RPC_ACTIONS.workspace));
+  assert.ok([
+    CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.selectOriginal,
+    CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.match,
+    CAREER_UI_RPC_ACTIONS.workspace, CAREER_UI_RPC_ACTIONS.askPi,
+  ].every((action) => session.rpcActions().includes(action)));
+
+  const overlay = new CareerOverlay(session, { fg: (_name, text) => text, bold: (text) => text },
+    { matches: () => false }, () => {}, () => {});
+  const rendered = overlay.render(80).map(stripTerminalSequences);
+  const separators = rendered.flatMap((line, index) => /^├/.test(line) ? [index] : []);
+  const footer = rendered.slice(separators[2] + 1, -1).join("\n");
+  assert.match(footer, /↑↓ scroll · esc back · tab switch · \? help/);
+  assert.match(footer, /Actions: e job description · g analyze · t match · \? all/);
+  assert.doesNotMatch(footer, /enter open|s status|m workspace|p Ask Pi|d detach/,
+    "detail footer stays concise, advertises scrolling plus the recommendation and two alternatives, and omits list navigation");
+  overlay.handleInput("?");
+  const help = overlay.render(80).map(stripTerminalSequences).join("\n");
+  for (const hint of ["g analyze", "t match", "e job description", "s status", "m workspace", "p Ask Pi", "d detach", "o select original"]) {
+    assert.ok(help.includes(hint), `contextual help includes ${hint}`);
+  }
+  overlay.handleInput("?");
+
+  assert.equal(await session.editVacancy(), true);
+  assert.equal(await session.selectOriginal(), true);
+  assert.equal(await session.analyze(), true);
+  assert.equal(await session.match(), true);
   assert.equal(await session.updateStatus(), true);
   assert.equal(await session.workspace(), true);
+  assert.equal(await session.askPi(), true);
   assert.equal(await session.detach(), true);
   session.back();
   session.highlight(0);
   assert.equal(session.canAttach, true);
   assert.equal(session.canUpdateStatus, false);
   assert.equal(session.canDetach, false);
-  assert.deepEqual(calls, [["status", "attached"], ["workspace", "attached"], ["detach", "attached"]]);
+  assert.deepEqual(calls, [
+    ["job", "attached"], ["original", "attached"], ["analyze", "attached"], ["match", "attached"],
+    ["status", "attached"], ["workspace", "attached"], ["ask", "attached"], ["detach", "attached"],
+  ]);
 });
 
 async function openAndClose(fake, command, view) {
@@ -190,8 +245,10 @@ async function openAndClose(fake, command, view) {
   assert.ok(lines.every((line) => visibleWidth(line) <= 80));
   const rendered = lines.join("\n");
   assert.match(rendered, /◆  Career/);
+  assert.ok(rendered.includes(viewTitle(view)), `direct /${command} route must show its breadcrumb`);
   assert.doesNotMatch(rendered, /agent|applications[/\\]|resume\.md|Built reliable/);
   components[0].handleInput("esc");
+  if (!CAREER_UI_DESTINATIONS.includes(view)) components[0].handleInput("esc");
   await pending;
   assert.equal(fake.entries.length, before);
   return { context, rendered };
@@ -278,10 +335,156 @@ test("Resume library pane covers empty, capped, stale, unreadable, oversized, PD
   assert.equal(session.open(), true);
   const style = (_name, text) => text;
   const overlay = new CareerOverlay(session, { fg: style, bold: (text) => text }, { matches: () => false }, () => {}, () => {});
-  for (const width of [32, 48, 80]) assert.ok(overlay.render(width).every((line) => visibleWidth(line) <= width));
+  for (const width of [60, 80]) assert.ok(overlay.render(width).every((line) => visibleWidth(line) <= width));
 });
 
-test("list labels wrap without losing Unicode warning/state text across widths and themes", () => {
+test("modal frame, destination hierarchy, breadcrumbs, and keyboard routes remain visible without color", () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const model = {
+    setup: pane("setup"), library: pane("resumes"), applications: pane("applications"),
+    vacancy: pane("job state"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("ask"), workspace: pane("workspace"),
+  };
+  const renders = [];
+  let closes = 0;
+  const session = new CareerUiSession("vacancy", model);
+  const theme = {
+    fg: (name, text) => `\u001b[${name === "accent" ? "36" : "2"}m${text}\u001b[0m`,
+    bold: (text) => `\u001b[1m${text}\u001b[22m`,
+  };
+  const overlay = new CareerOverlay(session, theme, {
+    matches: (data, action) => data === "esc" && action === "tui.select.cancel",
+  }, () => renders.push("render"), () => { closes++; });
+  const lines = overlay.render(60);
+  assert.ok(lines.every((line) => visibleWidth(line) === 60));
+  const plain = lines.map(stripTerminalSequences);
+  assert.match(plain[0], /^╭─+╮$/);
+  assert.match(plain.at(-1), /^╰─+╯$/);
+  assert.equal(plain.filter((line) => /^├─+┤$/.test(line)).length, 3);
+  assert.ok(plain.filter((line) => line.startsWith("│")).every((line) => /^│ .* │$/.test(line)),
+    "every framed content row has equal left/right padding");
+  assert.match(plain.join("\n"), /Career › Applications › Job description/);
+  const separators = plain.flatMap((line, index) => /^├/.test(line) ? [index] : []);
+  const destinationBar = plain.slice(separators[0] + 1, separators[1]).join(" ");
+  assert.match(destinationBar, /Applications/);
+  assert.match(destinationBar, /Resumes/);
+  assert.doesNotMatch(destinationBar, /Setup|Job description|Match|Analyze|Ask Pi|Workspace/);
+  assert.deepEqual(CAREER_UI_DESTINATIONS, ["applications", "library"]);
+
+  overlay.handleInput("esc");
+  assert.equal(overlay.currentView, "applications", "Esc returns a contextual direct route to its destination");
+  overlay.handleInput("8");
+  assert.equal(overlay.currentView, "applications", "numeric peer-tab routing stays disabled");
+  overlay.handleInput("\u001b[C");
+  assert.equal(overlay.currentView, "library");
+  overlay.handleInput("\u001b[D");
+  assert.equal(overlay.currentView, "applications");
+  overlay.handleInput("\t");
+  assert.equal(overlay.currentView, "library");
+  overlay.handleInput("h");
+  assert.match(overlay.render(60).map(stripTerminalSequences).join("\n"), /Only shown action keys can start work/);
+  overlay.handleInput("esc");
+  assert.equal(overlay.currentView, "library");
+  assert.equal(closes, 0);
+  assert.ok(renders.length >= 5);
+});
+
+test("height-bounded overlays preserve frame/footer and keep list selection and detail scrolling visible", () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const items = Array.from({ length: 30 }, (_, index) => ({
+    id: `app-${index + 1}`,
+    label: `Synthetic Application ${String(index + 1).padStart(2, "0")}`,
+    detail: Array.from({ length: 30 }, (_value, line) => `Detail line ${String(line + 1).padStart(2, "0")}`).join("\n"),
+  }));
+  const model = {
+    setup: pane("setup"), library: pane("resumes"), applications: pane("Synthetic applications", items),
+    vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("ask"), workspace: pane("workspace"),
+  };
+  const session = new CareerUiSession("applications", model);
+  const theme = { fg: (_name, text) => text, bold: (text) => text };
+  const overlay = new CareerOverlay(session, theme, {
+    matches: (data, action) => action === "tui.select.down" && data === "down" ||
+      action === "tui.select.confirm" && data === "enter",
+  }, () => {}, () => {}, () => 18);
+
+  let rendered = overlay.render(60).map(stripTerminalSequences);
+  assert.equal(rendered.length, 18);
+  assert.match(rendered[0], /^╭─+╮$/);
+  assert.match(rendered.at(-1), /^╰─+╯$/);
+  assert.match(rendered.join("\n"), /Synthetic Application 01/);
+  assert.match(rendered.join("\n"), /esc close/);
+
+  for (let index = 0; index < 25; index++) overlay.handleInput("down");
+  rendered = overlay.render(60).map(stripTerminalSequences);
+  assert.equal(rendered.length, 18);
+  assert.match(rendered.join("\n"), /▸ ·  Synthetic Application 26/,
+    "moving through a long catalog keeps the exact selected row visible");
+  assert.match(rendered.at(-1), /^╰─+╯$/);
+
+  overlay.handleInput("enter");
+  rendered = overlay.render(60).map(stripTerminalSequences);
+  assert.match(rendered.join("\n"), /Detail line 01/);
+  assert.doesNotMatch(rendered.join("\n"), /Detail line 30/);
+  for (let index = 0; index < 40; index++) overlay.handleInput("down");
+  rendered = overlay.render(60).map(stripTerminalSequences);
+  assert.equal(rendered.length, 18);
+  assert.match(rendered.join("\n"), /Detail line 30/);
+  assert.match(rendered.join("\n"), /↑↓ scroll · esc back/);
+  assert.match(rendered.at(-1), /^╰─+╯$/);
+
+  const short = new CareerOverlay(new CareerUiSession("applications", model), theme,
+    { matches: () => false }, () => {}, () => {}, () => 17);
+  const fallback = short.render(60).map(stripTerminalSequences).join("\n");
+  assert.match(fallback, /at least 18 available rows/);
+  assert.doesNotMatch(fallback, /Synthetic Application|Detail line|[╭╮│]/);
+});
+
+test("below 60 columns the bounded fallback blocks hidden navigation and actions until resize", async () => {
+  const pane = (intro, items = []) => ({ intro, items });
+  const model = {
+    setup: pane("setup"), library: pane("resumes"),
+    applications: pane("PRIVATE_FALLBACK_BODY", [
+      { id: "one", label: "PRIVATE_FALLBACK_LABEL", detail: "private detail" },
+      { id: "two", label: "Second", detail: "second detail" },
+    ]),
+    vacancy: pane("vacancy"), match: pane("match"), analyze: pane("analyze"),
+    workbench: pane("ask"), workspace: pane("workspace"),
+  };
+  let actionCalls = 0;
+  let closes = 0;
+  const session = new CareerUiSession("applications", model, {
+    createApplication: async () => { actionCalls++; return true; },
+  });
+  const overlay = new CareerOverlay(session, {
+    fg: (_name, text) => `\u001b[36m${text}\u001b[0m`, bold: (text) => `\u001b[1m${text}\u001b[22m`,
+  }, { matches: (data, action) => data === "esc" && action === "tui.select.cancel" }, () => {}, () => { closes++; });
+
+  for (const width of [1, 8, 32, 59]) {
+    const lines = overlay.render(width);
+    assert.ok(lines.every((line) => visibleWidth(line) <= width));
+    const plain = lines.map(stripTerminalSequences).join("\n");
+    assert.doesNotMatch(plain, /PRIVATE_FALLBACK|private detail|╭|╮|│/);
+  }
+  overlay.handleInput("down");
+  overlay.handleInput("enter");
+  overlay.handleInput("tab");
+  overlay.handleInput("h");
+  overlay.handleInput("c");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(session.cursor, 0);
+  assert.equal(session.showingDetail, false);
+  assert.equal(session.view, "applications");
+  assert.equal(actionCalls, 0);
+  assert.doesNotMatch(overlay.render(60).map(stripTerminalSequences).join("\n"), /Current route shortcuts/,
+    "hidden help key is ignored while the fallback owns input");
+
+  overlay.render(59);
+  overlay.handleInput("esc");
+  assert.equal(closes, 1, "Escape remains a safe close route in the fallback");
+});
+
+test("list labels wrap without losing Unicode warning/state text across framed widths and ANSI themes", () => {
   const label = "⚠️ Synthetic résumé notice — very-long-unbroken-警告-document-label — Recovery required";
   const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: name, items: [] }]));
   model.library = { intro: "Synthetic library warning state remains explicit", items: [{ id: "warning", label, detail: "Warning: synthetic recovery required." }] };
@@ -292,15 +495,16 @@ test("list labels wrap without losing Unicode warning/state text across widths a
   ];
   for (const theme of themes) {
     const overlay = new CareerOverlay(session, theme, { matches: () => false }, () => {}, () => {});
-    for (const width of [8, 16, 32, 48, 80, 120]) {
+    for (const width of [60, 80, 120]) {
       const lines = overlay.render(width);
-      assert.ok(lines.every((line) => visibleWidth(line) <= width), `overflow at ${width}`);
-      const plain = lines.join("").replace(/\u001b\[[0-9;]*m/g, "");
-      const compact = plain.replace(/\s+/g, "");
+      assert.ok(lines.every((line) => visibleWidth(line) === width), `framed overflow at ${width}`);
+      const plainLines = lines.map(stripTerminalSequences);
+      const content = plainLines.filter((line) => line.startsWith("│")).map((line) => line.slice(2, -2)).join("");
+      const compact = content.replace(/\s+/g, "");
       for (const part of ["⚠️", "Synthetic", "résumé", "警告", "Recovery", "required"]) {
         assert.ok(compact.includes(part.replace(/\s+/g, "")), `lost ${part} at ${width}`);
       }
-      assert.match(plain, /[▸>]/, "selection remains identifiable without color");
+      assert.match(content, /[▸>]/, "selection remains identifiable without color");
       assert.match(compact, /warningstateremainsexplicit/);
     }
   }
@@ -377,7 +581,8 @@ test("empty overlay panes direct setup/library to add-root and Applications to w
     const unbound = await buildCareerUiModel(agentDir, context.ctx);
     assert.match(unbound.setup.intro, /n to add a resume root/);
     assert.match(unbound.library.intro, /n to add a root/);
-    assert.match(unbound.applications.intro, /Workspace \(8\).*m to configure/);
+    assert.match(unbound.applications.intro, /Recommended next action: press m/);
+    assert.match(unbound.applications.intro, /Safe alternative: switch to Resumes/);
     assert.doesNotMatch(unbound.applications.intro, /press c to create/i);
 
     const library = path.join(temp, "library");
@@ -397,7 +602,7 @@ test("empty overlay panes direct setup/library to add-root and Applications to w
       created_at: "2026-08-01T00:00:00.000Z",
     });
     const configured = await buildCareerUiModel(agentDir, context.ctx);
-    assert.match(configured.applications.intro, /Press c to create/);
+    assert.match(configured.applications.intro, /press c to create/i);
     assert.match(configured.applications.intro, /does not attach/);
     assert.equal(configured.applications.items.length, 0);
     assert.equal(fake.entries.length, 0);
@@ -629,10 +834,17 @@ test("overlay lists let users move through applications and resumes without atta
     assert.match(overlay.currentItem.label, /Other Company|Synthetic Company/);
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
-    assert.match(overlay.render(80).join("\n"), /does not attach/);
+    let applicationDetail = overlay.render(80).join("\n");
+    for (let index = 0; index < 20 && !/Opening does not[\s\S]*attach/.test(applicationDetail); index++) {
+      overlay.handleInput("down");
+      applicationDetail = overlay.render(80).join("\n");
+    }
+    assert.match(applicationDetail, /Opening does not[\s\S]*attach/);
     overlay.handleInput("esc");
     assert.equal(overlay.showingDetail, false);
     overlay.handleInput("2");
+    assert.equal(overlay.currentView, "applications", "legacy numeric peer-tab switching is removed");
+    overlay.handleInput("\u001b[C");
     assert.equal(overlay.currentView, "library");
     overlay.handleInput("down");
     overlay.handleInput("enter");
@@ -722,6 +934,7 @@ test("overlay a attaches a selected application only after confirmation", async 
     assert.equal(fake.entries[0].customType, "career.application_attachment");
     assert.equal(fake.entries[0].data.kind, "application_attachment");
     assert.doesNotMatch(JSON.stringify(fake.entries[0].data), /Synthetic|applications/);
+    attachedComponents[0].handleInput("esc");
     attachedComponents[0].handleInput("esc");
     await pendingAttach;
     assert.equal(calls.length, 0);
@@ -864,7 +1077,8 @@ test("P3-46 one Applications view distinguishes a session-only application from 
     assert.match(rendered, /Current session · Not persisted.*Session Company/);
     assert.match(rendered, /Synthetic Company.*Synthetic Engineer.*Classification:/);
     assert.match(rendered, /Session Company.*Session Engineer.*Opening does not attach/);
-    const applicationDialogs = dialogs.filter(([title]) => title.startsWith("Career • Applications"));
+    const applicationDialogs = dialogs.filter(([title]) =>
+      title.startsWith("Career › Applications\n") && !title.includes("Current state · Detail"));
     assert.ok(applicationDialogs.length >= 2);
     assert.deepEqual(applicationDialogs[0].slice(1, 3), applicationDialogs.at(-1).slice(1, 3));
     assert.doesNotMatch(rendered, /applications[/\\]|alpha\.md|# Synthetic Alpha|\/synthetic\/session/);
@@ -965,8 +1179,9 @@ test("RPC hierarchical dialogs browse, switch views, and open detail without att
   const value = await catalogFixture("pi-career-ui-rpc-nav-");
   try {
     const before = value.fake.entries.length;
+    const selectCalls = [];
     const rpc = makeContext(value.fake, {
-      mode: "rpc", persisted: false,
+      mode: "rpc", persisted: false, selectCalls,
       selects: [
         "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3",
         CAREER_UI_RPC_ACTIONS.back,
@@ -976,6 +1191,10 @@ test("RPC hierarchical dialogs browse, switch views, and open detail without att
       ],
     });
     await value.fake.commands.get("career").handler("", rpc.ctx);
+    assert.match(selectCalls[1]?.title ?? "", /^Career › Applications\nCurrent state · Detail\n/,
+      "RPC detail retains the active application route breadcrumb");
+    assert.deepEqual(selectCalls.find((call) => call.title === CAREER_UI_RPC_ACTIONS.switchView)?.options,
+      [CAREER_UI_VIEW_LABELS.applications, CAREER_UI_VIEW_LABELS.library]);
     assert.equal(rpc.customCalls, 0);
     assert.equal(value.calls.length, 0);
     assert.equal(value.fake.entries.length, before);
@@ -1247,6 +1466,7 @@ test("overlay n adds a library root only after confirmation", async () => {
     for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
     assert.equal((await loadConfig(agentDir)).library_roots.length, 0);
     cancelled[0].handleInput("esc");
+    cancelled[0].handleInput("esc");
     await pendingCancel;
 
     const added = [];
@@ -1268,6 +1488,7 @@ test("overlay n adds a library root only after confirmation", async () => {
     assert.match(rendered, /\b1 root/);
     assert.equal((await loadConfig(agentDir)).library_roots.length, 1);
     assert.doesNotMatch(JSON.stringify(addCtx.notifications), /alpha\.md/);
+    added[0].handleInput("esc");
     added[0].handleInput("esc");
     await pendingAdd;
     assert.equal(calls.length, 0);
@@ -1323,7 +1544,7 @@ test("TUI overlay stays within width and keeps selected/attachable marks without
     const deadline = Date.now() + 2_000;
     while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     const overlay = components[0];
-    for (const width of [32, 48, 80]) {
+    for (const width of [60, 80]) {
       const lines = overlay.render(width);
       assert.ok(lines.every((line) => visibleWidth(line) <= width));
       const rendered = lines.join("\n");
@@ -1332,7 +1553,7 @@ test("TUI overlay stays within width and keeps selected/attachable marks without
       assert.doesNotMatch(rendered, /agent|applications[/\\]|resume\.md/);
     }
     const wide = overlay.render(120).join("\n");
-    assert.match(wide, /↑↓ move/);
+    assert.match(wide, /↑↓ select/);
     assert.match(wide, /enter open/);
     assert.match(wide, /esc close/);
     overlay.handleInput("down");
@@ -1456,7 +1677,8 @@ test("attached original and effective original need explicit RPC preview after a
       assert.equal(dialogs.length, 4);
       assert.ok(dialogs[1][0].includes(label));
       assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
-      assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), body);
+      assert.ok(dialogs[2][0].startsWith(`${viewTitle(CAREER_UI_COMMAND_VIEWS[command])}\nLocal document preview`));
+      assert.equal(dialogs[2][0].split("\n").slice(2).join("\n"), body);
       assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("Built reliable")));
       assert.equal(rpc.customCalls, 0);
       assert.deepEqual(rpc.notifications, []);
@@ -1498,7 +1720,8 @@ test("attached vacancy preview reads only the exact revalidated workspace text",
     assert.equal(dialogs.length, 4);
     assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
     assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("PRIVATE_VACANCY_BODY")));
-    assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), vacancyText);
+    assert.ok(dialogs[2][0].startsWith(`${viewTitle("vacancy")}\nLocal document preview`));
+    assert.equal(dialogs[2][0].split("\n").slice(2).join("\n"), vacancyText);
     assert.equal(value.calls.length, calls);
     assert.equal(JSON.stringify(value.fake.entries), beforeEntries);
     assert.deepEqual(rpc.notifications, []);
@@ -1811,7 +2034,7 @@ test("#108 unattached Ask Pi selects one original and prepares a visible prompt 
     context.ctx.sendMessage = (...args) => sends.push(args);
     context.ctx.sendUserMessage = (...args) => sends.push(args);
     context.ctx.ui.select = async (title, options) => {
-      if (title.startsWith("Career • Workbench")) return listStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+      if (title.startsWith("Career › Applications › Ask Pi")) return listStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
       if (title === "Choose an original resume") return options.find((option) => option.includes("alpha.md"));
       if (title === "Career workbench") return "Explain my score — resume only";
       return undefined;
@@ -1848,6 +2071,7 @@ test("#108 unattached Ask Pi selects one original and prepares a visible prompt 
     assert.match(tuiEditorText[0], /ALPHA_PRIVATE_BODY/);
     assert.doesNotMatch(tuiEditorText[0], /BETA_PRIVATE_BODY/);
     components[0].handleInput("esc");
+    components[0].handleInput("esc");
     await pendingTui;
     assert.deepEqual(fake.entries, before);
 
@@ -1865,7 +2089,7 @@ test("#108 unattached Ask Pi selects one original and prepares a visible prompt 
       attempt.ctx.sendMessage = () => assert.fail("Ask Pi must not submit");
       attempt.ctx.sendUserMessage = () => assert.fail("Ask Pi must not submit");
       attempt.ctx.ui.select = async (title, options) => {
-        if (title.startsWith("Career • Workbench")) return viewStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
+        if (title.startsWith("Career › Applications › Ask Pi")) return viewStep++ === 0 ? CAREER_UI_RPC_ACTIONS.askPi : CAREER_UI_RPC_ACTIONS.close;
         if (title === "Choose an original resume") return stage === "picker" ? undefined : options.find((option) => option.includes("alpha.md"));
         if (title === "Career workbench") return stage === "mode" ? "Cancel" : "Explain my score — resume only";
         return undefined;

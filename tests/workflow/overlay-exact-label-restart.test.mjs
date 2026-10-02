@@ -60,7 +60,7 @@ const UPDATED_AT = new Map([
 ]);
 
 function detail(id, company, role) {
-  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${UPDATED_AT.get(id)}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${UPDATED_AT.get(id)}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
 }
 
 function containsExact(text, value) {
@@ -225,10 +225,11 @@ async function exerciseRpc(agentDir, temp) {
   };
   await registration.fake.commands.get("career").handler("", context.ctx);
   assert.deepEqual(choices, []);
-  const lists = dialogs.filter((dialog) => dialog.title.startsWith("Career • Applications\n"));
-  const details = dialogs.filter((dialog) => !dialog.title.startsWith("Career • Applications\n"));
+  const details = dialogs.filter((dialog) => dialog.title.startsWith("Career › Applications\nCurrent state · Detail\n"));
+  const lists = dialogs.filter((dialog) => !dialog.title.includes("\nCurrent state · Detail\n"));
   assert.equal(lists.length, 4);
-  assert.deepEqual(details.map((dialog) => dialog.title), EXPECTED.map(([id, company, role]) => detail(id, company, role)));
+  assert.deepEqual(details.map((dialog) => dialog.title.split("\n").slice(2).join("\n")),
+    EXPECTED.map(([id, company, role]) => detail(id, company, role)));
   for (const dialog of lists) {
     assert.deepEqual(dialog.options.slice(0, 3), EXPECTED.map(([, company, role]) => rowLabel(company, role)));
   }
@@ -279,8 +280,10 @@ async function exerciseTui(agentDir, temp) {
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
     const opened = capture();
+    const inner = opened.split("\n").filter((line) => line.startsWith("│"))
+      .map((line) => line.slice(2, -2).trimEnd()).join("\n");
     assert.equal(containsExact(opened, rowLabel(company, role)), true);
-    assert.equal(containsExact(opened, detail(id, company, role)), true);
+    assert.equal(containsExact(inner, detail(id, company, role)), true);
     overlay.handleInput("esc");
     assert.equal(overlay.showingDetail, false);
     overlay.handleInput("down");

@@ -438,8 +438,6 @@ test("P3-30 live transient process loses the in-memory attachment after shutdown
   assert.equal(inactiveTools.some((request) => request.message === "Career tools inactive."), true);
 
   const activationUi = await live.prompt("/career", [
-    { method: "select", value: "Switch view" },
-    { method: "select", value: "Workbench" },
     { method: "select", value: "Ask Pi" },
     { method: "confirm", confirmed: true },
   ]);
@@ -505,7 +503,7 @@ test("P3-58 native TUI reload reconstructs the active surface, then a fresh tran
   const before = await approvedSnapshot(item);
   const live = new TuiProcess(item).start();
   t.after(() => { if (live.child?.exitCode === null) live.child.kill("SIGKILL"); });
-  await live.keys(["/career-application", 2_000], ["\r", 500], ["\r", 500], ["a", 500], ["\r", 700], ["\x1b", 500], ["\x1b", 500], ["/career-workbench", 700], ["\r", 400], ["p", 1_000], ["\r", 1_000], ["\x1b", 700], ["\x1b", 700], ["\x1b", 700], ["\x15", 300], ["/reload", 500], ["\r", 1_200]);
+  await live.keys(["/career-application", 2_000], ["\r", 500], ["\r", 500], ["a", 500], ["\r", 900], ["p", 1_000], ["\r", 1_000], ["\x1b", 700], ["\x1b", 700], ["\x15", 300], ["/reload", 500], ["\r", 1_200]);
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   const facts = await observerFacts(item);
   const reloadShutdowns = facts.filter((fact) => fact.event.type === "session_shutdown" && fact.event.reason === "reload");

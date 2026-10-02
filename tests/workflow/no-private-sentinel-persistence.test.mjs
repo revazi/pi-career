@@ -395,12 +395,15 @@ test("P3-33 registered create, migrate, list, and readiness derivation leave in-
     assert.deepEqual(await residueNames(value.temp), []);
     await deriveWhileSentinelsAreLive(value);
     const listed = bind(value, {
-      selects: [LEGACY_LABEL, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.switchView, "Analyze", CAREER_UI_RPC_ACTIONS.close],
+      selects: [LEGACY_LABEL, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.close],
     });
     await value.fake.commands.get("career").handler("", listed.context.ctx);
-    const analyze = listed.dialogs.find((dialog) => dialog.select?.startsWith("Career • Analyze"));
+    const analyzed = bind(value, { selects: [CAREER_UI_RPC_ACTIONS.close] });
+    await value.fake.commands.get("career-analyze").handler("", analyzed.context.ctx);
+    const analyze = analyzed.dialogs.find((dialog) => dialog.select?.startsWith("Career › Applications › Analyze"));
     assert.ok(analyze.options.some((option) => option.includes(SENTINELS.coreResult)));
-    assertLocalSurface(listed.dialogs, listed.context.notifications, [SENTINELS.coreResult]);
+    assertLocalSurface([...listed.dialogs, ...analyzed.dialogs],
+      [...listed.context.notifications, ...analyzed.context.notifications], [SENTINELS.coreResult]);
     const overlay = await readOverlayApplications(value.agentDir, value.readinessEvidence.library_scan);
     assert.equal(overlay.length, 1);
     assert.equal(overlay[0].readiness, "Incomplete 0/3");
@@ -597,11 +600,9 @@ test("P3-33 registered create, migrate, list, and readiness derivation leave in-
     assert.deepEqual(createdTree["package-cache"], baseline["package-cache"]);
     assertMemoryLive(value);
 
-    const hidden = bind(value, {
-      selects: [CAREER_UI_RPC_ACTIONS.switchView, "Analyze", CAREER_UI_RPC_ACTIONS.close],
-    });
-    await value.fake.commands.get("career").handler("", hidden.context.ctx);
-    const hiddenAnalyze = hidden.dialogs.find((dialog) => dialog.select?.startsWith("Career • Analyze"));
+    const hidden = bind(value, { selects: [CAREER_UI_RPC_ACTIONS.close] });
+    await value.fake.commands.get("career-analyze").handler("", hidden.context.ctx);
+    const hiddenAnalyze = hidden.dialogs.find((dialog) => dialog.select?.startsWith("Career › Applications › Analyze"));
     assert.equal(hiddenAnalyze.options.some((option) => option.includes(SENTINELS.coreResult)), false);
     assertLocalSurface(hidden.dialogs, hidden.context.notifications);
     assert.deepEqual(await snapshot(value.temp), createdTree);
@@ -623,7 +624,7 @@ test("P3-33 registered create, migrate, list, and readiness derivation leave in-
     let openedRestartDetail = false;
     restartContext.ctx.ui.select = async (title, options) => {
       restartDialogs.push({ select: title, options: [...options] });
-      if (!openedRestartDetail && title.startsWith("Career • Applications") && options.includes(MIGRATED_LABEL)) {
+      if (!openedRestartDetail && title.startsWith("Career › Applications") && options.includes(MIGRATED_LABEL)) {
         openedRestartDetail = true;
         return MIGRATED_LABEL;
       }

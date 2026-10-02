@@ -16,7 +16,7 @@ import {
   validateApplicationAttachment,
 } from "../../src/workflow/application-workspace.ts";
 import { registerCareerCommands } from "../../src/workflow/commands.ts";
-import { CAREER_UI_RPC_ACTIONS, CareerUiSession, buildCareerUiModel, careerPreviewLoader } from "../../src/workflow/career-ui.ts";
+import { CAREER_UI_RPC_ACTIONS, CareerUiSession, buildCareerUiModel, careerPreviewLoader, viewTitle } from "../../src/workflow/career-ui.ts";
 import { loadConfig } from "../../src/workflow/config.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
 import {
@@ -262,7 +262,8 @@ test("tailored effective Resume previews as assisted only and drift fails closed
     assert.ok(dialogs[1][0].includes(`Selected original source: ${value.original.label}`));
     assert.ok(dialogs[1][1].includes(CAREER_UI_RPC_ACTIONS.preview));
     assert.ok(dialogs.filter((_, index) => index !== 2).every((dialog) => !JSON.stringify(dialog).includes("Built tailored APIs")));
-    assert.equal(dialogs[2][0].split("\n").slice(1).join("\n"), TAILORED_TEXT);
+    assert.ok(dialogs[2][0].startsWith(`${viewTitle("match")}\nLocal document preview`));
+    assert.equal(dialogs[2][0].split("\n").slice(2).join("\n"), TAILORED_TEXT);
     const original = makeContext(fake, { mode: "rpc", persisted: false });
     const originalDialogs = [];
     const originalChoices = [null, CAREER_UI_RPC_ACTIONS.preview, CAREER_UI_RPC_ACTIONS.close];
@@ -272,7 +273,8 @@ test("tailored effective Resume previews as assisted only and drift fails closed
       return next === null ? options.find((option) => option.includes(value.original.label)) : next;
     };
     await fake.commands.get("career-analyze").handler("", original.ctx);
-    assert.equal(originalDialogs[2][0].split("\n").slice(1).join("\n"), ORIGINAL_TEXT);
+    assert.ok(originalDialogs[2][0].startsWith(`${viewTitle("analyze")}\nLocal document preview`));
+    assert.equal(originalDialogs[2][0].split("\n").slice(2).join("\n"), ORIGINAL_TEXT);
     const library = makeContext(fake, { mode: "rpc", persisted: false });
     const rows = [];
     library.ctx.ui.select = async (title, options) => { rows.push([title, options]); return CAREER_UI_RPC_ACTIONS.close; };
@@ -712,6 +714,7 @@ test("P3-48 linked assisted artifact stays out of Analyze/Match original authori
     while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(components.length, 1);
     assert.doesNotMatch(components[0].render(80).join("\n"), /linked\.md|Synthetic Tailored|resume\.md/);
+    components[0].handleInput("esc");
     components[0].handleInput("esc");
     await pending;
 

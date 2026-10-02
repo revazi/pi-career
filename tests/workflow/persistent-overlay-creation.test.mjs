@@ -266,7 +266,7 @@ test("S1-06/P3-16 configured-root Applications create commits canonical sequence
     assert.deepEqual(preview.replaces, []);
     assert.equal(created.dialogs.some((dialog) => dialog.confirm === "Create application"), false);
     assert.equal(created.dialogs.some((dialog) => dialog.confirm === "Apply application workspace mutation?"), true);
-    const listed = created.dialogs.filter((dialog) => dialog.select?.startsWith("Career • Applications"));
+    const listed = created.dialogs.filter((dialog) => dialog.select?.startsWith("Career › Applications"));
     assert.ok(listed.at(-1).options.includes(ROW_LABEL));
     assert.equal(listed.at(-1).options.some((option) => option.includes("Not persisted")), false);
 

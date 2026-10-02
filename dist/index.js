@@ -7316,24 +7316,15 @@ import {
 
 // src/workflow/career-ui.ts
 import { Key as Key2, matchesKey as matchesKey2, truncateToWidth as truncateToWidth2, visibleWidth, wrapTextWithAnsi as wrapTextWithAnsi2 } from "@earendil-works/pi-tui";
-var CAREER_UI_VIEWS = [
-  "setup",
-  "library",
-  "applications",
-  "vacancy",
-  "match",
-  "analyze",
-  "workbench",
-  "workspace"
-];
+var CAREER_UI_DESTINATIONS = ["applications", "library"];
 var CAREER_UI_VIEW_LABELS = {
   setup: "Setup",
-  library: "Library",
+  library: "Resumes",
   applications: "Applications",
   vacancy: "Job description",
   match: "Match",
   analyze: "Analyze",
-  workbench: "Workbench",
+  workbench: "Ask Pi",
   workspace: "Workspace"
 }, VIEW_MARKS = {
   setup: "◆",
@@ -7392,7 +7383,7 @@ Job description: ${vacancy ? "Ready" : "Incomplete"}
 Selected original: ${original ? "Ready" : "Incomplete"}`;
 }
 function applicationNextAction(components, analyzed, matched) {
-  return components.job_description !== "Available" ? "Next action: add or refresh the job description (e)." : components.resume === "Missing" ? "Next action: select an eligible Original (o), or inspect the library (2)." : components.resume !== "Available" ? "Next action: review the selected Resume source in the library (2) and application workspace (m)." : analyzed ? matched ? components.cover_letter !== "Available" ? "Next action: review the application workspace (m) to refresh or add the user-authored cover letter; tailored Resume materialization is optional." : "Next action: review the complete package in Applications; Ready is derived, not a status." : "Next action: analyze match for the effective Resume (g)." : "Next action: analyze the selected Original (g).";
+  return components.job_description !== "Available" ? "Next action: add or refresh the job description (e)." : components.resume === "Missing" ? "Next action: select an eligible Original (o), or inspect Resumes." : components.resume !== "Available" ? "Next action: review the selected source in Resumes and the application workspace (m)." : analyzed ? matched ? components.cover_letter !== "Available" ? "Next action: review the application workspace (m) to refresh or add the user-authored cover letter; tailored Resume materialization is optional." : "Next action: review the complete package in Applications; Ready is derived, not a status." : "Next action: analyze match for the effective Resume (t)." : "Next action: analyze the selected Original (g).";
 }
 function applicationPackageChecklist(components, effectiveResume) {
   let effective = effectiveResume === null ? "none" : effectiveResume === "original" ? "Original" : "Assisted variant (non-authoritative)";
@@ -7466,8 +7457,12 @@ function emptyCursors() {
     workspace: 0
   };
 }
+function careerUiDestination(view) {
+  return view === "setup" || view === "library" ? "library" : "applications";
+}
 function viewTitle(view) {
-  return `Career • ${CAREER_UI_VIEW_LABELS[view]}`;
+  let destination = careerUiDestination(view);
+  return `Career › ${view === destination ? CAREER_UI_VIEW_LABELS[destination] : `${CAREER_UI_VIEW_LABELS[destination]} › ${CAREER_UI_VIEW_LABELS[view]}`}`;
 }
 var LIBRARY_NOTICE_LABELS = {
   root_stale: "root unavailable or changed",
@@ -7533,12 +7528,12 @@ async function buildCareerUiModel(agentDir, ctx) {
   let persisted3 = ctx.sessionManager.getSessionFile() !== void 0, branch = ctx.sessionManager.getBranch(), state = reconstructWorkflowState(branch), attachedApplicationId = replayApplicationSessionRecords(branch, ctx.sessionManager.getEntries()).attachment?.application_id, visibleResultCards = attachedApplicationId === void 0 ? state.result_cards : workflowResultCards(branch).filter((card) => card.application_id === attachedApplicationId), empty = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
-    applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
-    vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
-    match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
-    analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
-    workbench: { intro: "Press p to prepare Ask Pi. Nothing is submitted from this view.", items: [] },
-    workspace: { intro: "Press m to manage the application workspace. Opening this view does not mutate files.", items: [] }
+    applications: { intro: "No application workspace is configured. Recommended next action: press m to set one up. Safe alternative: switch to Resumes; browsing stays local and makes no changes.", items: [] },
+    vacancy: { intro: "No application is attached. Recommended next action: return to Applications and attach one. Safe alternative: review Resumes; no job description is changed by browsing.", items: [] },
+    match: { intro: "No application is attached. Recommended next action: return to Applications and attach one. Safe alternative: use the direct route only after reviewing its prerequisites.", items: [] },
+    analyze: { intro: "No application is attached. Recommended next action: choose an available Original in Resumes. Safe alternative: return to Applications; Analyze never runs while browsing.", items: [] },
+    workbench: { intro: "Recommended next action: attach an application, then press p to prepare Ask Pi. Safe alternative: return to Applications. Nothing is submitted from this route.", items: [] },
+    workspace: { intro: "Recommended next action: press m to manage the application workspace. Safe alternative: return to Applications. Opening this route does not mutate files.", items: [] }
   };
   try {
     let config = await loadConfig(agentDir), scan = await scanLibrary(config);
@@ -7555,19 +7550,21 @@ Indexed resumes stay local. Opening a root does not call Core.`
     }, empty.library = buildCareerLibraryPane(scan, visibleResultCards), config.application_workspace !== null) {
       let catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
-        intro: catalog.length === 0 ? "No applications yet. Press c to create one. Next action: create an application; creating does not attach." : `Browse applications without attaching. ${catalog.find((application) => application.application_id === attachedApplicationId) === void 0 ? "Next action: open an application and attach it (a) to continue." : "Next action: open package review (Enter) to inspect current source bindings and component state."} Enter opens local package review. a attaches, c creates, s updates status, d detaches.`,
+        intro: catalog.length === 0 ? "No applications yet. Recommended next action: press c to create one; creating does not attach. Safe alternative: manage workspace setup (m) or switch to Resumes." : `Browse applications without attaching. ${catalog.find((application) => application.application_id === attachedApplicationId) === void 0 ? "Next action: open an application and attach it (a) to continue." : "Next action: open package review (Enter) to inspect current source bindings and component state."} Enter opens local package review. a attaches, c creates, s updates status, d detaches.`,
         items: catalog.map((application) => {
           let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, matchState = visibleResultCards.some((card) => card.workflow === "match" && card.application_id === application.application_id) ? "Reviewed in this session" : "Not analyzed in this session", detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}
 Classification: ${application.classification}
-Opening does not attach this application.` : `${application.company_label} — ${application.role_label}
+Recommended next action: finish identity migration (i).
+Safe alternative: review only or return to Applications. Opening does not attach.` : `${application.company_label} — ${application.role_label}
 Status: ${status}
 Readiness: ${application.readiness}
 ${applicationPackageChecklist(application.components, application.effective_resume)}
 Match: ${matchState}
 Last updated: ${application.updated_at}
 Classification: ${application.classification}
-Opening does not attach. Press a to attach this application without activating assistance.`, row = item(application.application_id, label, detail, application.pointer);
+Recommended next action: attach this application (a) to use package actions.
+Safe alternatives: review only or return to Applications. Opening does not attach.`, row = item(application.application_id, label, detail, application.pointer);
           return row.applicationStatus = application.status, application.classification === "legacy" && (row.legacyMigration = !0), row;
         })
       };
@@ -7596,7 +7593,11 @@ Attached to this Pi session. Lifecycle and package actions apply only to this ex
         resultEvidence.analyzed,
         resultEvidence.matched
       );
-      empty.library.canSelectOriginal = attached.can_select_original, empty.vacancy = {
+      empty.library.canSelectOriginal = attached.can_select_original, empty.applications.canSelectOriginal = attached.can_select_original;
+      let attachedApplicationRow = empty.applications.items.find((entry) => entry.attachedApplication === !0);
+      attachedApplicationRow !== void 0 && (attachedApplicationRow.detail = attachedApplicationRow.detail.replace(/\nRecommended next action: attach this application \(a\) to use package actions\.\nSafe alternatives: review only or return to Applications\./, "") + `
+${nextAction}
+Safe alternatives: update status (s), manage workspace (m), Ask Pi (p), detach (d), or return to Applications.`), empty.vacancy = {
         intro: `${heading}
 ${pack}
 ${nextAction}`,
@@ -7670,7 +7671,9 @@ Opening this view does not mutate files or attach another application.`)]
       `Current session · Not persisted — ${application.company_label} — ${application.role_label} — ${application.status}`,
       `${application.company_label} — ${application.role_label}
 Status: ${application.status}
-Current session · Not persisted. Opening does not attach this application.`
+Current session · Not persisted.
+Recommended next action: manage the application workspace (m).
+Safe alternatives: update status (s) or return to Applications. Opening does not attach.`
     );
     sessionRow.applicationStatus = application.status, sessionRow.canUpdateApplication = !0, empty.applications.items.length === 0 && (empty.applications.intro = "Session application is not in the workspace catalog. Press m on Workspace to persist it. Opening does not attach."), empty.applications.items = [sessionRow, ...empty.applications.items];
   }
@@ -7728,6 +7731,12 @@ var CareerUiSession = class {
   get view() {
     return this.current;
   }
+  get destination() {
+    return careerUiDestination(this.current);
+  }
+  get canGoBack() {
+    return this.detail || this.previewBody !== void 0 || this.current !== this.destination;
+  }
   get showingDetail() {
     return this.detail;
   }
@@ -7775,13 +7784,13 @@ var CareerUiSession = class {
     return this.lifecycleFilter;
   }
   get canFilterApplications() {
-    return this.current === "applications" && this.actions.filterApplications !== void 0 && !this.busyFlag;
+    return this.current === "applications" && !this.detail && this.actions.filterApplications !== void 0 && !this.busyFlag;
   }
   get canFilterApplicationLifecycle() {
-    return this.current === "applications" && this.actions.filterApplicationLifecycle !== void 0 && !this.busyFlag;
+    return this.current === "applications" && !this.detail && this.actions.filterApplicationLifecycle !== void 0 && !this.busyFlag;
   }
   get canClearApplicationFilter() {
-    return this.current === "applications" && (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
+    return this.current === "applications" && !this.detail && (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
   }
   applyApplicationFilter() {
     if (this.current !== "applications") return;
@@ -7812,27 +7821,30 @@ var CareerUiSession = class {
     return (this.current === "setup" || this.current === "library") && this.actions.rescan !== void 0 && !this.busyFlag;
   }
   get canCreate() {
-    return this.current === "applications" && this.actions.createApplication !== void 0 && !this.busyFlag;
+    return this.current === "applications" && !this.detail && this.actions.createApplication !== void 0 && !this.busyFlag;
+  }
+  get attachedApplicationDetail() {
+    return this.current === "applications" && this.detail && this.selected?.attachedApplication === !0;
   }
   get canAnalyze() {
     let libraryOriginal = this.current === "library" && this.selected?.preview?.source === "library";
-    return (this.current === "analyze" || libraryOriginal) && this.actions.analyze !== void 0 && !this.busyFlag;
+    return (this.current === "analyze" || libraryOriginal || this.attachedApplicationDetail) && this.actions.analyze !== void 0 && !this.busyFlag;
   }
   get canMatch() {
-    return this.current === "match" && this.actions.match !== void 0 && !this.busyFlag;
+    return (this.current === "match" || this.attachedApplicationDetail) && this.actions.match !== void 0 && !this.busyFlag;
   }
   get canEditVacancy() {
-    return this.current === "vacancy" && this.actions.editVacancy !== void 0 && !this.busyFlag;
+    return (this.current === "vacancy" || this.attachedApplicationDetail) && this.actions.editVacancy !== void 0 && !this.busyFlag;
   }
   get canUpdateStatus() {
     return this.current === "applications" && this.selected?.canUpdateApplication === !0 && this.actions.updateStatus !== void 0 && !this.busyFlag;
   }
   get canWorkspace() {
-    let applicationDetail = this.current === "applications" && this.detail && this.selected?.attachedApplication === !0;
-    return (this.current === "workspace" || applicationDetail) && this.actions.workspace !== void 0 && !this.busyFlag;
+    let applicationContext = this.current === "applications" && (this.pane.items.length === 0 || this.detail && this.selected?.canUpdateApplication === !0);
+    return (this.current === "workspace" || applicationContext) && this.actions.workspace !== void 0 && !this.busyFlag;
   }
   get canAskPi() {
-    return this.current === "workbench" && this.actions.askPi !== void 0 && !this.busyFlag;
+    return (this.current === "workbench" || this.attachedApplicationDetail) && this.actions.askPi !== void 0 && !this.busyFlag;
   }
   get canDetach() {
     return this.current === "applications" && this.selected?.attachedApplication === !0 && this.actions.detach !== void 0 && !this.busyFlag;
@@ -7841,7 +7853,7 @@ var CareerUiSession = class {
     return this.current === "vacancy" && this.actions.clearVacancy !== void 0 && !this.busyFlag;
   }
   get canSelectOriginal() {
-    return this.pane.canSelectOriginal === !0 && this.actions.selectOriginal !== void 0 && !this.busyFlag;
+    return (this.current !== "applications" || this.attachedApplicationDetail) && this.pane.canSelectOriginal === !0 && this.actions.selectOriginal !== void 0 && !this.busyFlag;
   }
   actionEntries() {
     return [
@@ -7872,6 +7884,11 @@ var CareerUiSession = class {
   switchView(view) {
     this.busyFlag || (this.current = view, this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview());
   }
+  switchDestination(delta) {
+    if (this.busyFlag) return;
+    let index = CAREER_UI_DESTINATIONS.indexOf(this.destination), next = CAREER_UI_DESTINATIONS[(index + delta + CAREER_UI_DESTINATIONS.length) % CAREER_UI_DESTINATIONS.length];
+    next !== void 0 && this.switchView(next);
+  }
   move(delta) {
     let items = this.pane.items;
     items.length !== 0 && (this.cursors[this.current] = (this.cursor + delta + items.length) % items.length);
@@ -7888,7 +7905,7 @@ var CareerUiSession = class {
     return index < 0 ? !1 : (this.cursors[this.current] = index, this.open());
   }
   back() {
-    return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview(), "list") : "close";
+    return this.previewBody !== void 0 ? (this.cancelPreview(), "list") : this.detail ? (this.detail = !1, this.detailApplicationId = void 0, this.cancelPreview(), "list") : this.current !== this.destination ? (this.switchView(this.destination), "list") : "close";
   }
   async runBound(enabled, operation, activity) {
     if (!enabled || this.busyFlag) return !1;
@@ -7939,7 +7956,13 @@ var CareerUiSession = class {
   }
   async attach() {
     let pointer = this.selected?.pointer, action = this.actions.attach;
-    return pointer === void 0 || action === void 0 ? !1 : this.runBound(!0, () => action(pointer));
+    if (pointer === void 0 || action === void 0) return !1;
+    let attached = await this.runBound(!0, () => action(pointer));
+    if (attached) {
+      let index = this.model.applications.items.findIndex((entry) => entry.attachedApplication === !0);
+      index >= 0 && (this.current = "applications", this.cursors.applications = index, this.detail = !0, this.detailApplicationId = this.model.applications.items[index]?.id);
+    }
+    return attached;
   }
   async migrate() {
     let action = this.actions.migrate, applicationId = this.selected?.id;
@@ -8015,7 +8038,7 @@ function uniqueItemOptions(items) {
   return options;
 }
 async function switchViewRpc(ctx, session) {
-  let labels = CAREER_UI_VIEWS.map((view2) => CAREER_UI_VIEW_LABELS[view2]), chosen = await ctx.ui.select(CAREER_UI_RPC_ACTIONS.switchView, labels), index = chosen === void 0 ? -1 : labels.indexOf(chosen), view = index < 0 ? void 0 : CAREER_UI_VIEWS[index];
+  let labels = CAREER_UI_DESTINATIONS.map((view2) => CAREER_UI_VIEW_LABELS[view2]), chosen = await ctx.ui.select(CAREER_UI_RPC_ACTIONS.switchView, labels), index = chosen === void 0 ? -1 : labels.indexOf(chosen), view = index < 0 ? void 0 : CAREER_UI_DESTINATIONS[index];
   view !== void 0 && session.switchView(view);
 }
 async function rpcListStep(ctx, session) {
@@ -8023,12 +8046,15 @@ async function rpcListStep(ctx, session) {
 ${session.pane.intro}`, [
     ...options.keys(),
     ...session.rpcActions(),
+    ...session.canGoBack ? [CAREER_UI_RPC_ACTIONS.back] : [],
     CAREER_UI_RPC_ACTIONS.switchView,
     CAREER_UI_RPC_ACTIONS.close
   ]);
   if (choice === void 0 || choice === CAREER_UI_RPC_ACTIONS.close)
     return session.cancelPreview(), !1;
-  if (choice === CAREER_UI_RPC_ACTIONS.switchView)
+  if (choice === CAREER_UI_RPC_ACTIONS.back)
+    session.back();
+  else if (choice === CAREER_UI_RPC_ACTIONS.switchView)
     await switchViewRpc(ctx, session);
   else if (session.rpcActions().includes(choice))
     await session.runRpcAction(choice);
@@ -8040,9 +8066,12 @@ ${session.pane.intro}`, [
   return !0;
 }
 function rpcDetailTitle(session) {
-  let preview = session.preview;
-  return preview !== void 0 ? `Local document preview (exact text; close with Back)
-${preview}` : `${session.selected?.detail ?? session.pane.intro}${session.previewError === void 0 ? "" : `
+  let route2 = viewTitle(session.view), preview = session.preview;
+  return preview !== void 0 ? `${route2}
+Local document preview (exact text; close with Back)
+${preview}` : `${route2}
+Current state · Detail
+${session.selected?.detail ?? session.pane.intro}${session.previewError === void 0 ? "" : `
 ${session.previewError}`}`;
 }
 async function rpcDetailStep(ctx, session) {
@@ -8057,9 +8086,6 @@ async function rpcDetailStep(ctx, session) {
 async function runCareerUiRpc(ctx, session) {
   for (; await (session.showingDetail ? rpcDetailStep(ctx, session) : rpcListStep(ctx, session)); )
     ;
-}
-function rule(theme, width) {
-  return theme.fg("border", "─".repeat(Math.max(1, width)));
 }
 function styledLines(text, width, style) {
   return text.length === 0 ? [] : wrapTextWithAnsi2(style(text), Math.max(1, width)).map((line) => truncateToWidth2(line, width));
@@ -8088,20 +8114,60 @@ function packChips(chips, width) {
 function itemMark(view, entry) {
   return entry.pointer !== void 0 ? "◎" : view === "library" ? "▤" : view === "setup" ? "◆" : "·";
 }
+var MIN_FRAME_WIDTH = 60, MIN_FRAME_HEIGHT = 18, FRAME_PADDING = 1;
+function frameBorder(theme, width, left, right) {
+  return theme.fg("border", `${left}${"─".repeat(Math.max(0, width - 2))}${right}`);
+}
+function frameLine(theme, width, content) {
+  let contentWidth = Math.max(0, width - 2 - FRAME_PADDING * 2), clipped = truncateToWidth2(content, contentWidth), fill = " ".repeat(Math.max(0, contentWidth - visibleWidth(clipped))), side = (value) => theme.fg("border", value);
+  return `${side("│")}${" ".repeat(FRAME_PADDING)}${clipped}${fill}${" ".repeat(FRAME_PADDING)}${side("│")}`;
+}
+function detailLines(selected, width, theme) {
+  let lines = selected.detail.split(`
+`);
+  return lines[0] !== void 0 && selected.label.startsWith(lines[0]) && lines.shift(), lines.flatMap((line) => line.length === 0 ? [""] : /^(?:Recommended n|N)ext action:/u.test(line) ? ["", ...styledLines(line, width, (text) => theme.bold(theme.fg("accent", text)))] : /^(?:Safe alternatives|Opening does not attach|Current session)/u.test(line) ? styledLines(line, width, (text) => theme.fg("muted", text)) : /^(?:Package checklist|Documents|Match)$/u.test(line) ? ["", ...styledLines(line, width, (text) => theme.bold(theme.fg("text", text)))] : styledLines(line, width, (text) => theme.fg("text", text)));
+}
+function listBodyLines(pane, view, cursor, operationLabel, width, theme) {
+  let lines = [
+    ...styledLines("Current state", width, (text) => theme.bold(theme.fg("muted", text))),
+    ...operationLabel === void 0 ? [] : styledLines(operationLabel, width, (text) => theme.fg("accent", text)),
+    "",
+    ...pane.intro.split(`
+`).flatMap((line) => line.length === 0 ? [""] : styledLines(line, width, (text) => theme.fg("muted", text))),
+    ""
+  ], focusLine = lines.length;
+  if (pane.items.length === 0)
+    return lines.push(...styledLines("·  nothing here yet", width, (text) => theme.fg("dim", text))), { lines, focusLine };
+  for (let [index, entry] of pane.items.entries()) {
+    let selectedRow = index === cursor;
+    selectedRow && (focusLine = lines.length);
+    let fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `, prefix = width >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ", available = Math.max(1, width - visibleWidth(prefix)), labelLines = styledLines(entry.label, available, (text) => selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text));
+    lines.push(...labelLines.map((label, lineIndex) => truncateToWidth2(
+      `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), width))}${label}`,
+      width
+    )));
+  }
+  return { lines, focusLine };
+}
 var CareerOverlay = class {
-  constructor(session, theme, keybindings, requestRender, close) {
+  constructor(session, theme, keybindings, requestRender, close, maximumHeight = () => Number.MAX_SAFE_INTEGER) {
     this.session = session;
     this.theme = theme;
     this.keybindings = keybindings;
     this.requestRender = requestRender;
     this.close = close;
+    this.maximumHeight = maximumHeight;
   }
   session;
   theme;
   keybindings;
   requestRender;
   close;
+  maximumHeight;
   previewPage = 0;
+  contentOffset = 0;
+  helpVisible = !1;
+  fallbackActive = !1;
   get currentView() {
     return this.session.view;
   }
@@ -8138,7 +8204,8 @@ var CareerOverlay = class {
       ["r", this.session.canRescan, () => this.session.rescan()],
       ["c", this.session.canCreate, () => this.session.createApplication()],
       ["g", this.session.canAnalyze, () => this.session.analyze()],
-      ["g", this.session.canMatch, () => this.session.match()],
+      ["g", this.session.canMatch && !this.session.canAnalyze, () => this.session.match()],
+      ["t", this.session.canMatch, () => this.session.match()],
       ["e", this.session.canEditVacancy, () => this.session.editVacancy()],
       ["s", this.session.canUpdateStatus, () => this.session.updateStatus()],
       ["m", this.session.canWorkspace, () => this.session.workspace()],
@@ -8149,12 +8216,16 @@ var CareerOverlay = class {
     ].find(([name, enabled]) => name === key && enabled)?.[2]();
   }
   handleCancel() {
+    if (this.helpVisible) {
+      this.helpVisible = !1, this.contentOffset = 0, this.requestRender();
+      return;
+    }
     if (this.session.operationActive) {
       this.session.cancelOperation(), this.requestRender();
       return;
     }
-    if (this.session.showingDetail && !this.session.busy) {
-      this.session.back(), this.previewPage = 0, this.requestRender();
+    if (!this.session.busy && this.session.back() === "list") {
+      this.previewPage = 0, this.contentOffset = 0, this.requestRender();
       return;
     }
     this.session.cancelPreview(), this.close();
@@ -8170,10 +8241,15 @@ var CareerOverlay = class {
       this.session.move(delta), this.requestRender();
       return;
     }
-    (this.keybindings.matches(data, "tui.select.confirm") || matchesKey2(data, Key2.return) || matchesKey2(data, Key2.enter)) && this.session.open() && this.requestRender();
+    (this.keybindings.matches(data, "tui.select.confirm") || matchesKey2(data, Key2.return) || matchesKey2(data, Key2.enter)) && this.session.open() && (this.contentOffset = 0, this.requestRender());
   }
   handleInput(data) {
-    if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape)) {
+    let cancel = this.keybindings.matches(data, "tui.select.cancel") || matchesKey2(data, Key2.escape);
+    if (this.fallbackActive) {
+      cancel && this.handleCancel();
+      return;
+    }
+    if (cancel) {
       this.handleCancel();
       return;
     }
@@ -8182,82 +8258,136 @@ var CareerOverlay = class {
       this.handlePreviewInput(data);
       return;
     }
-    let index = Number.parseInt(data, 10), next = CAREER_UI_VIEWS[index - 1];
-    if (next !== void 0) {
-      this.session.switchView(next), this.requestRender();
+    let key = data.length === 1 ? data.toLowerCase() : data;
+    if (key === "h" || key === "?") {
+      this.helpVisible = !this.helpVisible, this.contentOffset = 0, this.requestRender();
       return;
     }
-    let key = data.length === 1 ? data.toLowerCase() : data, keyed = this.keyedAction(key);
+    let contentDelta = this.listMovement(data);
+    if ((this.helpVisible || this.session.showingDetail) && contentDelta !== void 0) {
+      this.contentOffset = Math.max(0, this.contentOffset + contentDelta), this.requestRender();
+      return;
+    }
+    if (this.helpVisible) return;
+    if (matchesKey2(data, Key2.left) || matchesKey2(data, Key2.right) || matchesKey2(data, Key2.tab)) {
+      this.session.switchDestination(matchesKey2(data, Key2.left) ? -1 : 1), this.previewPage = 0, this.contentOffset = 0, this.requestRender();
+      return;
+    }
+    let keyed = this.keyedAction(key);
     if (keyed !== void 0) {
       this.requestRender(), keyed.finally(() => this.requestRender());
       return;
     }
     this.handleListInput(data);
   }
-  footerHints() {
-    let hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
-    this.session.canFilterApplications && hints.push("/ filter"), this.session.canFilterApplicationLifecycle && hints.push("l lifecycle"), this.session.canClearApplicationFilter && hints.push("k clear filter"), this.session.canPreview && hints.push("v preview locally"), this.session.preview !== void 0 && hints.push("↑↓ preview pages · soft-wrapped");
-    let actions = [
-      [this.session.preview === void 0 && this.session.canAttach, "a attach"],
+  actionHints() {
+    return [
+      [this.session.canAttach, "a attach"],
       [this.session.canMigrate, "i migrate"],
       [this.session.canCreate, "c create"],
       [this.session.canAddRoot, "n add root"],
       [this.session.canRemoveRoot, "x remove"],
       [this.session.canRescan, "r rescan"],
       [this.session.canAnalyze, "g analyze"],
-      [this.session.canMatch, "g match"],
-      [this.session.canEditVacancy, "e edit"],
+      [this.session.canMatch, this.session.canAnalyze ? "t match" : "g match"],
+      [this.session.canEditVacancy, "e job description"],
       [this.session.canUpdateStatus, "s status"],
       [this.session.canWorkspace, "m workspace"],
-      [this.session.canAskPi, "p ask Pi"],
+      [this.session.canAskPi, "p Ask Pi"],
       [this.session.canDetach, "d detach"],
-      [this.session.canClearVacancy, "k clear"],
-      [this.session.canSelectOriginal, "o original"]
-    ];
-    return hints.push(...actions.filter(([enabled]) => enabled).map(([, label]) => label), "1-8 view"), hints;
+      [this.session.canClearVacancy, "k clear job"],
+      [this.session.canSelectOriginal, "o select original"],
+      [this.session.canPreview, "v preview locally"],
+      [this.session.canFilterApplications, "/ filter"],
+      [this.session.canFilterApplicationLifecycle, "l lifecycle"],
+      [this.session.canClearApplicationFilter, "k clear filter"]
+    ].filter(([enabled]) => enabled).map(([, label]) => label);
+  }
+  primaryActionHints(available) {
+    let nextAction = this.session.selected?.detail.match(/(?:recommended )?next action:[^\n]*\(([a-z])\)/i)?.[1];
+    if (nextAction !== void 0) {
+      let recommended = available.find((label) => label.startsWith(`${nextAction.toLowerCase()} `));
+      if (recommended !== void 0) {
+        let alternatives = available.filter((label) => label !== recommended).slice(0, 2);
+        return [recommended, ...alternatives];
+      }
+    }
+    let preferred = ({
+      applications: this.session.showingDetail ? ["s ", "e ", "o ", "g ", "t ", "m ", "p ", "a ", "i ", "d "] : ["c ", "/ ", "l "],
+      library: this.session.showingDetail ? ["v ", "g "] : ["n ", "r "],
+      setup: ["n ", "r "],
+      vacancy: ["e ", "v "],
+      analyze: ["g "],
+      match: ["g "],
+      workbench: ["p "],
+      workspace: ["m "]
+    }[this.session.view] ?? []).flatMap((prefix) => available.filter((label) => label.startsWith(prefix)));
+    return (preferred.length > 0 ? preferred : available).slice(0, 3);
+  }
+  footerHints() {
+    if (this.helpVisible) return ["↑↓ scroll · esc close help"];
+    if (this.session.preview !== void 0) return ["↑↓ pages · esc back"];
+    let navigation = this.session.showingDetail ? "↑↓ scroll · esc back · tab switch · ? help" : `↑↓ select · enter open · tab switch · esc ${this.session.canGoBack ? "back" : "close"} · ? help`, primary = this.primaryActionHints(this.actionHints());
+    return primary.length === 0 ? [navigation] : [navigation, `Actions: ${primary.join(" · ")} · ? all`];
   }
   render(width) {
-    let renderWidth = Math.max(1, width), theme = this.theme, view = this.session.view, pane = this.session.pane, selected = this.session.selected, header = `${theme.bold(theme.fg("accent", "◆  Career"))}${theme.fg("dim", "  ·  ")}${theme.bold(theme.fg("accent", CAREER_UI_VIEW_LABELS[view]))}${theme.fg("dim", `  ${VIEW_MARKS[view]}`)}`, fullChips = CAREER_UI_VIEWS.map((name, index) => {
-      let chip = `${index + 1} ${VIEW_MARKS[name]} ${CAREER_UI_VIEW_LABELS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    }), compactChips = CAREER_UI_VIEWS.map((name, index) => {
-      let chip = `${index + 1}${VIEW_MARKS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    }), fullNav = packChips(fullChips, renderWidth), navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav, footer = this.session.operationActive ? `${this.session.operationLabel ?? "Career operation in progress…"} · esc cancel` : this.footerHints().join("   ");
+    let renderWidth = Math.max(1, width), renderHeight = Math.max(1, Math.floor(this.maximumHeight())), theme = this.theme;
+    if (this.fallbackActive = renderWidth < MIN_FRAME_WIDTH || renderHeight < MIN_FRAME_HEIGHT, this.fallbackActive) {
+      let reason = renderWidth < MIN_FRAME_WIDTH ? "Career needs at least 60 columns." : "Career needs at least 18 available rows.";
+      return [
+        ...styledLines(reason, renderWidth, (text) => theme.fg("muted", text)),
+        ...styledLines("Resize the terminal or use the existing career commands.", renderWidth, (text) => theme.fg("muted", text)),
+        ...styledLines("Esc Back / Close", renderWidth, (text) => theme.fg("muted", text))
+      ].slice(0, renderHeight);
+    }
+    let contentWidth = renderWidth - 2 - FRAME_PADDING * 2, view = this.session.view, pane = this.session.pane, selected = this.session.selected, header = styledLines(
+      `◆  ${viewTitle(view)}  ${VIEW_MARKS[view]}`,
+      contentWidth,
+      (text) => theme.bold(theme.fg("accent", text))
+    ), destinationLabels = contentWidth >= 14 ? ["Applications", "Resumes"] : contentWidth >= 7 ? ["Apps", "CVs"] : ["A", "R"], destinationChips = CAREER_UI_DESTINATIONS.map((name, index) => {
+      let active = name === this.session.destination, chip = `${active ? "▸" : "·"} ${destinationLabels[index]}`;
+      return active ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    }), navLines = packChips(destinationChips, contentWidth);
     this.session.preview === void 0 && (this.previewPage = 0);
-    let body = this.session.preview !== void 0 ? this.renderPreview(this.session.preview, renderWidth) : this.session.showingDetail && selected !== void 0 ? [
+    let listBody = !this.helpVisible && this.session.preview === void 0 && !this.session.showingDetail ? listBodyLines(
+      pane,
+      view,
+      this.session.cursor,
+      this.session.operationActive ? this.session.operationLabel ?? "Career operation in progress…" : void 0,
+      contentWidth,
+      theme
+    ) : void 0, body = this.helpVisible ? [
+      ...styledLines("Help", contentWidth, (text) => theme.bold(theme.fg("accent", text))),
       "",
-      ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
-      ...selected.detail.split(`
-`).flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
-      ...this.session.previewError === void 0 ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))
-    ] : [
-      ...this.session.operationActive ? styledLines(
-        this.session.operationLabel ?? "Career operation in progress…",
-        renderWidth,
-        (text) => theme.fg("accent", text)
-      ) : [],
+      ...styledLines("Applications and Resumes are the only destinations. Use ←/→ or Tab to switch.", contentWidth, (text) => theme.fg("text", text)),
+      ...styledLines("Use ↑/↓ and Enter to browse. Esc returns through detail and contextual routes, then closes.", contentWidth, (text) => theme.fg("text", text)),
+      ...styledLines("Only shown action keys can start work. Slash commands remain direct routes to Setup, job description, Analyze, Match, Ask Pi, and Workspace.", contentWidth, (text) => theme.fg("muted", text)),
       "",
-      ...pane.intro.split(`
-`).flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
+      ...styledLines("Current route shortcuts (close Help first)", contentWidth, (text) => theme.bold(theme.fg("muted", text))),
+      ...styledLines(this.actionHints().length === 0 ? "No actions available." : this.actionHints().join(" · "), contentWidth, (text) => theme.fg("text", text))
+    ] : this.session.preview !== void 0 ? this.renderPreview(this.session.preview, contentWidth) : this.session.showingDetail && selected !== void 0 ? [
+      ...styledLines("Current state · Detail", contentWidth, (text) => theme.bold(theme.fg("muted", text))),
       "",
-      ...pane.items.length === 0 ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text)) : pane.items.flatMap((entry, index) => {
-        let selectedRow = index === this.session.cursor, fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `, prefix = renderWidth >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ", available = Math.max(1, renderWidth - visibleWidth(prefix));
-        return styledLines(entry.label, available, (text) => selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text)).map((label, lineIndex) => truncateToWidth2(
-          `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), renderWidth))}${label}`,
-          renderWidth
-        ));
-      })
-    ];
+      ...styledLines(selected.label, contentWidth, (text) => theme.bold(theme.fg("accent", text))),
+      ...detailLines(selected, contentWidth, theme),
+      ...this.session.previewError === void 0 ? [] : styledLines(this.session.previewError, contentWidth, (text) => theme.fg("muted", text))
+    ] : listBody?.lines ?? [], footer = (this.session.operationActive ? [`${this.session.operationLabel ?? "Career operation in progress…"} · esc cancel`] : this.footerHints()).flatMap((line) => styledLines(line, contentWidth, (text) => theme.fg("dim", text))), fixedRows = 1 + header.length + 1 + navLines.length + 1 + 1 + Math.max(1, footer.length) + 1, bodyCapacity = Math.max(1, renderHeight - fixedRows), maxOffset = Math.max(0, body.length - bodyCapacity);
+    if (listBody !== void 0) {
+      let focusLine = Math.min(body.length - 1, Math.max(0, listBody.focusLine));
+      focusLine < this.contentOffset && (this.contentOffset = focusLine), focusLine >= this.contentOffset + bodyCapacity && (this.contentOffset = focusLine - bodyCapacity + 1);
+    }
+    this.contentOffset = Math.min(this.contentOffset, maxOffset);
+    let visibleBody = body.slice(this.contentOffset, this.contentOffset + bodyCapacity), framed = (lines) => lines.map((line) => frameLine(theme, renderWidth, line));
     return [
-      truncateToWidth2(header, renderWidth),
-      truncateToWidth2(rule(theme, renderWidth), renderWidth),
-      ...navLines.map((line) => truncateToWidth2(line, renderWidth)),
-      truncateToWidth2(rule(theme, renderWidth), renderWidth),
-      ...body,
-      "",
-      truncateToWidth2(rule(theme, renderWidth), renderWidth),
-      ...styledLines(footer, renderWidth, (text) => theme.fg("dim", text))
+      frameBorder(theme, renderWidth, "╭", "╮"),
+      ...framed(header),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(navLines),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(visibleBody.length === 0 ? [""] : visibleBody),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(footer.length === 0 ? [""] : footer),
+      frameBorder(theme, renderWidth, "╰", "╯")
     ];
   }
   invalidate() {
@@ -8306,10 +8436,16 @@ async function openCareerUi(ctx, view, agentDir, actions = {}) {
       theme,
       keybindings,
       () => tui.requestRender(),
-      () => done(void 0)
+      () => done(void 0),
+      () => Math.max(1, Math.floor(tui.terminal.rows * 0.9))
     ), {
       overlay: !0,
-      overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 }
+      overlayOptions: {
+        width: "90%",
+        maxHeight: "90%",
+        anchor: "center",
+        margin: { top: 1, right: 2, bottom: 1, left: 2 }
+      }
     });
     return;
   }

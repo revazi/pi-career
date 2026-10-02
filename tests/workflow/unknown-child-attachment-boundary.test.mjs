@@ -34,8 +34,8 @@ const SESSION_BODY = "SYNTHETIC_SESSION_BODY_P3_05\n";
 const VALID_LABEL = `${COMPANY} — ${ROLE} — Preparing — Incomplete 0/3`;
 const LEGACY_LABEL = "Legacy application — preparing";
 const CATALOG_OPTION = `${COMPANY} — ${ROLE} — preparing`;
-const LEGACY_DETAIL = "Legacy application\nStatus: preparing\nClassification: legacy\nOpening does not attach this application.";
-const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${VALID_UPDATED_AT}\nClassification: valid\nOpening does not attach. Press a to attach this application without activating assistance.`;
+const LEGACY_DETAIL = "Legacy application\nStatus: preparing\nClassification: legacy\nRecommended next action: finish identity migration (i).\nSafe alternative: review only or return to Applications. Opening does not attach.";
+const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${VALID_UPDATED_AT}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
 const DRIFT_NOTICE = "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
 const cancel = () => undefined;
 const canonical = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
@@ -298,14 +298,14 @@ test("P3-05 registered configure-root and Applications discovery/attach leave an
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const listed = await runCommand(value, "career", { selects: [CAREER_UI_RPC_ACTIONS.close] });
       assert.deepEqual(listed.dialogs[0].options, listOptions);
-      assert.equal(listed.dialogs[0].select.startsWith("Career • Applications\n"), true);
+      assert.equal(listed.dialogs[0].select.startsWith("Career › Applications\n"), true);
       assert.equal(listed.dialogs[0].options.includes(UNKNOWN_NAME), false);
       assert.deepEqual(listed.context.notifications, []);
 
       const legacy = await runCommand(value, "career", {
         selects: [LEGACY_LABEL, CAREER_UI_RPC_ACTIONS.back, CAREER_UI_RPC_ACTIONS.close],
       });
-      assert.equal(legacy.dialogs[1].select, LEGACY_DETAIL);
+      assert.equal(legacy.dialogs[1].select, `Career › Applications\nCurrent state · Detail\n${LEGACY_DETAIL}`);
       assert.equal(legacy.dialogs[1].options.includes(CAREER_UI_RPC_ACTIONS.attach), false);
       assert.equal(legacy.dialogs[1].options.includes(CAREER_UI_RPC_ACTIONS.migrate), true);
       assert.equal(legacy.dialogs.some((dialog) => dialog.confirm !== undefined || dialog.editor !== undefined), false);
@@ -377,7 +377,7 @@ test("P3-05 registered configure-root and Applications discovery/attach leave an
       selects: [VALID_LABEL, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [false],
     });
-    assert.equal(declined.dialogs[1].select, VALID_DETAIL);
+    assert.equal(declined.dialogs[1].select, `Career › Applications\nCurrent state · Detail\n${VALID_DETAIL}`);
     assert.equal(declined.dialogs[1].options.includes(CAREER_UI_RPC_ACTIONS.migrate), false);
     assert.deepEqual(declined.dialogs.filter((dialog) => dialog.confirm !== undefined), [{
       confirm: "Attach application",

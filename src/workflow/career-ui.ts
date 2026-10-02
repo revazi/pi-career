@@ -31,6 +31,10 @@ export const CAREER_UI_VIEWS = [
 
 export type CareerUiView = typeof CAREER_UI_VIEWS[number];
 
+/** The only peer destinations in the Career application. Other views are contextual routes. */
+export const CAREER_UI_DESTINATIONS = ["applications", "library"] as const satisfies readonly CareerUiView[];
+export type CareerUiDestination = typeof CAREER_UI_DESTINATIONS[number];
+
 export const CAREER_UI_COMMAND_VIEWS = {
   career: "applications",
   "career-setup": "setup",
@@ -45,12 +49,12 @@ export const CAREER_UI_COMMAND_VIEWS = {
 
 export const CAREER_UI_VIEW_LABELS: Record<CareerUiView, string> = {
   setup: "Setup",
-  library: "Library",
+  library: "Resumes",
   applications: "Applications",
   vacancy: "Job description",
   match: "Match",
   analyze: "Analyze",
-  workbench: "Workbench",
+  workbench: "Ask Pi",
   workspace: "Workspace",
 };
 
@@ -169,10 +173,10 @@ export function applicationNextAction(
   matched: boolean,
 ): string {
   if (components.job_description !== "Available") return "Next action: add or refresh the job description (e).";
-  if (components.resume === "Missing") return "Next action: select an eligible Original (o), or inspect the library (2).";
-  if (components.resume !== "Available") return "Next action: review the selected Resume source in the library (2) and application workspace (m).";
+  if (components.resume === "Missing") return "Next action: select an eligible Original (o), or inspect Resumes.";
+  if (components.resume !== "Available") return "Next action: review the selected source in Resumes and the application workspace (m).";
   if (!analyzed) return "Next action: analyze the selected Original (g).";
-  if (!matched) return "Next action: analyze match for the effective Resume (g).";
+  if (!matched) return "Next action: analyze match for the effective Resume (t).";
   if (components.cover_letter !== "Available") return "Next action: review the application workspace (m) to refresh or add the user-authored cover letter; tailored Resume materialization is optional.";
   return "Next action: review the complete package in Applications; Ready is derived, not a status.";
 }
@@ -267,8 +271,16 @@ function emptyCursors(): Record<CareerUiView, number> {
   };
 }
 
+export function careerUiDestination(view: CareerUiView): CareerUiDestination {
+  return view === "setup" || view === "library" ? "library" : "applications";
+}
+
 export function viewTitle(view: CareerUiView): string {
-  return `Career • ${CAREER_UI_VIEW_LABELS[view]}`;
+  const destination = careerUiDestination(view);
+  const trail = view === destination
+    ? CAREER_UI_VIEW_LABELS[destination]
+    : `${CAREER_UI_VIEW_LABELS[destination]} › ${CAREER_UI_VIEW_LABELS[view]}`;
+  return `Career › ${trail}`;
 }
 
 const LIBRARY_NOTICE_LABELS: Record<LibraryScan["warnings"][number]["code"], string> = {
@@ -374,12 +386,12 @@ export async function buildCareerUiModel(
   const empty: CareerUiModel = {
     setup: { intro: "pi-career is not configured. Press n to add a resume root.", items: [] },
     library: { intro: "No resume library is configured. Press n to add a root, r to rescan.", items: [] },
-    applications: { intro: "No application root is bound. Switch to Workspace (8) and press m to configure one; browsing stays local.", items: [] },
-    vacancy: { intro: "No application is attached. Attach one, then press e to paste a job description.", items: [] },
-    match: { intro: "No application is attached. Attach one or press g to match library originals against the current vacancy.", items: [] },
-    analyze: { intro: "No application is attached. Press g to analyze an original resume.", items: [] },
-    workbench: { intro: "Press p to prepare Ask Pi. Nothing is submitted from this view.", items: [] },
-    workspace: { intro: "Press m to manage the application workspace. Opening this view does not mutate files.", items: [] },
+    applications: { intro: "No application workspace is configured. Recommended next action: press m to set one up. Safe alternative: switch to Resumes; browsing stays local and makes no changes.", items: [] },
+    vacancy: { intro: "No application is attached. Recommended next action: return to Applications and attach one. Safe alternative: review Resumes; no job description is changed by browsing.", items: [] },
+    match: { intro: "No application is attached. Recommended next action: return to Applications and attach one. Safe alternative: use the direct route only after reviewing its prerequisites.", items: [] },
+    analyze: { intro: "No application is attached. Recommended next action: choose an available Original in Resumes. Safe alternative: return to Applications; Analyze never runs while browsing.", items: [] },
+    workbench: { intro: "Recommended next action: attach an application, then press p to prepare Ask Pi. Safe alternative: return to Applications. Nothing is submitted from this route.", items: [] },
+    workspace: { intro: "Recommended next action: press m to manage the application workspace. Safe alternative: return to Applications. Opening this route does not mutate files.", items: [] },
   };
 
   try {
@@ -401,7 +413,7 @@ export async function buildCareerUiModel(
       const catalog = await readOverlayApplications(agentDir, scan);
       empty.applications = {
         intro: catalog.length === 0
-          ? "No applications yet. Press c to create one. Next action: create an application; creating does not attach."
+          ? "No applications yet. Recommended next action: press c to create one; creating does not attach. Safe alternative: manage workspace setup (m) or switch to Resumes."
           : `Browse applications without attaching. ${(() => {
             const attached = catalog.find((application) => application.application_id === attachedApplicationId);
             return attached === undefined
@@ -418,8 +430,8 @@ export async function buildCareerUiModel(
             ? "Reviewed in this session"
             : "Not analyzed in this session";
           const detail = application.company_label === undefined
-            ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nOpening does not attach this application.`
-            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nMatch: ${matchState}\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nOpening does not attach. Press a to attach this application without activating assistance.`;
+            ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nRecommended next action: finish identity migration (i).\nSafe alternative: review only or return to Applications. Opening does not attach.`
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nMatch: ${matchState}\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
           const row = item(application.application_id, label, detail, application.pointer);
           row.applicationStatus = application.status;
           if (application.classification === "legacy") row.legacyMigration = true;
@@ -466,6 +478,13 @@ export async function buildCareerUiModel(
         resultEvidence.matched,
       );
       empty.library.canSelectOriginal = attached.can_select_original;
+      empty.applications.canSelectOriginal = attached.can_select_original;
+      const attachedApplicationRow = empty.applications.items.find((entry) => entry.attachedApplication === true);
+      if (attachedApplicationRow !== undefined) {
+        attachedApplicationRow.detail = attachedApplicationRow.detail
+          .replace(/\nRecommended next action: attach this application \(a\) to use package actions\.\nSafe alternatives: review only or return to Applications\./, "") +
+          `\n${nextAction}\nSafe alternatives: update status (s), manage workspace (m), Ask Pi (p), detach (d), or return to Applications.`;
+      }
       empty.vacancy = {
         intro: `${heading}\n${pack}\n${nextAction}`,
         items: attached.vacancy === undefined
@@ -525,7 +544,7 @@ export async function buildCareerUiModel(
     const sessionRow = item(
       application.application_id,
       `Current session · Not persisted — ${application.company_label} — ${application.role_label} — ${application.status}`,
-      `${application.company_label} — ${application.role_label}\nStatus: ${application.status}\nCurrent session · Not persisted. Opening does not attach this application.`,
+      `${application.company_label} — ${application.role_label}\nStatus: ${application.status}\nCurrent session · Not persisted.\nRecommended next action: manage the application workspace (m).\nSafe alternatives: update status (s) or return to Applications. Opening does not attach.`,
     );
     sessionRow.applicationStatus = application.status;
     sessionRow.canUpdateApplication = true;
@@ -614,6 +633,14 @@ export class CareerUiSession {
     return this.current;
   }
 
+  get destination(): CareerUiDestination {
+    return careerUiDestination(this.current);
+  }
+
+  get canGoBack(): boolean {
+    return this.detail || this.previewBody !== undefined || this.current !== this.destination;
+  }
+
   get showingDetail(): boolean {
     return this.detail;
   }
@@ -684,15 +711,18 @@ export class CareerUiSession {
   get applicationLifecycleFilter(): "all" | ApplicationStatus { return this.lifecycleFilter; }
 
   get canFilterApplications(): boolean {
-    return this.current === "applications" && this.actions.filterApplications !== undefined && !this.busyFlag;
+    return this.current === "applications" && !this.detail &&
+      this.actions.filterApplications !== undefined && !this.busyFlag;
   }
 
   get canFilterApplicationLifecycle(): boolean {
-    return this.current === "applications" && this.actions.filterApplicationLifecycle !== undefined && !this.busyFlag;
+    return this.current === "applications" && !this.detail &&
+      this.actions.filterApplicationLifecycle !== undefined && !this.busyFlag;
   }
 
   get canClearApplicationFilter(): boolean {
-    return this.current === "applications" && (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
+    return this.current === "applications" && !this.detail &&
+      (this.filterText.length > 0 || this.lifecycleFilter !== "all") && !this.busyFlag;
   }
 
   private applyApplicationFilter(): void {
@@ -737,20 +767,28 @@ export class CareerUiSession {
   }
 
   get canCreate(): boolean {
-    return this.current === "applications" && this.actions.createApplication !== undefined && !this.busyFlag;
+    return this.current === "applications" && !this.detail &&
+      this.actions.createApplication !== undefined && !this.busyFlag;
+  }
+
+  private get attachedApplicationDetail(): boolean {
+    return this.current === "applications" && this.detail && this.selected?.attachedApplication === true;
   }
 
   get canAnalyze(): boolean {
     const libraryOriginal = this.current === "library" && this.selected?.preview?.source === "library";
-    return (this.current === "analyze" || libraryOriginal) && this.actions.analyze !== undefined && !this.busyFlag;
+    return (this.current === "analyze" || libraryOriginal || this.attachedApplicationDetail) &&
+      this.actions.analyze !== undefined && !this.busyFlag;
   }
 
   get canMatch(): boolean {
-    return this.current === "match" && this.actions.match !== undefined && !this.busyFlag;
+    return (this.current === "match" || this.attachedApplicationDetail) &&
+      this.actions.match !== undefined && !this.busyFlag;
   }
 
   get canEditVacancy(): boolean {
-    return this.current === "vacancy" && this.actions.editVacancy !== undefined && !this.busyFlag;
+    return (this.current === "vacancy" || this.attachedApplicationDetail) &&
+      this.actions.editVacancy !== undefined && !this.busyFlag;
   }
 
   get canUpdateStatus(): boolean {
@@ -759,14 +797,15 @@ export class CareerUiSession {
   }
 
   get canWorkspace(): boolean {
-    const applicationDetail = this.current === "applications" && this.detail &&
-      this.selected?.attachedApplication === true;
-    return (this.current === "workspace" || applicationDetail) &&
+    const applicationContext = this.current === "applications" &&
+      (this.pane.items.length === 0 || (this.detail && this.selected?.canUpdateApplication === true));
+    return (this.current === "workspace" || applicationContext) &&
       this.actions.workspace !== undefined && !this.busyFlag;
   }
 
   get canAskPi(): boolean {
-    return this.current === "workbench" && this.actions.askPi !== undefined && !this.busyFlag;
+    return (this.current === "workbench" || this.attachedApplicationDetail) &&
+      this.actions.askPi !== undefined && !this.busyFlag;
   }
 
   get canDetach(): boolean {
@@ -779,7 +818,9 @@ export class CareerUiSession {
   }
 
   get canSelectOriginal(): boolean {
-    return this.pane.canSelectOriginal === true && this.actions.selectOriginal !== undefined && !this.busyFlag;
+    const visibleHere = this.current !== "applications" || this.attachedApplicationDetail;
+    return visibleHere && this.pane.canSelectOriginal === true &&
+      this.actions.selectOriginal !== undefined && !this.busyFlag;
   }
 
   private actionEntries(): Array<[string, boolean, () => Promise<boolean>]> {
@@ -818,6 +859,13 @@ export class CareerUiSession {
     this.cancelPreview();
   }
 
+  switchDestination(delta: -1 | 1): void {
+    if (this.busyFlag) return;
+    const index = CAREER_UI_DESTINATIONS.indexOf(this.destination);
+    const next = CAREER_UI_DESTINATIONS[(index + delta + CAREER_UI_DESTINATIONS.length) % CAREER_UI_DESTINATIONS.length];
+    if (next !== undefined) this.switchView(next);
+  }
+
   move(delta: number): void {
     const items = this.pane.items;
     if (items.length === 0) return;
@@ -854,6 +902,10 @@ export class CareerUiSession {
       this.detail = false;
       this.detailApplicationId = undefined;
       this.cancelPreview();
+      return "list";
+    }
+    if (this.current !== this.destination) {
+      this.switchView(this.destination);
       return "list";
     }
     return "close";
@@ -947,7 +999,17 @@ export class CareerUiSession {
     const pointer = this.selected?.pointer;
     const action = this.actions.attach;
     if (pointer === undefined || action === undefined) return false;
-    return this.runBound(true, () => action(pointer));
+    const attached = await this.runBound(true, () => action(pointer));
+    if (attached) {
+      const index = this.model.applications.items.findIndex((entry) => entry.attachedApplication === true);
+      if (index >= 0) {
+        this.current = "applications";
+        this.cursors.applications = index;
+        this.detail = true;
+        this.detailApplicationId = this.model.applications.items[index]?.id;
+      }
+    }
+    return attached;
   }
 
   async migrate(): Promise<boolean> {
@@ -1060,23 +1122,27 @@ function uniqueItemOptions(items: CareerUiItem[]): Map<string, CareerUiItem> {
 }
 
 async function switchViewRpc(ctx: ExtensionCommandContext, session: CareerUiSession): Promise<void> {
-  const labels = CAREER_UI_VIEWS.map((view) => CAREER_UI_VIEW_LABELS[view]);
+  const labels = CAREER_UI_DESTINATIONS.map((view) => CAREER_UI_VIEW_LABELS[view]);
   const chosen = await ctx.ui.select(CAREER_UI_RPC_ACTIONS.switchView, labels);
   const index = chosen === undefined ? -1 : labels.indexOf(chosen);
-  const view = index < 0 ? undefined : CAREER_UI_VIEWS[index];
+  const view = index < 0 ? undefined : CAREER_UI_DESTINATIONS[index];
   if (view !== undefined) session.switchView(view);
 }
 
 async function rpcListStep(ctx: ExtensionCommandContext, session: CareerUiSession): Promise<boolean> {
   const options = uniqueItemOptions(session.pane.items);
   const choice = await ctx.ui.select(`${viewTitle(session.view)}\n${session.pane.intro}`, [
-    ...options.keys(), ...session.rpcActions(), CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_RPC_ACTIONS.close,
+    ...options.keys(), ...session.rpcActions(),
+    ...(session.canGoBack ? [CAREER_UI_RPC_ACTIONS.back] : []),
+    CAREER_UI_RPC_ACTIONS.switchView, CAREER_UI_RPC_ACTIONS.close,
   ]);
   if (choice === undefined || choice === CAREER_UI_RPC_ACTIONS.close) {
     session.cancelPreview();
     return false;
   }
-  if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
+  if (choice === CAREER_UI_RPC_ACTIONS.back) {
+    session.back();
+  } else if (choice === CAREER_UI_RPC_ACTIONS.switchView) {
     await switchViewRpc(ctx, session);
   } else if (session.rpcActions().includes(choice)) {
     await session.runRpcAction(choice);
@@ -1089,9 +1155,10 @@ async function rpcListStep(ctx: ExtensionCommandContext, session: CareerUiSessio
 }
 
 function rpcDetailTitle(session: CareerUiSession): string {
+  const route = viewTitle(session.view);
   const preview = session.preview;
-  if (preview !== undefined) return `Local document preview (exact text; close with Back)\n${preview}`;
-  return `${session.selected?.detail ?? session.pane.intro}${session.previewError === undefined ? "" : `\n${session.previewError}`}`;
+  if (preview !== undefined) return `${route}\nLocal document preview (exact text; close with Back)\n${preview}`;
+  return `${route}\nCurrent state · Detail\n${session.selected?.detail ?? session.pane.intro}${session.previewError === undefined ? "" : `\n${session.previewError}`}`;
 }
 
 async function rpcDetailStep(ctx: ExtensionCommandContext, session: CareerUiSession): Promise<boolean> {
@@ -1119,10 +1186,6 @@ export async function runCareerUiRpc(
   while (await (session.showingDetail ? rpcDetailStep(ctx, session) : rpcListStep(ctx, session))) {
     // A single step owns its UI selection and transition; no private body escapes to the list.
   }
-}
-
-function rule(theme: Theme, width: number): string {
-  return theme.fg("border", "─".repeat(Math.max(1, width)));
 }
 
 function styledLines(text: string, width: number, style: (value: string) => string): string[] {
@@ -1175,8 +1238,87 @@ function itemMark(view: CareerUiView, entry: CareerUiItem): string {
   return "·";
 }
 
+const MIN_FRAME_WIDTH = 60;
+const MIN_FRAME_HEIGHT = 18;
+const FRAME_PADDING = 1;
+
+function frameBorder(theme: Theme, width: number, left: string, right: string): string {
+  return theme.fg("border", `${left}${"─".repeat(Math.max(0, width - 2))}${right}`);
+}
+
+function frameLine(theme: Theme, width: number, content: string): string {
+  const contentWidth = Math.max(0, width - 2 - FRAME_PADDING * 2);
+  const clipped = truncateToWidth(content, contentWidth);
+  const fill = " ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)));
+  const side = (value: string) => theme.fg("border", value);
+  return `${side("│")}${" ".repeat(FRAME_PADDING)}${clipped}${fill}${" ".repeat(FRAME_PADDING)}${side("│")}`;
+}
+
+function detailLines(
+  selected: CareerUiItem,
+  width: number,
+  theme: Theme,
+): string[] {
+  const lines = selected.detail.split("\n");
+  if (lines[0] !== undefined && selected.label.startsWith(lines[0])) lines.shift();
+  return lines.flatMap((line) => {
+    if (line.length === 0) return [""];
+    if (/^(?:Recommended n|N)ext action:/u.test(line)) {
+      return ["", ...styledLines(line, width, (text) => theme.bold(theme.fg("accent", text)))];
+    }
+    if (/^(?:Safe alternatives|Opening does not attach|Current session)/u.test(line)) {
+      return styledLines(line, width, (text) => theme.fg("muted", text));
+    }
+    if (/^(?:Package checklist|Documents|Match)$/u.test(line)) {
+      return ["", ...styledLines(line, width, (text) => theme.bold(theme.fg("text", text)))];
+    }
+    return styledLines(line, width, (text) => theme.fg("text", text));
+  });
+}
+
+function listBodyLines(
+  pane: CareerUiPane,
+  view: CareerUiView,
+  cursor: number,
+  operationLabel: string | undefined,
+  width: number,
+  theme: Theme,
+): { lines: string[]; focusLine: number } {
+  const lines = [
+    ...styledLines("Current state", width, (text) => theme.bold(theme.fg("muted", text))),
+    ...(operationLabel === undefined ? [] : styledLines(operationLabel, width, (text) => theme.fg("accent", text))),
+    "",
+    ...pane.intro.split("\n").flatMap((line) => line.length === 0
+      ? [""]
+      : styledLines(line, width, (text) => theme.fg("muted", text))),
+    "",
+  ];
+  let focusLine = lines.length;
+  if (pane.items.length === 0) {
+    lines.push(...styledLines("·  nothing here yet", width, (text) => theme.fg("dim", text)));
+    return { lines, focusLine };
+  }
+  for (const [index, entry] of pane.items.entries()) {
+    const selectedRow = index === cursor;
+    if (selectedRow) focusLine = lines.length;
+    const fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `;
+    const prefix = width >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ";
+    const available = Math.max(1, width - visibleWidth(prefix));
+    const labelLines = styledLines(entry.label, available, (text) =>
+      selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text));
+    lines.push(...labelLines.map((label, lineIndex) => truncateToWidth(
+      `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), width))}${label}`,
+      width,
+    )));
+  }
+  return { lines, focusLine };
+}
+
 export class CareerOverlay implements Component {
   private previewPage = 0;
+  private contentOffset = 0;
+  private helpVisible = false;
+  private fallbackActive = false;
 
   constructor(
     private readonly session: CareerUiSession,
@@ -1184,6 +1326,7 @@ export class CareerOverlay implements Component {
     private readonly keybindings: KeybindingsManager,
     private readonly requestRender: () => void,
     private readonly close: () => void,
+    private readonly maximumHeight: () => number = () => Number.MAX_SAFE_INTEGER,
   ) {}
 
   get currentView(): CareerUiView {
@@ -1234,7 +1377,8 @@ export class CareerOverlay implements Component {
       ["r", this.session.canRescan, () => this.session.rescan()],
       ["c", this.session.canCreate, () => this.session.createApplication()],
       ["g", this.session.canAnalyze, () => this.session.analyze()],
-      ["g", this.session.canMatch, () => this.session.match()],
+      ["g", this.session.canMatch && !this.session.canAnalyze, () => this.session.match()],
+      ["t", this.session.canMatch, () => this.session.match()],
       ["e", this.session.canEditVacancy, () => this.session.editVacancy()],
       ["s", this.session.canUpdateStatus, () => this.session.updateStatus()],
       ["m", this.session.canWorkspace, () => this.session.workspace()],
@@ -1247,14 +1391,20 @@ export class CareerOverlay implements Component {
   }
 
   private handleCancel(): void {
+    if (this.helpVisible) {
+      this.helpVisible = false;
+      this.contentOffset = 0;
+      this.requestRender();
+      return;
+    }
     if (this.session.operationActive) {
       this.session.cancelOperation();
       this.requestRender();
       return;
     }
-    if (this.session.showingDetail && !this.session.busy) {
-      this.session.back();
+    if (!this.session.busy && this.session.back() === "list") {
       this.previewPage = 0;
+      this.contentOffset = 0;
       this.requestRender();
       return;
     }
@@ -1277,12 +1427,22 @@ export class CareerOverlay implements Component {
       return;
     }
     if (this.keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.return) || matchesKey(data, Key.enter)) {
-      if (this.session.open()) this.requestRender();
+      if (this.session.open()) {
+        this.contentOffset = 0;
+        this.requestRender();
+      }
     }
   }
 
   handleInput(data: string): void {
-    if (this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape)) {
+    const cancel = this.keybindings.matches(data, "tui.select.cancel") || matchesKey(data, Key.escape);
+    if (this.fallbackActive) {
+      // The fallback has no visible controls, so only safe Back/Close or
+      // cancellation remains active until a supported viewport is rendered.
+      if (cancel) this.handleCancel();
+      return;
+    }
+    if (cancel) {
       this.handleCancel();
       return;
     }
@@ -1291,14 +1451,27 @@ export class CareerOverlay implements Component {
       this.handlePreviewInput(data);
       return;
     }
-    const index = Number.parseInt(data, 10);
-    const next = CAREER_UI_VIEWS[index - 1];
-    if (next !== undefined) {
-      this.session.switchView(next);
+    const key = data.length === 1 ? data.toLowerCase() : data;
+    if (key === "h" || key === "?") {
+      this.helpVisible = !this.helpVisible;
+      this.contentOffset = 0;
       this.requestRender();
       return;
     }
-    const key = data.length === 1 ? data.toLowerCase() : data;
+    const contentDelta = this.listMovement(data);
+    if ((this.helpVisible || this.session.showingDetail) && contentDelta !== undefined) {
+      this.contentOffset = Math.max(0, this.contentOffset + contentDelta);
+      this.requestRender();
+      return;
+    }
+    if (this.helpVisible) return;
+    if (matchesKey(data, Key.left) || matchesKey(data, Key.right) || matchesKey(data, Key.tab)) {
+      this.session.switchDestination(matchesKey(data, Key.left) ? -1 : 1);
+      this.previewPage = 0;
+      this.contentOffset = 0;
+      this.requestRender();
+      return;
+    }
     const keyed = this.keyedAction(key);
     if (keyed !== undefined) {
       this.requestRender();
@@ -1308,99 +1481,160 @@ export class CareerOverlay implements Component {
     this.handleListInput(data);
   }
 
-  private footerHints(): string[] {
-    const hints = this.session.showingDetail ? ["esc back"] : ["↑↓ move", "enter open", "esc close"];
-    if (this.session.canFilterApplications) hints.push("/ filter");
-    if (this.session.canFilterApplicationLifecycle) hints.push("l lifecycle");
-    if (this.session.canClearApplicationFilter) hints.push("k clear filter");
-    if (this.session.canPreview) hints.push("v preview locally");
-    if (this.session.preview !== undefined) hints.push("↑↓ preview pages · soft-wrapped");
+  private actionHints(): string[] {
     const actions: Array<[boolean, string]> = [
-      [this.session.preview === undefined && this.session.canAttach, "a attach"],
+      [this.session.canAttach, "a attach"],
       [this.session.canMigrate, "i migrate"],
       [this.session.canCreate, "c create"],
       [this.session.canAddRoot, "n add root"],
       [this.session.canRemoveRoot, "x remove"],
       [this.session.canRescan, "r rescan"],
       [this.session.canAnalyze, "g analyze"],
-      [this.session.canMatch, "g match"],
-      [this.session.canEditVacancy, "e edit"],
+      [this.session.canMatch, this.session.canAnalyze ? "t match" : "g match"],
+      [this.session.canEditVacancy, "e job description"],
       [this.session.canUpdateStatus, "s status"],
       [this.session.canWorkspace, "m workspace"],
-      [this.session.canAskPi, "p ask Pi"],
+      [this.session.canAskPi, "p Ask Pi"],
       [this.session.canDetach, "d detach"],
-      [this.session.canClearVacancy, "k clear"],
-      [this.session.canSelectOriginal, "o original"],
+      [this.session.canClearVacancy, "k clear job"],
+      [this.session.canSelectOriginal, "o select original"],
+      [this.session.canPreview, "v preview locally"],
+      [this.session.canFilterApplications, "/ filter"],
+      [this.session.canFilterApplicationLifecycle, "l lifecycle"],
+      [this.session.canClearApplicationFilter, "k clear filter"],
     ];
-    hints.push(...actions.filter(([enabled]) => enabled).map(([, label]) => label), "1-8 view");
-    return hints;
+    return actions.filter(([enabled]) => enabled).map(([, label]) => label);
+  }
+
+  private primaryActionHints(available: string[]): string[] {
+    const nextAction = this.session.selected?.detail.match(/(?:recommended )?next action:[^\n]*\(([a-z])\)/i)?.[1];
+    if (nextAction !== undefined) {
+      const recommended = available.find((label) => label.startsWith(`${nextAction.toLowerCase()} `));
+      if (recommended !== undefined) {
+        const alternatives = available.filter((label) => label !== recommended).slice(0, 2);
+        return [recommended, ...alternatives];
+      }
+    }
+
+    const priorities: Partial<Record<CareerUiView, string[]>> = {
+      applications: this.session.showingDetail
+        ? ["s ", "e ", "o ", "g ", "t ", "m ", "p ", "a ", "i ", "d "]
+        : ["c ", "/ ", "l "],
+      library: this.session.showingDetail ? ["v ", "g "] : ["n ", "r "],
+      setup: ["n ", "r "],
+      vacancy: ["e ", "v "],
+      analyze: ["g "],
+      match: ["g "],
+      workbench: ["p "],
+      workspace: ["m "],
+    };
+    const preferred = (priorities[this.session.view] ?? [])
+      .flatMap((prefix) => available.filter((label) => label.startsWith(prefix)));
+    return (preferred.length > 0 ? preferred : available).slice(0, 3);
+  }
+
+  private footerHints(): string[] {
+    if (this.helpVisible) return ["↑↓ scroll · esc close help"];
+    if (this.session.preview !== undefined) return ["↑↓ pages · esc back"];
+    const navigation = this.session.showingDetail
+      ? "↑↓ scroll · esc back · tab switch · ? help"
+      : `↑↓ select · enter open · tab switch · esc ${this.session.canGoBack ? "back" : "close"} · ? help`;
+    const primary = this.primaryActionHints(this.actionHints());
+    return primary.length === 0 ? [navigation] : [navigation, `Actions: ${primary.join(" · ")} · ? all`];
   }
 
   render(width: number): string[] {
     const renderWidth = Math.max(1, width);
+    const renderHeight = Math.max(1, Math.floor(this.maximumHeight()));
     const theme = this.theme;
+    this.fallbackActive = renderWidth < MIN_FRAME_WIDTH || renderHeight < MIN_FRAME_HEIGHT;
+    if (this.fallbackActive) {
+      const reason = renderWidth < MIN_FRAME_WIDTH
+        ? "Career needs at least 60 columns."
+        : "Career needs at least 18 available rows.";
+      return [
+        ...styledLines(reason, renderWidth, (text) => theme.fg("muted", text)),
+        ...styledLines("Resize the terminal or use the existing career commands.", renderWidth, (text) => theme.fg("muted", text)),
+        ...styledLines("Esc Back / Close", renderWidth, (text) => theme.fg("muted", text)),
+      ].slice(0, renderHeight);
+    }
+
+    const contentWidth = renderWidth - 2 - FRAME_PADDING * 2;
     const view = this.session.view;
     const pane = this.session.pane;
     const selected = this.session.selected;
-    const header = `${theme.bold(theme.fg("accent", "◆  Career"))}${theme.fg("dim", "  ·  ")}${theme.bold(theme.fg("accent", CAREER_UI_VIEW_LABELS[view]))}${theme.fg("dim", `  ${VIEW_MARKS[view]}`)}`;
-    const fullChips = CAREER_UI_VIEWS.map((name, index) => {
-      const chip = `${index + 1} ${VIEW_MARKS[name]} ${CAREER_UI_VIEW_LABELS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
+    const header = styledLines(`◆  ${viewTitle(view)}  ${VIEW_MARKS[view]}`, contentWidth,
+      (text) => theme.bold(theme.fg("accent", text)));
+    const destinationLabels = contentWidth >= 14
+      ? ["Applications", "Resumes"]
+      : contentWidth >= 7 ? ["Apps", "CVs"] : ["A", "R"];
+    const destinationChips = CAREER_UI_DESTINATIONS.map((name, index) => {
+      const active = name === this.session.destination;
+      const chip = `${active ? "▸" : "·"} ${destinationLabels[index]}`;
+      return active ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
     });
-    const compactChips = CAREER_UI_VIEWS.map((name, index) => {
-      const chip = `${index + 1}${VIEW_MARKS[name]}`;
-      return name === view ? theme.bold(theme.fg("accent", chip)) : theme.fg("dim", chip);
-    });
-    const fullNav = packChips(fullChips, renderWidth);
-    const navLines = fullNav.length > 2 ? packChips(compactChips, renderWidth) : fullNav;
-    const footer = this.session.operationActive
-      ? `${this.session.operationLabel ?? "Career operation in progress…"} · esc cancel`
-      : this.footerHints().join("   ");
+    const navLines = packChips(destinationChips, contentWidth);
+
     if (this.session.preview === undefined) this.previewPage = 0;
-    const body = this.session.preview !== undefined
-      ? this.renderPreview(this.session.preview, renderWidth)
+    const listBody = !this.helpVisible && this.session.preview === undefined && !this.session.showingDetail
+      ? listBodyLines(
+        pane,
+        view,
+        this.session.cursor,
+        this.session.operationActive ? this.session.operationLabel ?? "Career operation in progress…" : undefined,
+        contentWidth,
+        theme,
+      )
+      : undefined;
+    const body = this.helpVisible
+      ? [
+        ...styledLines("Help", contentWidth, (text) => theme.bold(theme.fg("accent", text))),
+        "",
+        ...styledLines("Applications and Resumes are the only destinations. Use ←/→ or Tab to switch.", contentWidth, (text) => theme.fg("text", text)),
+        ...styledLines("Use ↑/↓ and Enter to browse. Esc returns through detail and contextual routes, then closes.", contentWidth, (text) => theme.fg("text", text)),
+        ...styledLines("Only shown action keys can start work. Slash commands remain direct routes to Setup, job description, Analyze, Match, Ask Pi, and Workspace.", contentWidth, (text) => theme.fg("muted", text)),
+        "",
+        ...styledLines("Current route shortcuts (close Help first)", contentWidth, (text) => theme.bold(theme.fg("muted", text))),
+        ...styledLines(this.actionHints().length === 0 ? "No actions available." : this.actionHints().join(" · "), contentWidth, (text) => theme.fg("text", text)),
+      ]
+      : this.session.preview !== undefined
+      ? this.renderPreview(this.session.preview, contentWidth)
       : this.session.showingDetail && selected !== undefined
       ? [
+        ...styledLines("Current state · Detail", contentWidth, (text) => theme.bold(theme.fg("muted", text))),
         "",
-        ...styledLines(selected.label, renderWidth, (text) => theme.bold(theme.fg("accent", text))),
-        ...selected.detail.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("text", text))),
-        ...(this.session.previewError === undefined ? [] : styledLines(this.session.previewError, renderWidth, (text) => theme.fg("muted", text))),
+        ...styledLines(selected.label, contentWidth, (text) => theme.bold(theme.fg("accent", text))),
+        ...detailLines(selected, contentWidth, theme),
+        ...(this.session.previewError === undefined ? [] : styledLines(this.session.previewError, contentWidth, (text) => theme.fg("muted", text))),
       ]
-      : [
-        ...(this.session.operationActive
-          ? styledLines(
-            this.session.operationLabel ?? "Career operation in progress…",
-            renderWidth,
-            (text) => theme.fg("accent", text),
-          )
-          : []),
-        "",
-        ...pane.intro.split("\n").flatMap((line) => styledLines(line, renderWidth, (text) => theme.fg("muted", text))),
-        "",
-        ...(pane.items.length === 0
-          ? styledLines("·  nothing here yet", renderWidth, (text) => theme.fg("dim", text))
-          : pane.items.flatMap((entry, index) => {
-            const selectedRow = index === this.session.cursor;
-            const fullPrefix = `${selectedRow ? "▸" : " "} ${itemMark(view, entry)}  `;
-            const prefix = renderWidth >= visibleWidth(fullPrefix) ? fullPrefix : selectedRow ? "> " : "  ";
-            const available = Math.max(1, renderWidth - visibleWidth(prefix));
-            const labelLines = styledLines(entry.label, available, (text) =>
-              selectedRow ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text));
-            return labelLines.map((label, lineIndex) => truncateToWidth(
-              `${lineIndex === 0 ? prefix : " ".repeat(Math.min(visibleWidth(prefix), renderWidth))}${label}`,
-              renderWidth,
-            ));
-          })),
-      ];
+      : listBody?.lines ?? [];
+    const footerText = this.session.operationActive
+      ? [`${this.session.operationLabel ?? "Career operation in progress…"} · esc cancel`]
+      : this.footerHints();
+    const footer = footerText.flatMap((line) => styledLines(line, contentWidth, (text) => theme.fg("dim", text)));
+    const fixedRows = 1 + header.length + 1 + navLines.length + 1 + 1 + Math.max(1, footer.length) + 1;
+    const bodyCapacity = Math.max(1, renderHeight - fixedRows);
+    const maxOffset = Math.max(0, body.length - bodyCapacity);
+    if (listBody !== undefined) {
+      const focusLine = Math.min(body.length - 1, Math.max(0, listBody.focusLine));
+      if (focusLine < this.contentOffset) this.contentOffset = focusLine;
+      if (focusLine >= this.contentOffset + bodyCapacity) {
+        this.contentOffset = focusLine - bodyCapacity + 1;
+      }
+    }
+    this.contentOffset = Math.min(this.contentOffset, maxOffset);
+    const visibleBody = body.slice(this.contentOffset, this.contentOffset + bodyCapacity);
+    const framed = (lines: string[]) => lines.map((line) => frameLine(theme, renderWidth, line));
     return [
-      truncateToWidth(header, renderWidth),
-      truncateToWidth(rule(theme, renderWidth), renderWidth),
-      ...navLines.map((line) => truncateToWidth(line, renderWidth)),
-      truncateToWidth(rule(theme, renderWidth), renderWidth),
-      ...body,
-      "",
-      truncateToWidth(rule(theme, renderWidth), renderWidth),
-      ...styledLines(footer, renderWidth, (text) => theme.fg("dim", text)),
+      frameBorder(theme, renderWidth, "╭", "╮"),
+      ...framed(header),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(navLines),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(visibleBody.length === 0 ? [""] : visibleBody),
+      frameBorder(theme, renderWidth, "├", "┤"),
+      ...framed(footer.length === 0 ? [""] : footer),
+      frameBorder(theme, renderWidth, "╰", "╯"),
     ];
   }
 
@@ -1460,9 +1694,15 @@ export async function openCareerUi(
       keybindings,
       () => tui.requestRender(),
       () => done(undefined),
+      () => Math.max(1, Math.floor(tui.terminal.rows * 0.9)),
     ), {
       overlay: true,
-      overlayOptions: { width: "90%", maxHeight: "80%", anchor: "center", margin: 1 },
+      overlayOptions: {
+        width: "90%",
+        maxHeight: "90%",
+        anchor: "center",
+        margin: { top: 1, right: 2, bottom: 1, left: 2 },
+      },
     });
     return;
   }

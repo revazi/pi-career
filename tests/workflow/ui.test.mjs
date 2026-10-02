@@ -61,6 +61,7 @@ test("TUI analyze opens the Career overlay analyze view without running Core", a
     assert.equal(tui.customCalls, 1);
     assert.equal(components[0]?.currentView, "analyze");
     components[0].handleInput("esc");
+    components[0].handleInput("esc");
     await pending;
     assert.equal(calls, 0);
     assert.equal(fake.entries.some((entry) => entry.data?.kind === "result_card"), false);
