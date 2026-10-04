@@ -1,12 +1,12 @@
-# Proposed pi-career 0.4.0 release plan
+# pi-career 0.4.0 release candidate
 
-**Status: planning only; not a release authorization.** The repository/package remain `0.3.0`, README installation remains `npm:pi-career@0.3.0`, and no tag, publication, or GitHub Release is authorized by this plan. Do not bump versions or begin release execution until the hard blockers below are resolved, all evidence is green on one frozen SHA, and the maintainer separately authorizes execution.
+**Status: release-candidate metadata finalized; not a release-execution authorization.** Package and lockfile metadata, Skill metadata, the dated changelog, package assertions, release helpers, and README installation coordinate identify `0.4.0`. The complete local candidate ladder passed on 2026-10-04, including fixture parity against the exact reviewed Career Core `v0.2.0` checkout. The immutable candidate SHA is established only by the reviewed commit and is recorded externally rather than embedded self-referentially in tracked files. Tag creation, publication, and GitHub Release creation require clean same-SHA hosted evidence and separate explicit authorization.
 
 ## Version rationale and scope
 
-Recommend **0.4.0** for the substantial additive, user-visible application-centric workflow: one shared Career overlay across TUI/RPC, persistent application catalog and attachment, workspace-backed current vacancy and selected-original authority, explicit lifecycle/revision handling, readiness presentation, and the separately approved user-authored cover-letter transaction. This is not a breaking change to the canonical application-state contract. It does not justify 1.0: boundaries and later workspace gates remain deliberately narrow.
+The selected **0.4.0** version reflects the substantial additive, user-visible application-centric workflow: one shared Career overlay across TUI/RPC, persistent application catalog and attachment, workspace-backed current vacancy and selected-original authority, explicit lifecycle/revision handling, readiness presentation, and the separately approved user-authored cover-letter transaction. This is not a breaking change to the canonical application-state contract. It does not justify 1.0: boundaries and later workspace gates remain deliberately narrow.
 
-The candidate scope is only the implemented application-centric experience recorded under `CHANGELOG.md` Unreleased: one shared overlay and views; application create/catalog/attach; library-root add/rescan/remove; confirmation-gated analyze/match, vacancy edit, status update, and workspace management; workspace-backed vacancy/selected-original authority and lifecycle; derived readiness/next action; and user-authored cover-letter handling. Legacy identity-only migration remains exact-label, canonical-byte-previewed, separately confirmed, and no-clobber. Preserve the exact `career_run` primary managed tool, raw compatibility names, Core contract, local-first runtime boundary, consent/privacy/cancellation guarantees, and native-free package. Release claims must be checked against the final source rather than copied from this proposal.
+The candidate scope is only the implemented application-centric experience recorded in the dated `CHANGELOG.md` 0.4.0 entry: one shared overlay and views; application create/catalog/attach; library-root add/rescan/remove; confirmation-gated analyze/match, vacancy edit, status update, and workspace management; workspace-backed vacancy/selected-original authority and lifecycle; derived readiness/next action; and user-authored cover-letter handling. Legacy identity-only migration remains exact-label, canonical-byte-previewed, separately confirmed, and no-clobber. Preserve the exact `career_run` primary managed tool, raw compatibility names, Core contract, local-first runtime boundary, consent/privacy/cancellation guarantees, and native-free package. Release claims must be checked against the final source rather than copied from this proposal.
 
 ### State and migration distinctions
 
@@ -19,7 +19,7 @@ No inferred future scope: workspace resume artifacts and deletion, arbitrary fil
 ## Support claims (exact, no extrapolation)
 
 - Node.js: `>=22.19.0` per package engine; do not advertise an upper tested range or a different minimum.
-- Pi APIs: the README's exact claim is “0.84.0-compatible package APIs.” Development dependency pins are 0.85.1; neither pin proves a broader tested compatibility range. Do not claim “Pi 0.84+” or infer newer/older versions.
+- Pi APIs: the README's exact claim is “1.0.0-compatible package APIs.” Development dependency pins are exact 1.0.2; they do not prove a broader tested compatibility range. Do not claim “Pi 1.0+” or infer newer/older versions.
 - Career runtime: exact `@revazi/career@0.2.0`, managed Core 0.2.0 contract; not a range.
 - Native targets, delegated to that reviewed launcher: `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`. GNU Linux requires glibc 2.35+. No Windows or other target claim.
 
@@ -29,24 +29,24 @@ All examples, UI captures, and render checks use synthetic labels/documents, syn
 
 Local documents and Pi sessions, RPC clients, editor history, backups/snapshots/sync, provider systems, and npm cache are distinct retention surfaces. Exact runtime acquisition receives no private document stdin, but ordinary npm cache or `_npx` residue may remain; this is not secure erasure. Do not promise cache cleansing or secure deletion. Existing privacy and persistence descriptions remain authoritative.
 
-## Evidence matrix — current baseline, candidate evidence still required
+## Evidence matrix — prepared local candidate
 
-“Green” below means recorded baseline evidence only, not final release acceptance. Final release requires fresh evidence tied to the exact frozen candidate SHA; stale/main-tip success is not transferable.
+The 2026-10-04 results below cover the prepared candidate content before its SHA is frozen. They are local release-candidate evidence, not production-wire acceptance and not a substitute for externally recorded same-SHA hosted evidence on the final reviewed commit.
 
-| Gate / evidence | Current classification | Release requirement |
+| Gate / evidence | Current classification | Remaining release requirement |
 | --- | --- | --- |
-| Hosted Adapter checks at baseline `cd220a7` | Green (baseline only) | Required branch-protection context on candidate SHA; clean/up-to-date. |
-| `npm run check:package` | Green in this planning worktree; not frozen-SHA evidence | Re-run on candidate SHA and verify exact allowlist including this plan; native-free tarball. |
-| Build / dist reproducibility | Green in this planning worktree; not frozen-SHA evidence | `npm run build` plus immediate dist diff on candidate SHA. |
-| Exact Career package runtime integration | Pending; not run in this documentation pass | `npm run test:career-package` on candidate SHA must acquire/use exact `@revazi/career@0.2.0` and pass synthetic discovery/resume/job operations. |
-| Production audit | Green in this planning worktree (0 vulnerabilities); not frozen-SHA evidence | Rerun on candidate SHA, zero findings at `--audit-level=low`. |
-| Full audit and `check:publish` | **Blocked: #149** | Remediate upstream vulnerable `brace-expansion@5.0.9` in pinned `pi-coding-agent@0.99.2`; no exception/baseline/workaround. Both must pass on candidate SHA. |
-| `npm run test:compat` without fixture | **Skipped** (no `CAREER_CORE_FIXTURE_ROOT` supplied) | This is not compatibility evidence and cannot pass release. |
-| Same-SHA fixture compatibility | **Blocked / pending** | Reviewed Career Core fixture parity is not yet evidenced. Must run `CAREER_CORE_FIXTURE_ROOT=/absolute/path/to/reviewed/career-core npm run test:compat`; require real pass, not skip. |
-| Offline Pi load and isolated install/remove | Green in this planning worktree; not frozen-SHA evidence | `PI_OFFLINE=1 npm run test:pi-smoke` and `PI_OFFLINE=1 npm run test:install` must pass on candidate SHA. |
-| Six-platform exact Career package matrix | Pending same-SHA hosted matrix | Dispatch `external-career.yml` against frozen SHA; all six named target jobs pass and run `headSha` equals candidate SHA. |
+| Candidate identity | Package, root lockfile entries, Skill metadata, package assertions, release helpers, README coordinate, and dated changelog all identify 0.4.0. | Freeze the reviewed bytes once and record the resulting full SHA externally without adding a self-referential placeholder to tracked files. |
+| Build / dist reproducibility | Passed immediately after `npm run build` against a temporary-index snapshot of the prepared candidate's tracked bundles. | On the clean committed SHA, run the standard immediate `git diff --exit-code -- dist/index.js dist/pdf-worker.js` proof. |
+| Token and complete adapter checks | `bench:tokens`, `bench:tokens:compare`, and `check` passed locally. | Require the protected same-SHA `Adapter checks` result after commit/push. |
+| Exact Career package runtime integration | Passed locally with exact `@revazi/career@0.2.0`, including synthetic managed discovery and representative resume/job operations. | Require the same-SHA six-target hosted matrix; this local result is not production-wire evidence. |
+| Production and full audits | Both passed with zero vulnerabilities at the explicit low threshold under exact Pi 1.0.2 development pins. | No baseline, exception, dependency downgrade, or lockfile workaround is permitted. |
+| Package/publication readiness | `check:publish` passed; the candidate remains native-free with four wildcard Pi peers and no production/optional/bundled dependency tree or lifecycle/publication script. | Rerun on the clean committed candidate and in the authorized release workflow. |
+| Fixture-backed compatibility | Passed, not skipped, against reviewed Career Core commit `536690632884c17336cc3c108f1bba0f254b862b` / `v0.2.0`. | Keep the fixture checkout read-only and local; do not add its machine path to runtime code or hosted CI. |
+| Offline Pi load and isolated install/remove | Both passed locally with `PI_OFFLINE=1`. | Preserve the offline no-acquisition boundary. |
+| Registry state | Canonical registry query confirmed `pi-career@0.4.0` absent. | Reconfirm authoritative absence immediately before any first, separately authorized publication attempt. |
+| Hosted candidate evidence | Intentionally external to the tracked candidate so evidence cannot change its SHA. | Require same-SHA `Adapter checks`, then dispatch `external-career.yml` on that exact ref and require all six jobs before release authorization. |
 
-Required frozen-SHA local ladder: `npm ci`; `npm run build`; `git diff --exit-code -- dist/index.js dist/pdf-worker.js`; `npm run bench:tokens`; `npm run bench:tokens:compare`; `npm run check`; `npm run test:runtime-resolution`; `npm run test:career-package`; `npm run audit:production`; `npm run audit:full`; `npm run check:publish`; `PI_OFFLINE=1 npm run test:pi-smoke`; `PI_OFFLINE=1 npm run test:install`; fixture-backed `npm run test:compat`; `npm ls --omit=dev --depth=0`; `git diff --check`. Record each as passed, blocked, skipped, or failed with the full SHA. A skipped fixture test or absent result is never green. No release action while #149 remains open or either blocker is unresolved.
+The complete local ladder passed: `npm ci`; `npm run build` plus immediate candidate-relative dist comparison; `npm run bench:tokens`; `npm run bench:tokens:compare`; `npm run check`; `npm run test:runtime-resolution`; `npm run test:career-package`; `npm run audit:production`; `npm run audit:full`; `npm run check:publish`; `PI_OFFLINE=1 npm run test:pi-smoke`; `PI_OFFLINE=1 npm run test:install`; fixture-backed `npm run test:compat`; `npm ls --omit=dev --depth=0`; `git diff --check`. The exact Pi development pins remain 1.0.2, and the resolved vulnerable `brace-expansion@5.0.9` selection is absent. Any content change after this evidence requires the affected gates again; after the candidate is committed, the standard clean-SHA local and hosted gates remain mandatory.
 
 ## Exact publication-path checklist (future authorized execution only)
 
@@ -56,7 +56,7 @@ The sole publication path remains existing [.github/workflows/release.yml](../.g
 - Workflow grants `id-token: write` only to the publication job and uses that `npm` environment; no long-lived npm token, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, OTP, manual token publishing, or alternate workflow/path exists.
 - Pinned checkout/setup-node actions, Node 22.19.0 release host, exact npm 11.6.2 tooling, lifecycle-disabled dependency installation/publication, and provenance settings match the reviewed workflow.
 - Tag/version/changelog/lockfile/full SHA/annotated unsigned tag checks, same-SHA hosted gates, complete audits/package gates, and clean-tree checks all pass before publish. The workflow alone may publish and create the GitHub Release, only after registry verification.
-- Trusted publisher/environment configuration is verified before release authorization; do not alter repository/npm settings as part of this planning task.
+- Trusted publisher/environment configuration is verified before release authorization; do not alter repository/npm settings as part of candidate preparation.
 
 ### Registry-first and ambiguous-outcome rule
 
@@ -64,6 +64,6 @@ Immediately before any first publish, query the authoritative registry explicitl
 
 ## Rollback, recovery, and post-release verification
 
-Before publication, rollback is simply stop: leave version/README/tag/registry untouched, fix the candidate in a reviewed commit, and rerun all gates on a new SHA. A bad published package cannot be overwritten or “rolled back” by republishing; stop installation promotion, document the incident, and use npm's immutable-version policy plus maintainer-directed deprecation/communication only after verifying authoritative state. Do not move a tag or fabricate a replacement artifact. A post-publication failure is an incident, not permission to retry.
+Before publication, rollback is simply stop: leave the tag and registry untouched, fix the candidate in a reviewed commit, and rerun all gates on the new SHA. A bad published package cannot be overwritten or “rolled back” by republishing; stop installation promotion, document the incident, and use npm's immutable-version policy plus maintainer-directed deprecation/communication only after verifying authoritative state. Do not move a tag or fabricate a replacement artifact. A post-publication failure is an incident, not permission to retry.
 
-After successful workflow completion, independently verify the exact npm version's registry metadata and tarball integrity/shasum, provenance and trusted publisher, `gitHead` against full candidate SHA, `latest` dist-tag, annotated tag target, asset-free GitHub Release target/notes, and main CI. In an isolated Pi agent directory install exact `npm:pi-career@0.4.0`, list/load, exercise synthetic runtime operation/acquisition and `PI_OFFLINE=1` failure, then remove the exact installed package. Confirm no native assets/custom Release assets and no unexpected package contents. Triage failures as release blockers/incidents in #73; keep #149 and fixture-parity blockers visible, and open focused issues for any newly discovered defect without broadening support claims.
+After successful workflow completion, independently verify the exact npm version's registry metadata and tarball integrity/shasum, provenance and trusted publisher, `gitHead` against full candidate SHA, `latest` dist-tag, annotated tag target, asset-free GitHub Release target/notes, and main CI. In an isolated Pi agent directory install exact `npm:pi-career@0.4.0`, list/load, exercise synthetic runtime operation/acquisition and `PI_OFFLINE=1` failure, then remove the exact installed package. Confirm no native assets/custom Release assets and no unexpected package contents. Triage failures as release blockers/incidents in #73; record the observed Pi 1.0.2 remediation for #149, keep fixture-parity blockers visible, and open focused issues for any newly discovered defect without broadening support claims.

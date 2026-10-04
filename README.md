@@ -21,7 +21,7 @@ It gives you:
 
 Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-> **Version note:** application-workspace Gate 1 described here is an unreleased source change after published `pi-career@0.3.0`; no package version or release is implied. Published `pi-career@0.3.0` remains the current native-free release, `pi-career@0.2.0` is the prior native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
+> **Version note:** this documentation describes `pi-career@0.4.0`. The prior native-free release is `pi-career@0.3.0`; `pi-career@0.2.0` is the earlier native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
 ### `/career` application mode
 
@@ -34,7 +34,7 @@ Model assistance begins only after the user selects an explicit assistance actio
 ## Requirements
 
 - Node.js 22.19 or newer
-- Pi with 0.84.0-compatible package APIs
+- Pi with 1.0.0-compatible package APIs
 - macOS or Linux on ARM64/x64; GNU Linux requires glibc 2.35+, and musl Linux is supported
 - either a compatible local `career` executable or network access for first-use acquisition of exact `@revazi/career@0.2.0`
 
@@ -42,10 +42,10 @@ Windows is unsupported. npm enforces the package `os` allowlist; for a local or 
 
 ## Install
 
-Install the exact published version:
+Install the exact reviewed version:
 
 ```bash
-pi install npm:pi-career@0.3.0
+pi install npm:pi-career@0.4.0
 pi list
 ```
 
@@ -282,11 +282,12 @@ Gate 1 can:
 - explicitly configure one already-existing canonical owner-only `0700` application root, creating or validating its private package marker;
 - initialize the current active application at a package-derived direct-child path with immutable manifest and exact private display-identity metadata;
 - append an immutable full state revision for current status, exact workflow-original vacancy bytes, vacancy clear, or a freshly scanned selected-original digest binding;
+- write or revise a separately authorized user-authored Markdown/plain-text cover letter when a current vacancy and effective resume exist, view the current validated artifact, or clear its current reference while retaining immutable history;
 - detach the root from config without changing the marker or any application file.
 
-Every mutation displays a complete canonical preview in the editor, requires the preview to return byte-identically, and then requires a separate confirmation. Configuration and workspace files use owner-only modes, locks, bounded no-clobber publication, sync, and fail-closed identity/disjointness checks. Application roots must remain physically disjoint in both directions from every resume-library root and variation-root suggestion.
+Every mutation displays a complete canonical preview in the editor, requires the preview to return byte-identically, and then requires a separate confirmation. Writing a cover letter also requires a distinct persistence confirmation before the ordinary workspace-mutation approval; cancellation writes nothing. Configuration and workspace files use owner-only modes, locks, bounded no-clobber publication, sync, and fail-closed identity/disjointness checks. Application roots must remain physically disjoint in both directions from every resume-library root and variation-root suggestion.
 
-Workspace files outlive `/career-application clear`, `/new`, session deletion, transient shutdown, detach, package removal, and status `closed`. Gate 1 does **not** save an assisted resume, delete a workspace/root/application, copy or modify an original, save Core/provider output, or create cover letters, notes, `changes.md`, interview files, PDF/DOCX artifacts, repair, adoption, archive, or sync behavior. `/career-save` remains a separate resume-library variation workflow with independent consent.
+Workspace files outlive `/career-application clear`, `/new`, session deletion, transient shutdown, detach, package removal, and status `closed`. Gate 1 does **not** save an assisted resume, delete a workspace/root/application, copy or modify an original, save Core/provider output, create assisted cover-letter content, or create notes, `changes.md`, interview files, PDF/DOCX artifacts, repair, adoption, archive, or sync behavior. The cover-letter transaction accepts only content authored by the user in the local editor; it does not call Career Core, a model/provider, or the network, and it does not submit the letter. `/career-save` remains a separate resume-library variation workflow with independent consent.
 
 ### `/career-vacancy [clear]`
 
@@ -459,7 +460,7 @@ Use `pi --no-session` when you do not want a new Pi session JSONL. In a persiste
 Possible persistence surfaces are distinct:
 
 - **Package config:** canonical resume-root paths, bounded labels, an optional variation-directory suggestion, and an optional application-root UUID/path binding; never resume text, vacancy text, or full Core output.
-- **Application workspace files:** an exact root marker, immutable non-content manifest, immutable bounded company/role display identity, append-only state metadata, exact explicitly approved workflow-original vacancy snapshots, and selected-original digests; no selected-original bytes, Core result, provider response, prompt, credential, session ID, or environment value.
+- **Application workspace files:** an exact root marker, immutable non-content manifest, immutable bounded company/role display identity, append-only state metadata, exact explicitly approved workflow-original vacancy snapshots, selected-original digests, and separately approved user-authored Markdown/plain-text cover-letter revisions; no selected-original bytes, Core result, provider response, prompt, credential, session ID, or environment value.
 - **Pi session:** consent, application/vacancy workflow entries, bounded result cards, and potentially tool arguments/results or submitted workbench messages.
 - **Model provider:** only content you submit through ordinary Pi model interaction; `/career-workbench` makes the private payload visible before submission, while `/career-review` prepares only an ephemeral handle and selected canonical IDs.
 - **Approved local variant files:** exact assisted Markdown/text bytes plus bounded marker/sidecar metadata only after `/career-save` preview and confirmation; never full Core JSON.
@@ -473,13 +474,13 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 
 - Supported original formats: searchable PDF, Markdown, and UTF-8 text.
 - No OCR, DOCX/Pages editing, vacancy URL fetching, or PDF layout reconstruction.
-- No automatic resume saving. Gate 1 application workspaces persist only explicitly previewed status/vacancy/original bindings; assisted resume artifacts and package deletion remain unimplemented separate gates.
+- No automatic resume saving. Application workspaces persist only explicitly previewed status/vacancy/original bindings and the separate confirmation-gated user-authored Markdown/plain-text cover-letter revisions; assisted resume artifacts and package deletion remain unimplemented separate gates.
 - PDF workbench output is targeted manual guidance only.
 - Assisted variants remain non-authoritative and cannot be reranked as originals.
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
 - Supported runtime targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`; Windows is unsupported.
 
-Application-workspace Gate 1 and the still-unimplemented later artifact/deletion protocols are documented in [`docs/application-workspaces.md`](docs/application-workspaces.md). Gate 1 does not authorize or imply Gates 2–4.
+Application-workspace Gate 1, the separately authorized user-authored cover-letter transaction, and the still-unimplemented assisted-resume/deletion protocols are documented in [`docs/application-workspaces.md`](docs/application-workspaces.md) and [`docs/cover-letter-contract.md`](docs/cover-letter-contract.md). Neither implemented workflow authorizes or implies Gates 2–4.
 
 ## Development
 

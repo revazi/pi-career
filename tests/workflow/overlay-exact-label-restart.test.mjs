@@ -60,7 +60,7 @@ const UPDATED_AT = new Map([
 ]);
 
 function detail(id, company, role) {
-  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${UPDATED_AT.get(id)}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
+  return `${company} — ${role}\nStatus: ${STATUS}\nReadiness: ${READINESS}\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nAnalysis: No current result in this session\nMatch: No current result in this session\nLast updated: ${UPDATED_AT.get(id)}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
 }
 
 function containsExact(text, value) {
@@ -279,11 +279,38 @@ async function exerciseTui(agentDir, temp) {
   for (const [id, company, role] of EXPECTED) {
     overlay.handleInput("enter");
     assert.equal(overlay.showingDetail, true);
-    const opened = capture();
-    const inner = opened.split("\n").filter((line) => line.startsWith("│"))
-      .map((line) => line.slice(2, -2).trimEnd()).join("\n");
+    let opened = capture();
     assert.equal(containsExact(opened, rowLabel(company, role)), true);
-    assert.equal(containsExact(inner, detail(id, company, role)), true);
+    const [identityLine, ...expectedDetailLines] = detail(id, company, role).split("\n");
+    assert.equal(containsExact(opened, identityLine), true);
+
+    const observedDetailLines = new Set();
+    let previousBody;
+    let reachedEnd = false;
+    let scrollSteps = 0;
+    for (let step = 0; step < 64; step++) {
+      const lines = opened.split("\n");
+      const separators = lines.flatMap((line, index) => line.startsWith("├") ? [index] : []);
+      assert.equal(separators.length, 3);
+      const body = lines.slice(separators[1] + 1, separators[2])
+        .map((line) => line.slice(2, -2).trimEnd());
+      for (const line of body) observedDetailLines.add(line);
+      const bodySnapshot = body.join("\n");
+      if (bodySnapshot === previousBody) {
+        reachedEnd = true;
+        break;
+      }
+      previousBody = bodySnapshot;
+      overlay.handleInput("down");
+      scrollSteps++;
+      opened = capture();
+    }
+    assert.equal(reachedEnd, true, "bounded detail scrolling must reach a stable final viewport");
+    assert.ok(scrollSteps > 0, "complete application detail requires supported viewport scrolling");
+    for (const line of expectedDetailLines) {
+      assert.equal(observedDetailLines.has(line), true, `missing exact detail line: ${line}`);
+    }
+
     overlay.handleInput("esc");
     assert.equal(overlay.showingDetail, false);
     overlay.handleInput("down");

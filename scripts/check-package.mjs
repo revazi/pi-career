@@ -129,7 +129,7 @@ try {
     maximumBytes: 256 * 1024,
   });
   assert.equal(packagedManifest.name, "pi-career");
-  assert.equal(packagedManifest.version, "0.3.0");
+  assert.equal(packagedManifest.version, "0.4.0");
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.os, expectedOs, "package must install only on macOS and Linux");

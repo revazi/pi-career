@@ -371,7 +371,7 @@ function skillPresent(commands) {
 class TuiProcess {
   constructor(item) { this.item = item; this.child = undefined; }
   start() {
-    this.child = spawn("python3", [this.item.ptyHelper, process.execPath, piCli, "--mode", "tui", "--offline", "--no-session", "--no-approve", "-e", extensionPath, "-e", this.item.observer, "--session-dir", this.item.sessions], {
+    this.child = spawn("python3", [this.item.ptyHelper, process.execPath, piCli, "--offline", "--no-session", "--no-approve", "-e", extensionPath, "-e", this.item.observer, "--session-dir", this.item.sessions], {
       cwd: this.item.cwd, env: this.item.env, detached: true, stdio: ["pipe", "pipe", "pipe"],
     });
     this.stderr = "";

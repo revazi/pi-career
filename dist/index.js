@@ -7552,7 +7552,7 @@ Indexed resumes stay local. Opening a root does not call Core.`
       empty.applications = {
         intro: catalog.length === 0 ? "No applications yet. Recommended next action: press c to create one; creating does not attach. Safe alternative: manage workspace setup (m) or switch to Resumes." : `Browse applications without attaching. ${catalog.find((application) => application.application_id === attachedApplicationId) === void 0 ? "Next action: open an application and attach it (a) to continue." : "Next action: open package review (Enter) to inspect current source bindings and component state."} Enter opens local package review. a attaches, c creates, s updates status, d detaches.`,
         items: catalog.map((application) => {
-          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, matchState = visibleResultCards.some((card) => card.workflow === "match" && card.application_id === application.application_id) ? "Reviewed in this session" : "Not analyzed in this session", detail = application.company_label === void 0 ? `Legacy application
+          let status = applicationStatusLabel(application.status), label = application.company_label === void 0 ? `Legacy application — ${application.status}` : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`, detail = application.company_label === void 0 ? `Legacy application
 Status: ${application.status}
 Classification: ${application.classification}
 Recommended next action: finish identity migration (i).
@@ -7560,7 +7560,8 @@ Safe alternative: review only or return to Applications. Opening does not attach
 Status: ${status}
 Readiness: ${application.readiness}
 ${applicationPackageChecklist(application.components, application.effective_resume)}
-Match: ${matchState}
+Analysis: No current result in this session
+Match: No current result in this session
 Last updated: ${application.updated_at}
 Classification: ${application.classification}
 Recommended next action: attach this application (a) to use package actions.
@@ -7595,9 +7596,20 @@ Attached to this Pi session. Lifecycle and package actions apply only to this ex
       );
       empty.library.canSelectOriginal = attached.can_select_original, empty.applications.canSelectOriginal = attached.can_select_original;
       let attachedApplicationRow = empty.applications.items.find((entry) => entry.attachedApplication === !0);
-      attachedApplicationRow !== void 0 && (attachedApplicationRow.detail = attachedApplicationRow.detail.replace(/\nRecommended next action: attach this application \(a\) to use package actions\.\nSafe alternatives: review only or return to Applications\./, "") + `
+      if (attachedApplicationRow !== void 0) {
+        let currentResultState = [
+          `Analysis: ${resultEvidence.analyzed ? "Current result reviewed in this session" : "No current result in this session"}`,
+          `Match: ${resultEvidence.matched ? "Current result reviewed in this session" : "No current result in this session"}`
+        ].join(`
+`);
+        attachedApplicationRow.detail = attachedApplicationRow.detail.replace(`
+Analysis: No current result in this session
+Match: No current result in this session`, `
+${currentResultState}`).replace(/\nRecommended next action: attach this application \(a\) to use package actions\.\nSafe alternatives: review only or return to Applications\./, "") + `
 ${nextAction}
-Safe alternatives: update status (s), manage workspace (m), Ask Pi (p), detach (d), or return to Applications.`), empty.vacancy = {
+Safe alternatives: update status (s), manage workspace (m), Ask Pi (p), detach (d), or return to Applications.`;
+      }
+      empty.vacancy = {
         intro: `${heading}
 ${pack}
 ${nextAction}`,

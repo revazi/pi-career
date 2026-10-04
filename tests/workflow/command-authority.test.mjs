@@ -334,7 +334,8 @@ test("#109 package checklist uses validated workspace metadata and renders acros
     assert.match(model.applications.items[0].detail, /Readiness: Incomplete 2\/3/);
     assert.match(model.applications.items[0].detail, /Cover letter: Missing/);
     assert.match(model.applications.items[0].detail, /Effective Resume: Available • Original/);
-    assert.match(model.applications.items[0].detail, /Match: Not analyzed in this session/);
+    assert.match(model.applications.items[0].detail, /Analysis: No current result in this session/);
+    assert.match(model.applications.items[0].detail, /Match: No current result in this session/);
     assert.equal(model.applications.items[0].attachedApplication, true);
     for (const view of ["vacancy", "match", "analyze"]) assert.match(model[view].intro, checklist);
     assert.deepEqual(fake.entries, before);

@@ -35,7 +35,7 @@ const VALID_LABEL = `${COMPANY} — ${ROLE} — Preparing — Incomplete 0/3`;
 const LEGACY_LABEL = "Legacy application — preparing";
 const CATALOG_OPTION = `${COMPANY} — ${ROLE} — preparing`;
 const LEGACY_DETAIL = "Legacy application\nStatus: preparing\nClassification: legacy\nRecommended next action: finish identity migration (i).\nSafe alternative: review only or return to Applications. Opening does not attach.";
-const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nMatch: Not analyzed in this session\nLast updated: ${VALID_UPDATED_AT}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
+const VALID_DETAIL = `${COMPANY} — ${ROLE}\nStatus: Preparing\nReadiness: Incomplete 0/3\nPackage checklist\nJob description: Missing\nSelected original: Missing\nCover letter: Missing\nEffective Resume: Missing • none\nAnalysis: No current result in this session\nMatch: No current result in this session\nLast updated: ${VALID_UPDATED_AT}\nClassification: valid\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
 const DRIFT_NOTICE = "Workspace drift detected. Package mutations are blocked; reconciliation made no change.";
 const cancel = () => undefined;
 const canonical = (value) => Buffer.from(`${JSON.stringify(value, null, 2)}\n`);

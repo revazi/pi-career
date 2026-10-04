@@ -532,7 +532,7 @@ test("explicit Resume library rescan shows local progress and discards a cancell
   assert.equal(session.operationActive, false);
 });
 
-test("Analyze and Match keep the mounted overlay busy/cancellable and restore its idle view", async () => {
+test("Analyze and Match preserve route, selection, and busy/cancellable state across resize", async () => {
   for (const view of ["analyze", "match"]) {
     for (const outcome of ["success", "error", "cancel"]) {
       const calls = [];
@@ -540,6 +540,7 @@ test("Analyze and Match keep the mounted overlay busy/cancellable and restore it
       let finish;
       const pending = new Promise((resolve, reject) => { finish = outcome === "error" ? reject : resolve; });
       const model = Object.fromEntries(Object.values(CAREER_UI_COMMAND_VIEWS).map((name) => [name, { intro: `${name} synthetic`, items: [] }]));
+      model[view].items.push({ id: `${view}-item`, label: `${view} selection`, detail: `${view} detail` });
       const session = new CareerUiSession(view, model, {
         cancelOperation: () => { calls.push("cancel"); ownedController.abort(); },
         [view]: () => pending.then(() => true),
@@ -549,8 +550,15 @@ test("Analyze and Match keep the mounted overlay busy/cancellable and restore it
       const selected = session.selected;
       const running = view === "analyze" ? session.analyze() : session.match();
       assert.equal(session.busy, true);
-      assert.match(overlay.render(80).join("\n"), /Running deterministic Career Core action/);
-      assert.match(overlay.render(80).join("\n"), /esc cancel/);
+      for (const width of [120, 60, 80]) {
+        const resized = overlay.render(width);
+        assert.ok(resized.every((line) => visibleWidth(line) === width));
+        assert.match(resized.join("\n"), /Running deterministic Career Core action/);
+        assert.match(resized.join("\n"), /esc cancel/);
+        assert.equal(session.view, view);
+        assert.equal(session.selected, selected);
+        assert.equal(session.operationActive, true);
+      }
       overlay.handleInput("esc");
       assert.deepEqual(calls, ["cancel"]);
       assert.equal(ownedController.signal.aborted, true);
@@ -1241,9 +1249,12 @@ test("#58 attached package review reconstructs its next action after close/reope
   }
 });
 
-test("#58 black-box preparation journey cancels and resumes every explicit step across registered restarts", async () => {
+test("#58/#157 black-box /career journey creates, cancels, and resumes every explicit step across registered restarts", async () => {
   const value = await catalogFixture("pi-career-ui-integrated-journey-");
   try {
+    for (const entry of await readdir(value.root)) {
+      if (!entry.startsWith(".")) await rm(path.join(value.root, entry), { recursive: true, force: true });
+    }
     let fake = value.fake;
     const ids = uuidSequence();
     let clock = Date.parse("2026-08-12T00:00:10.000Z");
@@ -1288,7 +1299,30 @@ test("#58 black-box preparation journey cancels and resumes every explicit step 
       assert.deepEqual(fake.entries, beforeEntries);
     };
 
+    assert.equal((await model()).applications.items.length, 0, "the journey begins from a fresh Applications destination");
+    const beforeCreateTree = await treeBytes(value.temp);
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.create, "Continue in this session", CAREER_UI_RPC_ACTIONS.close],
+      inputs: ["Synthetic Company", "Synthetic Engineer"], editors: [undefined],
+    }).ctx);
+    assert.deepEqual(await treeBytes(value.temp), beforeCreateTree, "cancelling creation preview writes no application workspace");
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "application").length, 0);
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "consent" && entry.data.granted === true).length, 1,
+      "persistence consent remains distinct from the cancelled application mutation");
+
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.create, CAREER_UI_RPC_ACTIONS.close],
+      inputs: ["Synthetic Company", "Synthetic Engineer"],
+      editors: [(_title, preview) => preview], confirms: [true],
+    }).ctx);
+    const applicationEntries = fake.entries.filter((entry) => entry.data?.kind === "application");
+    assert.equal(applicationEntries.length, 1);
+    const applicationId = applicationEntries[0].data.application_id;
     const applicationRow = "Synthetic Company — Synthetic Engineer — Preparing — Incomplete 0/3";
+    assert.ok((await model()).applications.items.some(({ id, label }) => id === applicationId && label === applicationRow));
+
     await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [applicationRow, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
@@ -1299,15 +1333,18 @@ test("#58 black-box preparation journey cancels and resumes every explicit step 
       selects: [applicationRow, CAREER_UI_RPC_ACTIONS.attach, CAREER_UI_RPC_ACTIONS.close],
       confirms: [true],
     }).ctx);
-    await restart(/add or refresh the job description/);
+    let attachedModel = await restart(/add or refresh the job description/);
+    let applicationDetail = attachedModel.applications.items.find(({ id }) => id === applicationId)?.detail ?? "";
+    assert.match(applicationDetail, /Analysis: No current result in this session/);
+    assert.match(applicationDetail, /Match: No current result in this session/);
 
     const vacancy = "Synthetic platform role\nEvidence-based requirements";
-    await unchangedAfter(() => fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
       editors: [vacancy, (_title, preview) => preview], confirms: [false],
     }).ctx));
-    await fake.commands.get("career-vacancy").handler("", makeContext(fake, {
+    await fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
       editors: [vacancy, (_title, preview) => preview], confirms: [true],
@@ -1316,59 +1353,81 @@ test("#58 black-box preparation journey cancels and resumes every explicit step 
 
     const original = (await scanLibrary(await loadConfig(value.agentDir))).records[0];
     const originalOption = selectedOriginalOptions([original])[0].option;
-    await unchangedAfter(() => fake.commands.get("career-analyze").handler("", makeContext(fake, {
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, originalOption, CAREER_UI_RPC_ACTIONS.close],
       editors: [(_title, preview) => preview], confirms: [false],
     }).ctx));
-    await fake.commands.get("career-analyze").handler("", makeContext(fake, {
+    await fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.selectOriginal, originalOption, CAREER_UI_RPC_ACTIONS.close],
       editors: [(_title, preview) => preview], confirms: [true],
     }).ctx);
     await restart(/analyze the selected Original/);
 
-    await unchangedAfter(() => fake.commands.get("career-analyze").handler("", makeContext(fake, {
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close], confirms: [false],
     }).ctx));
     const analyzeSelects = [];
     const analyzeContext = makeContext(fake, {
       mode: "rpc", persisted: true, selectCalls: analyzeSelects,
-      selects: [CAREER_UI_RPC_ACTIONS.analyze, "Continue in this session", CAREER_UI_RPC_ACTIONS.close], confirms: [true],
+      selects: [CAREER_UI_RPC_ACTIONS.analyze, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     });
-    await fake.commands.get("career-analyze").handler("", analyzeContext.ctx);
+    await fake.commands.get("career").handler("", analyzeContext.ctx);
     const analysisCards = fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "analyze");
     assert.equal(analysisCards.length, 1, JSON.stringify({ notifications: analyzeContext.notifications, selects: analyzeSelects }));
-    assert.equal(analysisCards[0].data.application_id, "00000000-0000-4000-8000-000000000077");
+    assert.equal(analysisCards[0].data.application_id, applicationId);
     assert.equal(analysisCards[0].data.resume_id, original.id);
     assert.equal(analysisCards[0].data.input_digests.resume_text_sha256, original.text_sha256);
     const analyzedModel = await model();
     assert.match(analyzedModel.workspace.intro, /analyze match/, JSON.stringify(analysisCards[0].data));
+    applicationDetail = analyzedModel.applications.items.find(({ id }) => id === applicationId)?.detail ?? "";
+    assert.match(applicationDetail, /Analysis: Current result reviewed in this session/);
+    assert.match(applicationDetail, /Match: No current result in this session/);
     await restart(/analyze match/);
 
-    await unchangedAfter(() => fake.commands.get("career-match").handler("", makeContext(fake, {
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [false],
     }).ctx));
-    await fake.commands.get("career-match").handler("", makeContext(fake, {
+    await fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
       selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
     }).ctx);
-    await restart(/user-authored cover letter/);
+    const matchedModel = await restart(/user-authored cover letter/);
+    applicationDetail = matchedModel.applications.items.find(({ id }) => id === applicationId)?.detail ?? "";
+    assert.match(applicationDetail, /Analysis: Current result reviewed in this session/);
+    assert.match(applicationDetail, /Match: Current result reviewed in this session/);
+
+    const revisedVacancy = `${vacancy}\nRevised after the first match`;
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.editVacancy, CAREER_UI_RPC_ACTIONS.close],
+      editors: [revisedVacancy, (_title, preview) => preview], confirms: [true],
+    }).ctx);
+    const staleMatchModel = await restart(/analyze match/);
+    applicationDetail = staleMatchModel.applications.items.find(({ id }) => id === applicationId)?.detail ?? "";
+    assert.match(applicationDetail, /Analysis: Current result reviewed in this session/);
+    assert.match(applicationDetail, /Match: No current result in this session/,
+      "a historical Match card must not be presented as evidence for changed job-description bytes");
+    await fake.commands.get("career").handler("", makeContext(fake, {
+      mode: "rpc", persisted: true,
+      selects: [CAREER_UI_RPC_ACTIONS.match, CAREER_UI_RPC_ACTIONS.close], confirms: [true],
+    }).ctx);
+    const rematchedModel = await restart(/user-authored cover letter/);
+    applicationDetail = rematchedModel.applications.items.find(({ id }) => id === applicationId)?.detail ?? "";
+    assert.match(applicationDetail, /Match: Current result reviewed in this session/);
 
     const coverText = "# Synthetic cover letter\n\nUser-authored evidence only.\n";
-    const coverWorkflow = () => new ApplicationWorkspaceWorkflow({
-      agentDir: value.agentDir, uuid: ids, now: nextNow,
-    });
-    await unchangedAfter(() => coverWorkflow().run("", makeContext(fake, {
+    await unchangedAfter(() => fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
-      selects: ["Write or revise user-authored cover letter", "Markdown (.md)"],
+      selects: [CAREER_UI_RPC_ACTIONS.workspace, "Write or revise user-authored cover letter", "Markdown (.md)", CAREER_UI_RPC_ACTIONS.close],
       editors: [coverText, (_title, preview) => preview], confirms: [false],
     }).ctx));
-    await coverWorkflow().run("", makeContext(fake, {
+    await fake.commands.get("career").handler("", makeContext(fake, {
       mode: "rpc", persisted: true,
-      selects: ["Write or revise user-authored cover letter", "Markdown (.md)"],
+      selects: [CAREER_UI_RPC_ACTIONS.workspace, "Write or revise user-authored cover letter", "Markdown (.md)", CAREER_UI_RPC_ACTIONS.close],
       editors: [coverText, (_title, preview) => preview, (_title, preview) => preview],
       confirms: [true, true],
     }).ctx);
@@ -1401,9 +1460,9 @@ test("#58 black-box preparation journey cancels and resumes every explicit step 
     rebuilt = await restart(/review the complete package.*Ready is derived/);
     assert.ok(rebuilt.applications.items.some(({ label, detail }) => /Applied/.test(label + detail) && /Ready 3\/3/.test(detail)));
     assert.ok(coreCalls.includes("analyze"));
-    assert.equal(coreCalls.filter((operation) => operation === "match").length, 1, JSON.stringify(coreCalls));
+    assert.equal(coreCalls.filter((operation) => operation === "match").length, 2, JSON.stringify(coreCalls));
     assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "analyze").length, 1);
-    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "match").length, 1);
+    assert.equal(fake.entries.filter((entry) => entry.data?.kind === "result_card" && entry.data.workflow === "match").length, 2);
   } finally {
     await rm(value.temp, { recursive: true, force: true });
   }

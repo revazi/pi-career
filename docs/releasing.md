@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded trusted-publishing process for the next explicitly authorized pi-career release and records the historical `v0.1.0`, `v0.2.0`, and `v0.3.0` outcomes. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
+This document defines the bounded trusted-publishing process for `pi-career@0.4.0` and records the historical `v0.1.0`, `v0.2.0`, and `v0.3.0` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 

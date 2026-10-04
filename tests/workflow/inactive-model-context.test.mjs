@@ -542,9 +542,9 @@ function assertInactiveContext(body, item, careerSessionEntries) {
       entry.id, entry.timestamp, entry.data?.attachment_id,
     ]),
   ]) assertTextAbsent(body, value, "private context");
-  const hostCwdLine = `Current working directory: ${item.cwd}`;
-  assert.equal(body.split(item.cwd).length - 1, 1, "working directory leaked outside the host system-prompt line");
-  assert.equal(body.includes(hostCwdLine), true);
+  const hostCwdSection = `<cwd>\\n${item.cwd}\\n</cwd>`;
+  assert.equal(body.split(item.cwd).length - 1, 1, "working directory leaked outside the host system-prompt section");
+  assert.equal(body.includes(hostCwdSection), true);
 }
 
 async function assertNoCore(item) {
@@ -651,6 +651,7 @@ test("P3-50 attached inactive session ordinary model turn omits Career Skill met
   assert.deepEqual(attachmentEntry.data, constructedAttachment(item, attached[0].attachmentId));
   assertInactiveContext(turn.body, item, [attachmentEntry]);
   const messages = await settledMessages(live);
+  assert.deepEqual(messages.map((message) => message.role), ["system", "user", "assistant"]);
   assert.equal(messages.some((message) => message.role === "user" && textContent(message.content) === prompt), true);
   assert.equal(messages.filter((message) => message.role === "assistant" && textContent(message.content) === SYNTHETIC_ACK).length, 1);
   assert.equal(live.events.includes("tool_execution_start"), false);
@@ -659,7 +660,7 @@ test("P3-50 attached inactive session ordinary model turn omits Career Skill met
   assert.equal(commandNames(await live.request({ type: "get_commands" })).includes("skill:career-core"), false);
   assert.equal(commandNames(await live.request({ type: "get_commands" })).includes(`skill:${RELOAD_PROBE}`), false);
   const state = await live.request({ type: "get_state" });
-  assert.equal(state.data.messageCount, 2);
+  assert.equal(state.data.messageCount, messages.length);
   assert.equal(state.data.isStreaming, false);
   assert.equal(live.stderr.length, 0, "child stderr was not empty");
   await assertNoCore(item);
@@ -691,6 +692,7 @@ test("P3-57 inactive raw-tool request is rejected and the following ordinary mod
   assert.deepEqual(careerEntries((await live.request({ type: "get_entries" })).data.entries), []);
   assertInactiveContext(turn.body, item, []);
   const messages = await settledMessages(live);
+  assert.deepEqual(messages.map((message) => message.role), ["system", "user", "assistant"]);
   assert.equal(messages.some((message) => message.role === "user" && textContent(message.content) === prompt), true);
   assert.equal(messages.filter((message) => message.role === "assistant" && textContent(message.content) === SYNTHETIC_ACK).length, 1);
   assert.equal(live.events.includes("tool_execution_start"), false);

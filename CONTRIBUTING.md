@@ -8,7 +8,7 @@ Read [`AGENTS.md`](AGENTS.md), [`docs/design.md`](docs/design.md), and [`SECURIT
 
 ## Setup and checks
 
-Use Node 22.19 or newer. Release verification uses npm 10.9.3 from the Node 22.19 CI toolchain:
+Use Node 22.19 or newer. Release verification uses exact Node 22.19.0 and npm 11.6.2 from the reviewed release workflow:
 
 ```bash
 npm ci

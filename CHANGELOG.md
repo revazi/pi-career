@@ -2,15 +2,17 @@
 
 ## Unreleased
 
-Proposed release target: 0.4.0; this is planning only. No package version, publication, tag, or release is implied. See the [0.4.0 release plan](docs/release-plan-0.4.0.md). The existing application-centric changes below remain unreleased; defer scope and blockers are recorded in that plan.
+## 0.4.0 - 2026-10-04
 
 ### Added
 
 - Implemented application-workspace Gate 1 behind user-only no-argument TUI/RPC `/career-workspace`: explicit strict config-v1-to-v2 migration, one existing owner-only disjoint application root, marker attach/detach, immutable application manifest and append-only status/workflow-original-vacancy/selected-original revisions, and read-only crash/drift reconciliation.
 - Added canonical complete editor previews plus separate confirmation, config/inode compare-and-swap, exact config/root locks, no-clobber hard-link publication, bounded limits, private modes, sync/settlement, idempotency, payload-free failures, and synthetic macOS/Linux filesystem coverage for Gate 1.
+- Added the separately authorized application-workspace transaction for user-authored Markdown/plain-text cover letters: an unchanged exact preview, distinct persistence confirmation, and ordinary workspace-mutation approval precede immutable no-clobber artifact/state publication; view and clear preserve validated history, and no assisted drafting, Core/provider/network call, or submission occurs.
 
 ### Changed
 
+- Updated the exact lockfile-pinned Pi development suite to 1.0.2, including compatibility coverage for Pi's structured working-directory prompt section and default interactive-mode entry point; the four Pi-provided runtime packages remain wildcard external peers. Pi 1.0.2 removes the vulnerable development shrinkwrap selection of `brace-expansion@5.0.9`, and the strict full audit and publication-readiness check pass with `brace-expansion@5.0.12`.
 - Preserved first-run and v1 compatibility: ordinary setup may safely bootstrap only private `career/`, absent/v1 ordinary mutations continue writing canonical v1, only confirmed workspace-root configuration migrates to v2, and every later writer preserves v2 plus its optional application-root binding while freshly rejecting root overlap.
 - Documented that Gate 1 performs no Core/runtime/provider/model/network/child/session-append action and does not implement assisted workspace artifacts, deletion, broader application files, repair, adoption, archive, or sync. The separate `/career-save` workflow is unchanged.
 - When a persistent application is attached, `/career-vacancy`, `/career-match`, `/career-analyze`, `/career-workbench`, and `career_run context` use workspace files as the only current vacancy/Resume authority: cancelled vacancy saves change neither workspace nor session, match uses the effective Resume, analyze uses only the selected original, and workbench/assistance never auto-submit.

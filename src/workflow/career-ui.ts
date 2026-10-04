@@ -425,13 +425,9 @@ export async function buildCareerUiModel(
           const label = application.company_label === undefined
             ? `Legacy application — ${application.status}`
             : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
-          const matchState = visibleResultCards.some((card) => card.workflow === "match" &&
-            card.application_id === application.application_id)
-            ? "Reviewed in this session"
-            : "Not analyzed in this session";
           const detail = application.company_label === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nRecommended next action: finish identity migration (i).\nSafe alternative: review only or return to Applications. Opening does not attach.`
-            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nMatch: ${matchState}\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nAnalysis: No current result in this session\nMatch: No current result in this session\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
           const row = item(application.application_id, label, detail, application.pointer);
           row.applicationStatus = application.status;
           if (application.classification === "legacy") row.legacyMigration = true;
@@ -481,7 +477,12 @@ export async function buildCareerUiModel(
       empty.applications.canSelectOriginal = attached.can_select_original;
       const attachedApplicationRow = empty.applications.items.find((entry) => entry.attachedApplication === true);
       if (attachedApplicationRow !== undefined) {
+        const currentResultState = [
+          `Analysis: ${resultEvidence.analyzed ? "Current result reviewed in this session" : "No current result in this session"}`,
+          `Match: ${resultEvidence.matched ? "Current result reviewed in this session" : "No current result in this session"}`,
+        ].join("\n");
         attachedApplicationRow.detail = attachedApplicationRow.detail
+          .replace("\nAnalysis: No current result in this session\nMatch: No current result in this session", `\n${currentResultState}`)
           .replace(/\nRecommended next action: attach this application \(a\) to use package actions\.\nSafe alternatives: review only or return to Applications\./, "") +
           `\n${nextAction}\nSafe alternatives: update status (s), manage workspace (m), Ask Pi (p), detach (d), or return to Applications.`;
       }
