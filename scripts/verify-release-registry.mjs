@@ -5,7 +5,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { pollRegistryResource, validateReleaseAttestations } from "./lib/release-verification.mjs";
+import {
+  pollRegistryResource,
+  validateGitHubTrustedPublisher,
+  validateReleaseAttestations,
+} from "./lib/release-verification.mjs";
 import { parseStrictJson } from "./lib/strict-json.mjs";
 
 const PACKAGE_NAME = "pi-career";
@@ -149,10 +153,7 @@ async function assertPublished(version, gitSha) {
   }
   assert.equal(metadata._nodeVersion, "22.19.0");
   assert.equal(metadata._npmVersion, "11.6.2");
-  assert.equal(metadata._npmUser?.name, "GitHub Actions");
-  assert.equal(metadata._npmUser?.email, "npm-oidc-no-reply@github.com");
-  assert.equal(metadata._npmUser?.trustedPublisher?.id, "github");
-  assert.match(metadata._npmUser?.trustedPublisher?.oidcConfigId, /^oidc:[0-9a-f-]{36}$/);
+  validateGitHubTrustedPublisher(metadata._npmUser);
   assert.match(metadata.dist?.integrity, /^sha512-[A-Za-z0-9+/]{86}==$/);
   assert.match(metadata.dist?.shasum, /^[0-9a-f]{40}$/);
   assert.equal(metadata.dist?.tarball, `${REGISTRY}/${PACKAGE_NAME}/-/${PACKAGE_NAME}-${version}.tgz`);

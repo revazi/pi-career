@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded trusted-publishing process for `pi-career@0.4.0` and records the historical `v0.1.0`, `v0.2.0`, and `v0.3.0` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
+This document defines the bounded trusted-publishing process and records the historical `v0.1.0`, `v0.2.0`, `v0.3.0`, and `v0.4.0` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 
@@ -72,6 +72,28 @@ Release execution completed on 2026-08-14:
 - custom GitHub Release assets: none
 
 The published package is native-free, supports the six reviewed macOS/Linux targets through exact external `@revazi/career@0.2.0`, and validates its exact ordered six-package v2 launcher manifest. Production and complete development/host-Pi audits were both clean at the explicit low threshold before publication.
+
+## Historical `v0.4.0` outcome
+
+Release execution completed from the frozen 2026-10-04 candidate:
+
+- npm: [`pi-career@0.4.0`](https://www.npmjs.com/package/pi-career/v/0.4.0), promoted as `latest`
+- published commit: `31d1a8068ddff727cd7bb27e7546965def51e574`
+- annotated unsigned tag and asset-free GitHub Release: [`v0.4.0`](https://github.com/revazi/pi-career/releases/tag/v0.4.0), both targeting that commit
+- npm integrity: `sha512-ks5xCnt2sDKCTzjvUuRQCJJSGaiHvt1lmwJNT6hhJLIV2MCmCrOUOG2dLW9uhdyGjHXR7Eu4SRlBXSNAVDtWpA==`
+- npm shasum: `460b9d69b42bc572bf966498a34c8818c3f26a6a`
+- same-SHA main Adapter checks: [`37191508057`](https://github.com/revazi/pi-career/actions/runs/37191508057)
+- same-SHA six-target compatibility run: [`37191625998`](https://github.com/revazi/pi-career/actions/runs/37191625998)
+- OIDC publication and post-publication verification run: [`37191969844`](https://github.com/revazi/pi-career/actions/runs/37191969844)
+- npm publisher identity: exact GitHub Actions trusted publisher; registry `oidcConfigId` `59e29379-4ad7-4ac5-8484-68bba66677fe`
+- exact published-package Pi install/list/load, runtime acquisition with synthetic resume and job operations, offline failure, and removal in an isolated agent directory: passed
+- custom GitHub Release assets: none
+
+Run `37191969844` passed every pre-publication gate and published the immutable package successfully through OIDC. Its post-publication job then failed closed before GitHub Release creation: canonical registry propagation exceeded the verifier's former 36-attempt, five-second interval, and the settled registry metadata represented `trustedPublisher.oidcConfigId` as a bare UUID rather than the historical `oidc:<UUID>` spelling. The UUID value and exact GitHub publisher name, email, and provider ID matched the reviewed identity. This was a release-tooling compatibility incident, not evidence that publication failed.
+
+No workflow rerun, tag movement, or npm republish occurred. After authoritative registry state proved the exact metadata, `gitHead`, tarball integrity/shasum, trusted publisher, provenance, and `latest` dist-tag, the existing checked-in `scripts/create-github-release.mjs` completed the asset-free GitHub Release bookkeeping. Independent isolated acceptance then exercised the exact published package as recorded above. `v0.4.0` and `pi-career@0.4.0` are immutable; this hardening must not alter or recreate them.
+
+Future registry-resource polling uses exactly 48 attempts at five-second intervals: at most 47 scheduled sleeps, or 235 seconds of propagation delay, with each request retaining its separate 30-second timeout. Only `404`, `5xx`, and request failures are retried within that finite bound. Other HTTP statuses fail immediately; authoritative metadata, provenance, integrity, publisher, and `gitHead` mismatches fail closed, and an indeterminate final state never authorizes an automatic publication retry.
 
 ## Release gates
 

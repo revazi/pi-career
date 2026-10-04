@@ -7,8 +7,21 @@ export const NPM_PUBLISH_ATTESTATION_TYPE = "https://github.com/npm/attestation/
 export const SLSA_PROVENANCE_TYPE = "https://slsa.dev/provenance/v1";
 export const NPM_PUBLISH_BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle+json;version=0.2";
 export const SLSA_BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
-export const REGISTRY_PROPAGATION_ATTEMPTS = 36;
+export const REGISTRY_PROPAGATION_ATTEMPTS = 48;
 export const REGISTRY_PROPAGATION_INTERVAL_MS = 5_000;
+
+const TRUSTED_PUBLISHER_UUID_PATTERN = /^(?:oidc:)?([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
+
+export function validateGitHubTrustedPublisher(npmUser) {
+  assert.equal(npmUser?.name, "GitHub Actions", "npm publisher name");
+  assert.equal(npmUser?.email, "npm-oidc-no-reply@github.com", "npm publisher email");
+  assert.equal(npmUser?.trustedPublisher?.id, "github", "npm trusted publisher ID");
+  const oidcConfigId = npmUser?.trustedPublisher?.oidcConfigId;
+  assert.equal(typeof oidcConfigId, "string", "npm trusted publisher OIDC configuration ID");
+  const match = TRUSTED_PUBLISHER_UUID_PATTERN.exec(oidcConfigId);
+  assert.ok(match, "npm trusted publisher OIDC configuration ID must be a canonical UUID with an optional oidc: prefix");
+  return match[1];
+}
 
 export async function pollRegistryResource({
   url,

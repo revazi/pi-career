@@ -11,6 +11,7 @@ import {
   SLSA_BUNDLE_MEDIA_TYPE,
   SLSA_PROVENANCE_TYPE,
   pollRegistryResource,
+  validateGitHubTrustedPublisher,
   validateReleaseAttestations,
 } from "../../scripts/lib/release-verification.mjs";
 
@@ -21,6 +22,15 @@ const packageName = "pi-career";
 const registry = "https://registry.npmjs.org";
 const repository = "https://github.com/revazi/pi-career";
 const workflowPath = ".github/workflows/release.yml";
+const oidcConfigUuid = "59e29379-4ad7-4ac5-8484-68bba66677fe";
+
+function trustedPublisher(oidcConfigId = oidcConfigUuid) {
+  return {
+    name: "GitHub Actions",
+    email: "npm-oidc-no-reply@github.com",
+    trustedPublisher: { id: "github", oidcConfigId },
+  };
+}
 
 function bundle(statement, mediaType, verificationMaterial) {
   return {
@@ -120,9 +130,41 @@ test("release verifier rejects stale bundle media or wrong workflow/invocation p
   assert.throws(() => validate(wrongInvocation), /invocation repository/);
 });
 
+test("release verifier accepts historical and current trusted-publisher UUID forms", () => {
+  assert.equal(validateGitHubTrustedPublisher(trustedPublisher(`oidc:${oidcConfigUuid}`)), oidcConfigUuid);
+  assert.equal(validateGitHubTrustedPublisher(trustedPublisher(oidcConfigUuid)), oidcConfigUuid);
+});
+
+test("release verifier rejects malformed trusted-publisher UUID forms", () => {
+  for (const oidcConfigId of [
+    `issuer:${oidcConfigUuid}`,
+    `oidc:oidc:${oidcConfigUuid}`,
+    oidcConfigUuid.toUpperCase(),
+    "59e293794ad74ac5848468bba66677fe",
+    "59e29379-4ad7-0ac5-8484-68bba66677fe",
+    "59e29379-4ad7-4ac5-6484-68bba66677fe",
+  ]) {
+    assert.throws(() => validateGitHubTrustedPublisher(trustedPublisher(oidcConfigId)), /canonical UUID/);
+  }
+});
+
+test("release verifier rejects the wrong trusted-publisher identity", () => {
+  for (const [field, value] of [
+    ["name", "Other Publisher"],
+    ["email", "other@example.test"],
+    ["id", "other"],
+  ]) {
+    const npmUser = trustedPublisher();
+    if (field === "id") npmUser.trustedPublisher.id = value;
+    else npmUser[field] = value;
+    assert.throws(() => validateGitHubTrustedPublisher(npmUser), /npm (?:publisher|trusted publisher)/);
+  }
+});
+
 test("registry polling tolerates bounded 404/5xx propagation without a real delay", async () => {
-  assert.equal(REGISTRY_PROPAGATION_ATTEMPTS, 36);
+  assert.equal(REGISTRY_PROPAGATION_ATTEMPTS, 48);
   assert.equal(REGISTRY_PROPAGATION_INTERVAL_MS, 5_000);
+  assert.equal((REGISTRY_PROPAGATION_ATTEMPTS - 1) * REGISTRY_PROPAGATION_INTERVAL_MS, 235_000);
   const statuses = [404, 503, 200];
   const sleeps = [];
   const response = await pollRegistryResource({
@@ -132,6 +174,25 @@ test("registry polling tolerates bounded 404/5xx propagation without a real dela
   });
   assert.equal(response.status, 200);
   assert.deepEqual(sleeps, [5_000, 5_000]);
+});
+
+test("registry polling fails closed after the exact finite propagation bound", async () => {
+  let requests = 0;
+  const sleeps = [];
+  await assert.rejects(
+    pollRegistryResource({
+      url: `${registry}/${packageName}/${version}`,
+      request: async () => {
+        requests += 1;
+        return { status: requests % 2 === 0 ? 503 : 404, bytes: Buffer.from("synthetic") };
+      },
+      sleep: async (milliseconds) => sleeps.push(milliseconds),
+    }),
+    /did not become authoritative/,
+  );
+  assert.equal(requests, 48);
+  assert.equal(sleeps.length, 47);
+  assert.ok(sleeps.every((milliseconds) => milliseconds === 5_000));
 });
 
 test("registry polling fails closed immediately on a non-retryable response", async () => {
@@ -184,4 +245,26 @@ test("release documentation records immutable v0.2.0 coordinates and no-blind-re
   assert.match(documentation, /sha512-2V0z42oxsDHdE9a\/UTskCzLY3inU0\/DX30h2QhXse\/Y3rAJpsaaNweqVhvZwZlMUovtyBu7pnGSpSo8CLhVOBg==/);
   assert.match(documentation, /31353182855/);
   assert.match(documentation, /Never rerun or republish after an ambiguous publish response/i);
+});
+
+test("release documentation records the immutable v0.4.0 outcome and exact future polling bound", async () => {
+  const documentation = await readFile(new URL("../../docs/releasing.md", import.meta.url), "utf8");
+  const releasePlan = await readFile(new URL("../../docs/release-plan-0.4.0.md", import.meta.url), "utf8");
+  for (const evidence of [
+    "31d1a8068ddff727cd7bb27e7546965def51e574",
+    "sha512-ks5xCnt2sDKCTzjvUuRQCJJSGaiHvt1lmwJNT6hhJLIV2MCmCrOUOG2dLW9uhdyGjHXR7Eu4SRlBXSNAVDtWpA==",
+    "460b9d69b42bc572bf966498a34c8818c3f26a6a",
+    "37191508057",
+    "37191625998",
+    "37191969844",
+    oidcConfigUuid,
+  ]) {
+    assert.ok(documentation.includes(evidence), `missing v0.4.0 evidence ${evidence}`);
+  }
+  assert.match(documentation, /exactly 48 attempts at five-second intervals/);
+  assert.match(documentation, /47 scheduled sleeps, or 235 seconds/);
+  assert.match(documentation, /No workflow rerun, tag movement, or npm republish occurred/);
+  assert.match(documentation, /checked-in `scripts\/create-github-release\.mjs`/);
+  assert.match(releasePlan, /Status: released and immutable/);
+  assert.doesNotMatch(releasePlan, /Remaining release requirement|future authorized execution only/);
 });
