@@ -5,7 +5,7 @@ license: MIT OR Apache-2.0
 compatibility: Requires Pi with pi-career on ARM64/x64 macOS or GNU/musl Linux and a compatible Career Core route. Windows is unsupported.
 metadata:
   author: revazi
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # Career Core through pi-career

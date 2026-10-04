@@ -65,7 +65,7 @@ async function responseBytes(response, maximumBytes, label) {
 async function request(url, { maximumBytes = 512 * 1024 } = {}) {
   assert.ok(url.startsWith(`${REGISTRY}/`), "registry request must remain canonical");
   const response = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "pi-career-release-verifier/0.4.0" },
+    headers: { accept: "application/json", "user-agent": "pi-career-release-verifier/0.4.1" },
     redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });

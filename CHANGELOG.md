@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-10-04
+
+### Fixed
+
+- Fixed native Pi input, editor, selection, confirmation, and exact workspace-mutation dialogs opened from the Career TUI so they own the foreground instead of rendering underneath the custom Career modal. After the native dialog completes or is cancelled, the same in-memory Career route and selection are restored with refreshed data; local document preview and cancellable Resume rescan remain inside the modal.
+
+### Changed
+
+- Hardened post-publication registry verification for npm propagation and trusted-publisher metadata by retaining a finite 235-second scheduled retry bound and accepting only the reviewed canonical GitHub OIDC UUID in its bare or `oidc:`-prefixed representation. This does not add publication retry behavior.
+
 ## 0.4.0 - 2026-10-04
 
 ### Added

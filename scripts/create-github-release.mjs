@@ -33,7 +33,7 @@ async function github(path, { method = "GET", body } = {}) {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      "user-agent": "pi-career-release/0.4.0",
+      "user-agent": "pi-career-release/0.4.1",
       "x-github-api-version": "2022-11-28",
     },
     body: body === undefined ? undefined : JSON.stringify(body),

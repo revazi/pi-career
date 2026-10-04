@@ -21,7 +21,7 @@ It gives you:
 
 Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
 
-> **Version note:** this documentation describes `pi-career@0.4.0`. The prior native-free release is `pi-career@0.3.0`; `pi-career@0.2.0` is the earlier native-free release, and `pi-career@0.1.0` is the historical bundled-runtime release.
+> **Version note:** this documentation describes `pi-career@0.4.1`. The application-centric `pi-career@0.4.0` release is immutable; `pi-career@0.3.0` and `pi-career@0.2.0` are earlier native-free releases, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
 ### `/career` application mode
 
@@ -45,7 +45,7 @@ Windows is unsupported. npm enforces the package `os` allowlist; for a local or 
 Install the exact reviewed version:
 
 ```bash
-pi install npm:pi-career@0.4.0
+pi install npm:pi-career@0.4.1
 pi list
 ```
 
