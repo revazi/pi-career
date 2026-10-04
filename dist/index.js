@@ -8162,13 +8162,14 @@ function listBodyLines(pane, view, cursor, operationLabel, width, theme) {
   return { lines, focusLine };
 }
 var CareerOverlay = class {
-  constructor(session, theme, keybindings, requestRender, close, maximumHeight = () => Number.MAX_SAFE_INTEGER) {
+  constructor(session, theme, keybindings, requestRender, close, maximumHeight = () => Number.MAX_SAFE_INTEGER, presentNativeDialog) {
     this.session = session;
     this.theme = theme;
     this.keybindings = keybindings;
     this.requestRender = requestRender;
     this.close = close;
     this.maximumHeight = maximumHeight;
+    this.presentNativeDialog = presentNativeDialog;
   }
   session;
   theme;
@@ -8176,6 +8177,7 @@ var CareerOverlay = class {
   requestRender;
   close;
   maximumHeight;
+  presentNativeDialog;
   previewPage = 0;
   contentOffset = 0;
   helpVisible = !1;
@@ -8204,28 +8206,29 @@ var CareerOverlay = class {
     ];
   }
   keyedAction(key) {
-    return [
-      ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
-      ["l", this.session.canFilterApplicationLifecycle, () => this.session.filterApplicationLifecycle()],
-      ["k", this.session.canClearApplicationFilter, async () => (this.session.clearApplicationFilter(), !0)],
-      ["v", this.session.canPreview, () => this.session.openPreview()],
-      ["a", this.session.canAttach, () => this.session.attach()],
-      ["i", this.session.canMigrate, () => this.session.migrate()],
-      ["n", this.session.canAddRoot, () => this.session.addRoot()],
-      ["x", this.session.canRemoveRoot, () => this.session.removeRoot()],
-      ["r", this.session.canRescan, () => this.session.rescan()],
-      ["c", this.session.canCreate, () => this.session.createApplication()],
-      ["g", this.session.canAnalyze, () => this.session.analyze()],
-      ["g", this.session.canMatch && !this.session.canAnalyze, () => this.session.match()],
-      ["t", this.session.canMatch, () => this.session.match()],
-      ["e", this.session.canEditVacancy, () => this.session.editVacancy()],
-      ["s", this.session.canUpdateStatus, () => this.session.updateStatus()],
-      ["m", this.session.canWorkspace, () => this.session.workspace()],
-      ["p", this.session.canAskPi, () => this.session.askPi()],
-      ["d", this.session.canDetach, () => this.session.detach()],
-      ["k", this.session.canClearVacancy, () => this.session.clearVacancy()],
-      ["o", this.session.canSelectOriginal, () => this.session.selectOriginal()]
-    ].find(([name, enabled]) => name === key && enabled)?.[2]();
+    let entry = [
+      ["/", this.session.canFilterApplications, !0, () => this.session.filterApplications()],
+      ["l", this.session.canFilterApplicationLifecycle, !0, () => this.session.filterApplicationLifecycle()],
+      ["k", this.session.canClearApplicationFilter, !1, async () => (this.session.clearApplicationFilter(), !0)],
+      ["v", this.session.canPreview, !1, () => this.session.openPreview()],
+      ["a", this.session.canAttach, !0, () => this.session.attach()],
+      ["i", this.session.canMigrate, !0, () => this.session.migrate()],
+      ["n", this.session.canAddRoot, !0, () => this.session.addRoot()],
+      ["x", this.session.canRemoveRoot, !0, () => this.session.removeRoot()],
+      ["r", this.session.canRescan, !1, () => this.session.rescan()],
+      ["c", this.session.canCreate, !0, () => this.session.createApplication()],
+      ["g", this.session.canAnalyze, !0, () => this.session.analyze()],
+      ["g", this.session.canMatch && !this.session.canAnalyze, !0, () => this.session.match()],
+      ["t", this.session.canMatch, !0, () => this.session.match()],
+      ["e", this.session.canEditVacancy, !0, () => this.session.editVacancy()],
+      ["s", this.session.canUpdateStatus, !0, () => this.session.updateStatus()],
+      ["m", this.session.canWorkspace, !0, () => this.session.workspace()],
+      ["p", this.session.canAskPi, !0, () => this.session.askPi()],
+      ["d", this.session.canDetach, !0, () => this.session.detach()],
+      ["k", this.session.canClearVacancy, !0, () => this.session.clearVacancy()],
+      ["o", this.session.canSelectOriginal, !0, () => this.session.selectOriginal()]
+    ].find(([name, enabled]) => name === key && enabled);
+    return entry === void 0 ? void 0 : { run: entry[3], nativeDialog: entry[2] };
   }
   handleCancel() {
     if (this.helpVisible) {
@@ -8287,7 +8290,7 @@ var CareerOverlay = class {
     }
     let keyed = this.keyedAction(key);
     if (keyed !== void 0) {
-      this.requestRender(), keyed.finally(() => this.requestRender());
+      keyed.nativeDialog && this.presentNativeDialog !== void 0 ? this.presentNativeDialog(keyed.run) : (this.requestRender(), keyed.run().finally(() => this.requestRender()));
       return;
     }
     this.handleListInput(data);
@@ -8442,25 +8445,35 @@ async function openCareerUi(ctx, view, agentDir, actions = {}) {
     careerPreviewLoader(agentDir, ctx),
     (error) => notifyCareerUiFailure(ctx, error)
   );
-  if (ctx.mode === "tui") {
-    await ctx.ui.custom((tui, theme, keybindings, done) => new CareerOverlay(
-      session,
-      theme,
-      keybindings,
-      () => tui.requestRender(),
-      () => done(void 0),
-      () => Math.max(1, Math.floor(tui.terminal.rows * 0.9))
-    ), {
-      overlay: !0,
-      overlayOptions: {
-        width: "90%",
-        maxHeight: "90%",
-        anchor: "center",
-        margin: { top: 1, right: 2, bottom: 1, left: 2 }
+  if (ctx.mode === "tui")
+    for (; ; ) {
+      let action = await ctx.ui.custom(
+        (tui, theme, keybindings, done) => new CareerOverlay(
+          session,
+          theme,
+          keybindings,
+          () => tui.requestRender(),
+          () => done(void 0),
+          () => Math.max(1, Math.floor(tui.terminal.rows * 0.9)),
+          (pending) => done(pending)
+        ),
+        {
+          overlay: !0,
+          overlayOptions: {
+            width: "90%",
+            maxHeight: "90%",
+            anchor: "center",
+            margin: { top: 1, right: 2, bottom: 1, left: 2 }
+          }
+        }
+      );
+      if (action === void 0) return;
+      try {
+        await action();
+      } catch (error) {
+        notifyCareerUiFailure(ctx, error);
       }
-    });
-    return;
-  }
+    }
   await runCareerUiRpc(ctx, session);
 }
 

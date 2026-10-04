@@ -23,6 +23,7 @@ import {
   buildCareerLibraryPane,
   buildCareerUiModel,
   careerPreviewLoader,
+  openCareerUi,
   viewTitle,
 } from "../../src/workflow/career-ui.ts";
 import { eligibleOriginals, scanLibrary } from "../../src/workflow/scan.ts";
@@ -632,6 +633,71 @@ test("TUI career commands open overlay views without Core, provider, or session 
   }
 });
 
+test("TUI contextual actions unmount the Career modal before native dialogs and then restore it", async () => {
+  const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-native-dialog-")));
+  try {
+    const agentDir = path.join(temp, "agent");
+    await prepareConfigDirectory(agentDir);
+    const fake = makeFakePi();
+    const { ctx } = makeContext(fake, { mode: "tui", persisted: false });
+    const components = [];
+    let mounted = false;
+    let inputCalls = 0;
+    let rescanCalls = 0;
+
+    ctx.ui.custom = async (factory) => new Promise((resolve) => {
+      assert.equal(mounted, false, "only one custom Career modal may be mounted");
+      mounted = true;
+      let component;
+      component = factory({ requestRender() {}, terminal: { rows: 32, columns: 100 } }, ctx.ui.theme,
+        { matches() { return false; } }, (value) => {
+          mounted = false;
+          component?.dispose?.();
+          resolve(value);
+        });
+      components.push(component);
+    });
+    ctx.ui.input = async () => {
+      assert.equal(mounted, false, "native Pi input must own the foreground");
+      inputCalls++;
+      return "Synthetic value";
+    };
+
+    const running = openCareerUi(ctx, "setup", agentDir, {
+      addRoot: async () => (await ctx.ui.input("Synthetic dialog", "Synthetic value")) !== undefined,
+      rescan: async () => { rescanCalls++; return true; },
+    });
+    const firstDeadline = Date.now() + 1_000;
+    while (components.length < 1 && Date.now() < firstDeadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(components.length, 1);
+    assert.equal(components[0].currentView, "setup");
+    assert.match(components[0].render(80).map(stripTerminalSequences).join("\n"), /n add root/);
+    components[0].handleInput("n");
+    const secondDeadline = Date.now() + 1_000;
+    while (components.length < 2 && Date.now() < secondDeadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(inputCalls, 1);
+    assert.equal(components.length, 2, "the same Career session is presented again after the action");
+    assert.equal(components[1].currentView, "setup");
+    components[1].handleInput("r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(rescanCalls, 1);
+    assert.equal(components.length, 2, "non-dialog refresh stays in the cancellable Career modal");
+    assert.equal(mounted, true);
+    const rescanDeadline = Date.now() + 1_000;
+    const rescanVisible = () => /Rescanning Resume library locally/.test(
+      components[1].render(80).map(stripTerminalSequences).join("\n"),
+    );
+    while (rescanVisible() && Date.now() < rescanDeadline) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(rescanVisible(), false);
+    components[1].handleInput("\u001b");
+    components[1].handleInput("\u001b");
+    await running;
+    assert.equal(mounted, false);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test("RPC career commands render the same view model through select dialogs", async () => {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-career-overlay-rpc-")));
   try {
@@ -920,9 +986,11 @@ test("overlay a attaches a selected application only after confirmation", async 
     const deadline = Date.now() + 2_000;
     while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     components[0].handleInput("a");
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    const cancelSettle = Date.now() + 2_000;
+    while (components.length < 2 && Date.now() < cancelSettle) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(fake.entries.length, 0);
-    components[0].handleInput("esc");
+    assert.equal(components.length, 2, "cancelled native dialog restores the Career modal");
+    components.at(-1).handleInput("esc");
     await pendingCancel;
 
     const attachedComponents = [];
@@ -937,13 +1005,16 @@ test("overlay a attaches a selected application only after confirmation", async 
     }
     attachedComponents[0].handleInput("a");
     const settle = Date.now() + 2_000;
-    while (fake.entries.length === 0 && Date.now() < settle) await new Promise((resolve) => setImmediate(resolve));
+    while ((fake.entries.length === 0 || attachedComponents.length < 2) && Date.now() < settle) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     assert.equal(fake.entries.length, 1);
     assert.equal(fake.entries[0].customType, "career.application_attachment");
     assert.equal(fake.entries[0].data.kind, "application_attachment");
     assert.doesNotMatch(JSON.stringify(fake.entries[0].data), /Synthetic|applications/);
-    attachedComponents[0].handleInput("esc");
-    attachedComponents[0].handleInput("esc");
+    assert.equal(attachedComponents.length, 2, "completed native dialog restores the Career modal");
+    attachedComponents.at(-1).handleInput("esc");
+    attachedComponents.at(-1).handleInput("esc");
     await pendingAttach;
     assert.equal(calls.length, 0);
   } finally {
@@ -1522,10 +1593,12 @@ test("overlay n adds a library root only after confirmation", async () => {
     const deadline = Date.now() + 2_000;
     while (cancelled.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     cancelled[0].handleInput("n");
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    const cancelSettle = Date.now() + 2_000;
+    while (cancelled.length < 2 && Date.now() < cancelSettle) await new Promise((resolve) => setImmediate(resolve));
     assert.equal((await loadConfig(agentDir)).library_roots.length, 0);
-    cancelled[0].handleInput("esc");
-    cancelled[0].handleInput("esc");
+    assert.equal(cancelled.length, 2);
+    cancelled.at(-1).handleInput("esc");
+    cancelled.at(-1).handleInput("esc");
     await pendingCancel;
 
     const added = [];
@@ -1538,17 +1611,14 @@ test("overlay n adds a library root only after confirmation", async () => {
     while (added.length === 0 && Date.now() < addDeadline) await new Promise((resolve) => setImmediate(resolve));
     added[0].handleInput("n");
     const settle = Date.now() + 2_000;
-    let rendered = "";
-    while (Date.now() < settle) {
-      rendered = added[0].render(80).join("\n");
-      if (/\b1 root/.test(rendered)) break;
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    while (added.length < 2 && Date.now() < settle) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(added.length, 2);
+    const rendered = added.at(-1).render(80).join("\n");
     assert.match(rendered, /\b1 root/);
     assert.equal((await loadConfig(agentDir)).library_roots.length, 1);
     assert.doesNotMatch(JSON.stringify(addCtx.notifications), /alpha\.md/);
-    added[0].handleInput("esc");
-    added[0].handleInput("esc");
+    added.at(-1).handleInput("esc");
+    added.at(-1).handleInput("esc");
     await pendingAdd;
     assert.equal(calls.length, 0);
     assert.equal(fake.entries.length, 0);
@@ -2125,12 +2195,15 @@ test("#108 unattached Ask Pi selects one original and prepares a visible prompt 
     while (components.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(components.length, 1);
     components[0].handleInput("p");
-    while (tuiEditorText.length === 0 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+    while ((tuiEditorText.length === 0 || components.length < 2) && Date.now() < deadline) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     assert.equal(tuiEditorText.length, 1);
     assert.match(tuiEditorText[0], /ALPHA_PRIVATE_BODY/);
     assert.doesNotMatch(tuiEditorText[0], /BETA_PRIVATE_BODY/);
-    components[0].handleInput("esc");
-    components[0].handleInput("esc");
+    assert.equal(components.length, 2);
+    components.at(-1).handleInput("esc");
+    components.at(-1).handleInput("esc");
     await pendingTui;
     assert.deepEqual(fake.entries, before);
 

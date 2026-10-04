@@ -1328,6 +1328,7 @@ export class CareerOverlay implements Component {
     private readonly requestRender: () => void,
     private readonly close: () => void,
     private readonly maximumHeight: () => number = () => Number.MAX_SAFE_INTEGER,
+    private readonly presentNativeDialog?: (action: () => Promise<boolean>) => void,
   ) {}
 
   get currentView(): CareerUiView {
@@ -1365,30 +1366,31 @@ export class CareerOverlay implements Component {
       ...lines.slice(this.previewPage * 6, (this.previewPage + 1) * 6)];
   }
 
-  private keyedAction(key: string): Promise<boolean> | undefined {
-    const entries: Array<[string, boolean, () => Promise<boolean>]> = [
-      ["/", this.session.canFilterApplications, () => this.session.filterApplications()],
-      ["l", this.session.canFilterApplicationLifecycle, () => this.session.filterApplicationLifecycle()],
-      ["k", this.session.canClearApplicationFilter, async () => { this.session.clearApplicationFilter(); return true; }],
-      ["v", this.session.canPreview, () => this.session.openPreview()],
-      ["a", this.session.canAttach, () => this.session.attach()],
-      ["i", this.session.canMigrate, () => this.session.migrate()],
-      ["n", this.session.canAddRoot, () => this.session.addRoot()],
-      ["x", this.session.canRemoveRoot, () => this.session.removeRoot()],
-      ["r", this.session.canRescan, () => this.session.rescan()],
-      ["c", this.session.canCreate, () => this.session.createApplication()],
-      ["g", this.session.canAnalyze, () => this.session.analyze()],
-      ["g", this.session.canMatch && !this.session.canAnalyze, () => this.session.match()],
-      ["t", this.session.canMatch, () => this.session.match()],
-      ["e", this.session.canEditVacancy, () => this.session.editVacancy()],
-      ["s", this.session.canUpdateStatus, () => this.session.updateStatus()],
-      ["m", this.session.canWorkspace, () => this.session.workspace()],
-      ["p", this.session.canAskPi, () => this.session.askPi()],
-      ["d", this.session.canDetach, () => this.session.detach()],
-      ["k", this.session.canClearVacancy, () => this.session.clearVacancy()],
-      ["o", this.session.canSelectOriginal, () => this.session.selectOriginal()],
+  private keyedAction(key: string): { run: () => Promise<boolean>; nativeDialog: boolean } | undefined {
+    const entries: Array<[string, boolean, boolean, () => Promise<boolean>]> = [
+      ["/", this.session.canFilterApplications, true, () => this.session.filterApplications()],
+      ["l", this.session.canFilterApplicationLifecycle, true, () => this.session.filterApplicationLifecycle()],
+      ["k", this.session.canClearApplicationFilter, false, async () => { this.session.clearApplicationFilter(); return true; }],
+      ["v", this.session.canPreview, false, () => this.session.openPreview()],
+      ["a", this.session.canAttach, true, () => this.session.attach()],
+      ["i", this.session.canMigrate, true, () => this.session.migrate()],
+      ["n", this.session.canAddRoot, true, () => this.session.addRoot()],
+      ["x", this.session.canRemoveRoot, true, () => this.session.removeRoot()],
+      ["r", this.session.canRescan, false, () => this.session.rescan()],
+      ["c", this.session.canCreate, true, () => this.session.createApplication()],
+      ["g", this.session.canAnalyze, true, () => this.session.analyze()],
+      ["g", this.session.canMatch && !this.session.canAnalyze, true, () => this.session.match()],
+      ["t", this.session.canMatch, true, () => this.session.match()],
+      ["e", this.session.canEditVacancy, true, () => this.session.editVacancy()],
+      ["s", this.session.canUpdateStatus, true, () => this.session.updateStatus()],
+      ["m", this.session.canWorkspace, true, () => this.session.workspace()],
+      ["p", this.session.canAskPi, true, () => this.session.askPi()],
+      ["d", this.session.canDetach, true, () => this.session.detach()],
+      ["k", this.session.canClearVacancy, true, () => this.session.clearVacancy()],
+      ["o", this.session.canSelectOriginal, true, () => this.session.selectOriginal()],
     ];
-    return entries.find(([name, enabled]) => name === key && enabled)?.[2]();
+    const entry = entries.find(([name, enabled]) => name === key && enabled);
+    return entry === undefined ? undefined : { run: entry[3], nativeDialog: entry[2] };
   }
 
   private handleCancel(): void {
@@ -1475,8 +1477,12 @@ export class CareerOverlay implements Component {
     }
     const keyed = this.keyedAction(key);
     if (keyed !== undefined) {
-      this.requestRender();
-      void keyed.finally(() => this.requestRender());
+      if (keyed.nativeDialog && this.presentNativeDialog !== undefined) {
+        this.presentNativeDialog(keyed.run);
+      } else {
+        this.requestRender();
+        void keyed.run().finally(() => this.requestRender());
+      }
       return;
     }
     this.handleListInput(data);
@@ -1689,23 +1695,34 @@ export async function openCareerUi(
     (error) => notifyCareerUiFailure(ctx, error),
   );
   if (ctx.mode === "tui") {
-    await ctx.ui.custom<void>((tui, theme, keybindings, done) => new CareerOverlay(
-      session,
-      theme,
-      keybindings,
-      () => tui.requestRender(),
-      () => done(undefined),
-      () => Math.max(1, Math.floor(tui.terminal.rows * 0.9)),
-    ), {
-      overlay: true,
-      overlayOptions: {
-        width: "90%",
-        maxHeight: "90%",
-        anchor: "center",
-        margin: { top: 1, right: 2, bottom: 1, left: 2 },
-      },
-    });
-    return;
+    while (true) {
+      const action = await ctx.ui.custom<(() => Promise<boolean>) | undefined>(
+        (tui, theme, keybindings, done) => new CareerOverlay(
+          session,
+          theme,
+          keybindings,
+          () => tui.requestRender(),
+          () => done(undefined),
+          () => Math.max(1, Math.floor(tui.terminal.rows * 0.9)),
+          (pending) => done(pending),
+        ),
+        {
+          overlay: true,
+          overlayOptions: {
+            width: "90%",
+            maxHeight: "90%",
+            anchor: "center",
+            margin: { top: 1, right: 2, bottom: 1, left: 2 },
+          },
+        },
+      );
+      if (action === undefined) return;
+      try {
+        await action();
+      } catch (error) {
+        notifyCareerUiFailure(ctx, error);
+      }
+    }
   }
   await runCareerUiRpc(ctx, session);
 }
