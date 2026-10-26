@@ -8,7 +8,7 @@ This contract replaces application-state schema versioning with one exact pi-car
 pi.career.application_state
 ```
 
-Issue #140 approved this contract. Issue #141 implements production, fixture, generated-bundle, and documentation convergence.
+Issue #140 approved this contract. Issue #141 implements production, fixture, generated-bundle, and documentation convergence. Issue #66's assisted cover-letter proposal is explicitly transient and non-authoritative; it adds no state field, migration, reader compatibility, or persistence authorization.
 
 There is no application-state schema migration or compatibility path. Files whose `schema_version` is `pi.career.application_state.v1`, `pi.career.application_state.v2`, or any other value are unsupported and fail closed. They are never rewritten, adopted, interpreted as a compatible prefix, or exposed as current state.
 

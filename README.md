@@ -19,9 +19,9 @@ It gives you:
 - a bounded resolver for a compatible external Career Core runtime;
 - no bundled native binary, telemetry, vacancy URL fetching, automatic document overwrite, or hidden provider call.
 
-Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas.
+Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas. A separate [issue #66 assisted cover-letter proposal](docs/issue-66-assisted-cover-letter-proposal.md) is documentation-only and does not describe current behavior or authorize provider/model implementation.
 
-> **Version note:** this documentation describes `pi-career@0.4.1`. The application-centric `pi-career@0.4.0` release is immutable; `pi-career@0.3.0` and `pi-career@0.2.0` are earlier native-free releases, and `pi-career@0.1.0` is the historical bundled-runtime release.
+> **Version note:** this documentation describes `pi-career@0.4.2`. The prior `pi-career@0.4.1` and application-centric `pi-career@0.4.0` releases are immutable; `pi-career@0.3.0` and `pi-career@0.2.0` are earlier native-free releases, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
 ### `/career` application mode
 
@@ -45,7 +45,7 @@ Windows is unsupported. npm enforces the package `os` allowlist; for a local or 
 Install the exact reviewed version:
 
 ```bash
-pi install npm:pi-career@0.4.1
+pi install npm:pi-career@0.4.2
 pi list
 ```
 
