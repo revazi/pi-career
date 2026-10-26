@@ -1,6 +1,6 @@
 # Application-owned cover letters — issue #57
 
-This contract authorizes only user-authored Markdown or UTF-8 plain-text cover-letter artifacts in the application workspace. It does not authorize provider/model drafting, adoption of files, submission, or deletion.
+This contract authorizes only user-authored Markdown or UTF-8 plain-text cover-letter artifacts in the application workspace. It does not authorize provider/model drafting, adoption of files, submission, or deletion. Issue #66 is documented separately as a **proposal only** in [issue-66-assisted-cover-letter-proposal.md](issue-66-assisted-cover-letter-proposal.md); it does not change this contract or its `user_authored` authority.
 
 ## Authority and state
 

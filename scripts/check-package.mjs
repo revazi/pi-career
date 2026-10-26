@@ -49,6 +49,7 @@ const allowed = new Set([
   "docs/cover-letter-contract.md",
   "docs/design.md",
   "docs/hardening-validation.md",
+  "docs/issue-66-assisted-cover-letter-proposal.md",
   "docs/licenses/MIT-aho-corasick-memchr.txt",
   "docs/licenses/MIT-anstyle-clap-family.txt",
   "docs/licenses/MIT-dtolnay-family.txt",
@@ -129,7 +130,7 @@ try {
     maximumBytes: 256 * 1024,
   });
   assert.equal(packagedManifest.name, "pi-career");
-  assert.equal(packagedManifest.version, "0.4.1");
+  assert.equal(packagedManifest.version, "0.4.2");
   assert.equal(packagedManifest.private, false, "package.json must explicitly permit reviewed npm publication");
   assert.deepEqual(packagedManifest.publishConfig, expectedPublishConfig);
   assert.deepEqual(packagedManifest.os, expectedOs, "package must install only on macOS and Linux");

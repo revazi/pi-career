@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-10-26
+
+### Added
+
+- Added a documentation-only specification, threat model, synthetic black-box acceptance map, and bounded later implementation plan for issue #66 assisted cover-letter drafting. No provider/model integration, response capture, persistence, or production behavior is implemented by this release.
+
+### Changed
+
+- Updated the exact lockfile-pinned Pi development suite from 1.0.2 to 1.0.4; the four Pi-provided runtime packages remain wildcard external peer dependencies.
+- Pinned the development-only transitive `undici` resolution to 8.12.3 to remediate the reviewed low-severity advisories and preserve the zero-vulnerability full-audit publication gate. Runtime package dependencies remain unchanged.
+
 ## 0.4.1 - 2026-10-04
 
 ### Fixed
