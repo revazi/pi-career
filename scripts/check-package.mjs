@@ -50,6 +50,7 @@ const allowed = new Set([
   "docs/design.md",
   "docs/hardening-validation.md",
   "docs/issue-66-assisted-cover-letter-proposal.md",
+  "docs/issue-66-pi-1.0.4-probe-report.md",
   "docs/licenses/MIT-aho-corasick-memchr.txt",
   "docs/licenses/MIT-anstyle-clap-family.txt",
   "docs/licenses/MIT-dtolnay-family.txt",

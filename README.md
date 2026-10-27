@@ -19,7 +19,7 @@ It gives you:
 - a bounded resolver for a compatible external Career Core runtime;
 - no bundled native binary, telemetry, vacancy URL fetching, automatic document overwrite, or hidden provider call.
 
-Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas. A separate [issue #66 assisted cover-letter proposal](docs/issue-66-assisted-cover-letter-proposal.md) is documentation-only and does not describe current behavior or authorize provider/model implementation.
+Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas. A separate [issue #66 assisted cover-letter proposal](docs/issue-66-assisted-cover-letter-proposal.md) and [Pi 1.0.4 probe report](docs/issue-66-pi-1.0.4-probe-report.md) are research-only; the probes found blocking host-contract gaps and do not authorize provider/model implementation.
 
 > **Version note:** this documentation describes `pi-career@0.4.2`. The prior `pi-career@0.4.1` and application-centric `pi-career@0.4.0` releases are immutable; `pi-career@0.3.0` and `pi-career@0.2.0` are earlier native-free releases, and `pi-career@0.1.0` is the historical bundled-runtime release.
 
