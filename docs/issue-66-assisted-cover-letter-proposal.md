@@ -1,6 +1,6 @@
 # Issue #66 — operator-mediated assisted cover-letter drafting
 
-**Status: proposed specification and threat model only.** This document is not implemented behavior, an executed test result, or authorization to change `src/`, `dist/`, Skills, tests, package metadata, scripts, workflows, or Career Core. Production implementation requires a separate owner approval after independent technical/security review. Existing cover-letter behavior remains governed by [cover-letter-contract.md](cover-letter-contract.md) and accepts only genuinely `user_authored` content.
+**Status: proposed specification and threat model; production implementation blocked.** The separately authorized [Pi 1.0.4 boundary probe](issue-66-pi-1.0.4-probe-report.md) now supplies synthetic executable research evidence, but it adds no product behavior and found that the required final-prompt, isolation, lifecycle-correlation, and generic RPC guarantees cannot be proved through the current public contract. Production implementation still requires a different reviewed host/API contract plus separate owner approval. Existing cover-letter behavior remains governed by [cover-letter-contract.md](cover-letter-contract.md) and accepts only genuinely `user_authored` content.
 
 ## 1. Decision and scope
 
@@ -42,6 +42,7 @@ The reviewed Pi documentation and installed declarations establish the following
 - `session_start` reasons are `startup|reload|new|resume|fork`; `session_shutdown` reasons are `quit|reload|new|resume|fork`; `session_tree` follows branch navigation.
 - `input` exposes submitted text, input source, optional images, and streaming behavior before later prompt processing. It may continue, transform, or handle the input. A thrown `input` handler error is reported and processing continues, and later handlers may transform or consume text already validated by an earlier handler.
 - `before_agent_start` sees the raw user prompt after Pi expansion, but its declared result is not a general prompt-cancellation gate. A package cannot invent a final cancellable provider-payload hook from these APIs.
+- `context_with_system` and `before_provider_request` can replace later request material. Their handlers compose in load order, thrown handler errors are reported while processing continues, and a later handler may replace an earlier result; neither supplies an exclusive fail-closed final guard.
 - Provider/message hooks exist, including `after_provider_response`, `provider_stream_event`, and `message_end`. Their existence does not authorize this package to capture provider output.
 - Ordinary user, system, assistant, tool, and metadata appends advance the session leaf. Leaf change is therefore not equivalent to branch navigation and cannot unconditionally invalidate an attempt that is expected to survive its own run.
 - Accepted input may fail model/authentication preflight without `agent_start` or final settlement. `agent_settled` has no outcome field; `agent_before_settle` exposes `completed|aborted|error` but may be skipped on some abort paths.
@@ -53,7 +54,11 @@ The reviewed Pi documentation and installed declarations establish the following
 
 These facts rule out the earlier idea that a private process-local source snapshot could safely span the activation reload. They also rule out claiming “no prompt/response persistence” in an ordinary persistent Pi session, treating handoff bounds as complete provider-request bounds, or treating one `input` check/empty active-tool list as a proved security boundary.
 
-### 2.3 Proposal-only behavior
+### 2.3 Executed Pi 1.0.4 probe evidence
+
+The [boundary probe report](issue-66-pi-1.0.4-probe-report.md) and its synthetic tests establish that later input/request handlers can alter content already accepted by an earlier guard, handler exceptions do not stop processing, empty active tools can coexist with nested-callable tools, ordinary appends advance the leaf, and RPC exposes no authenticated human-action marker. Pi's all-tools denylist did remove registered/active/callable synthetic tools in one controlled host, but that does not sandbox extensions or establish exclusive lifetime ownership. These results block Phase B on Pi 1.0.4's current public contract.
+
+### 2.4 Proposal-only behavior
 
 A future implementation would add a separate cover-letter drafting action that is available only **after** assistance activation and its reload are complete. That action would create a visible, bounded handoff in the replacement runtime. It would not call `ctx.reload()` again as part of creating the handoff.
 
@@ -277,6 +282,8 @@ These Given/When/Then rows are a future acceptance specification, not executable
 ## 6. Bounded later implementation and verification plan
 
 ### Phase A — owner decisions and executable Pi probes (no product implementation)
+
+The first executable probe pass is complete and recorded in [issue-66-pi-1.0.4-probe-report.md](issue-66-pi-1.0.4-probe-report.md). It failed the final-prompt and metadata-only correlation feasibility gates, so Phase B remains blocked. The remaining owner decisions below are not implementation authorization.
 
 1. Approve the exact bounds table described in §3.4.
 2. Decide whether requiring `--no-session` is acceptable product behavior. If persistent sessions must be supported, first authorize a different retention contract; “no prompt/response persistence” cannot be claimed.
