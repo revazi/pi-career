@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded trusted-publishing process and records the historical `v0.1.0`, `v0.2.0`, `v0.3.0`, and `v0.4.0` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
+This document defines the bounded trusted-publishing process and records the historical `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, and `v0.4.2` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 
@@ -94,6 +94,25 @@ Run `37191969844` passed every pre-publication gate and published the immutable 
 No workflow rerun, tag movement, or npm republish occurred. After authoritative registry state proved the exact metadata, `gitHead`, tarball integrity/shasum, trusted publisher, provenance, and `latest` dist-tag, the existing checked-in `scripts/create-github-release.mjs` completed the asset-free GitHub Release bookkeeping. Independent isolated acceptance then exercised the exact published package as recorded above. `v0.4.0` and `pi-career@0.4.0` are immutable; this hardening must not alter or recreate them.
 
 Future registry-resource polling uses exactly 48 attempts at five-second intervals: at most 47 scheduled sleeps, or 235 seconds of propagation delay, with each request retaining its separate 30-second timeout. Only `404`, `5xx`, and request failures are retried within that finite bound. Other HTTP statuses fail immediately; authoritative metadata, provenance, integrity, publisher, and `gitHead` mismatches fail closed, and an indeterminate final state never authorizes an automatic publication retry.
+
+## Historical `v0.4.2` outcome
+
+Release execution completed on 2026-10-26:
+
+- npm: [`pi-career@0.4.2`](https://www.npmjs.com/package/pi-career/v/0.4.2), promoted as `latest`
+- published commit: `c537839141c5c639ee4e63228e25c7c9dbc3aba9`
+- annotated unsigned tag and asset-free GitHub Release: [`v0.4.2`](https://github.com/revazi/pi-career/releases/tag/v0.4.2), both targeting that commit
+- npm integrity: `sha512-l8FHARaq6Cwk0ICWBDn+6tb33TT97y2tZxNqv/HsBScEAR7aH0w3aHhK4lWWjib2bYt71PpE9Yeu6BlCuDXd3g==`
+- npm shasum: `e427d361992292b674e59d7119d174862898bb1f`
+- same-SHA main Adapter checks: [`40419990423`](https://github.com/revazi/pi-career/actions/runs/40419990423)
+- same-SHA six-target compatibility run: [`40420422734`](https://github.com/revazi/pi-career/actions/runs/40420422734)
+- OIDC publication and bounded post-publication verification run: [`40420872258`](https://github.com/revazi/pi-career/actions/runs/40420872258)
+- exact published-package Pi install/list/load, runtime acquisition with synthetic resume and job operations, offline failure, and removal: passed
+- custom GitHub Release assets: none
+
+The OIDC publication completed successfully, but the workflow's bounded canonical-registry check received `404` until its propagation limit and therefore failed closed before creating the GitHub Release. The version was never rerun or republished. After authoritative registry metadata became available, the checked-in verifier proved the exact tarball bytes, metadata, `gitHead`, trusted-publisher identity, provenance, integrity, shasum, and `latest` dist-tag; only then did the checked-in release helper complete the asset-free GitHub Release bookkeeping.
+
+`v0.4.2` added only the reviewed issue #66 documentation, Pi 1.0.4 development-suite pins, and development-only audit remediation. It added no assisted-drafting production behavior, runtime dependency, or native artifact.
 
 ## Release gates
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.3 - 2026-10-27
+
 ### Added
 
 - Added synthetic executable Pi 1.0.4 boundary probes and a research report for issue #66. The probes make no provider call or product change and keep production assisted cover-letter drafting blocked because the public host contract cannot prove final-prompt integrity, exclusive isolation, lifecycle correlation, or generic RPC human mediation.
