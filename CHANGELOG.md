@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.4 - 2026-10-28
+
 ### Added
 
 - Added the issue #166 transparent assisted cover-letter workflow: an explicit action prepares a bounded visible Pi editor prompt without submission or response capture, and a separate paste/import action uses exact preview plus distinct persistence and workspace-mutation confirmations.

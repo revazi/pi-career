@@ -1,6 +1,6 @@
 # Release process
 
-This document defines the bounded trusted-publishing process and records the historical `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, and `v0.4.2` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
+This document defines the bounded trusted-publishing process and records the historical `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.4.2`, and `v0.4.3` outcomes. Candidate metadata and the dated changelog must be finalized before the release SHA is frozen; tracked files do not embed that self-referential SHA. Publication and tag creation always require the separate explicit authorization described below. In the instructions below, `<version>` is the exact package version without `v`, `<tag>` is `v<version>`, and `<sha>` is the full frozen candidate commit.
 
 ## Release boundary
 
@@ -113,6 +113,24 @@ Release execution completed on 2026-10-26:
 The OIDC publication completed successfully, but the workflow's bounded canonical-registry check received `404` until its propagation limit and therefore failed closed before creating the GitHub Release. The version was never rerun or republished. After authoritative registry metadata became available, the checked-in verifier proved the exact tarball bytes, metadata, `gitHead`, trusted-publisher identity, provenance, integrity, shasum, and `latest` dist-tag; only then did the checked-in release helper complete the asset-free GitHub Release bookkeeping.
 
 `v0.4.2` added only the reviewed issue #66 documentation, Pi 1.0.4 development-suite pins, and development-only audit remediation. It added no assisted-drafting production behavior, runtime dependency, or native artifact.
+
+## Historical `v0.4.3` outcome
+
+Release execution completed on 2026-10-28:
+
+- npm: [`pi-career@0.4.3`](https://www.npmjs.com/package/pi-career/v/0.4.3), promoted as `latest`
+- published commit: `849f0747dbc50c9988b0d31f5142f216d11db7e3`
+- annotated unsigned tag and asset-free GitHub Release: [`v0.4.3`](https://github.com/revazi/pi-career/releases/tag/v0.4.3), both targeting that commit
+- npm integrity: `sha512-OoX9U0Gdsaef0qzxXn0kS+nDipzY1nARUbbyM8PfQwZXnAkYr2imzzxmB0oNq6CL3BvLAfr+pJH3YPLE6IztRw==`
+- npm shasum: `12e3323a5231dca845ba71ecddcc1a5ef53f15ff`
+- same-SHA main Adapter checks: [`40592616712`](https://github.com/revazi/pi-career/actions/runs/40592616712)
+- same-SHA six-target compatibility run: [`40593119029`](https://github.com/revazi/pi-career/actions/runs/40593119029)
+- OIDC publication and bounded post-publication verification run: [`40593677389`](https://github.com/revazi/pi-career/actions/runs/40593677389)
+- custom GitHub Release assets: none
+
+The OIDC publication completed successfully, but the bounded canonical-registry verification failed closed before GitHub Release creation. The version was never rerun or republished. After authoritative registry metadata became available, the checked-in verifier proved the exact tarball bytes, metadata, `gitHead`, trusted-publisher identity, provenance, integrity, shasum, and `latest` dist-tag; only then did the checked-in release helper complete the asset-free GitHub Release bookkeeping.
+
+`v0.4.3` added only synthetic Pi 1.0.4 boundary probes and the issue #66 research report. It made no provider call or assisted-drafting product change.
 
 ## Release gates
 
