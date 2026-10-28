@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Added the issue #166 transparent assisted cover-letter workflow: an explicit action prepares a bounded visible Pi editor prompt without submission or response capture, and a separate paste/import action uses exact preview plus distinct persistence and workspace-mutation confirmations.
+- Added a separately versioned assisted cover-letter reference and immutable artifact path whose authority remains `model_assisted_non_authoritative` through persistence, restart reconstruction, readiness derivation, viewing, and clearing; existing `user_authored` behavior remains separate and unchanged.
+
 ## 0.4.3 - 2026-10-27
 
 ### Added

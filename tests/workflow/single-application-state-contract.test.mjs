@@ -34,7 +34,7 @@ test("#140 defines one application-state schema with no compatibility path", asy
 
 test("#57 implements the approved user-authored cover-letter contract on the #140 reference", async () => {
   const markdown = await readFile(contractUrl, "utf8");
-  const cover = jsonAfter(markdown, "A non-null cover-letter reference");
+  const cover = jsonAfter(markdown, "A non-null user-authored cover-letter reference");
 
   assert.deepEqual(Object.keys(cover), [
     "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
@@ -46,6 +46,21 @@ test("#57 implements the approved user-authored cover-letter contract on the #14
   assert.match(coverContract, /authority: "user_authored"/);
   assert.match(coverContract, /state is the commit record/);
   assert.match(coverContract, /Clear appends a state revision with a null reference/);
+});
+
+test("#166 adds a distinct assisted reference without changing the application-state schema", async () => {
+  const markdown = await readFile(contractUrl, "utf8");
+  const assisted = jsonAfter(markdown, "Issue #166 authorizes this distinct exact assisted reference shape");
+  assert.deepEqual(Object.keys(assisted), [
+    "schema_version", "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
+    "job_description_sha256", "effective_resume_sha256",
+  ]);
+  assert.equal(assisted.schema_version, "pi.career.assisted_cover_letter_reference.v1");
+  assert.equal(assisted.authority, "model_assisted_non_authoritative");
+  assert.match(assisted.relative_path, /^cover-letter-assisted-[0-9]{6}\.md$/);
+  const coverContract = await readFile(new URL("../../docs/cover-letter-contract.md", import.meta.url), "utf8");
+  assert.match(coverContract, /Editing, previewing, approving, importing, viewing, carrying, or clearing assisted content never upgrades it to `user_authored`/);
+  assert.match(coverContract, /pi-career does not submit it, append it as a session entry, call a provider, capture a response, or infer completion/);
 });
 
 test("#140 assigns focused single-schema acceptance scenarios to #141", async () => {

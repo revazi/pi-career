@@ -19,9 +19,9 @@ It gives you:
 - a bounded resolver for a compatible external Career Core runtime;
 - no bundled native binary, telemetry, vacancy URL fetching, automatic document overwrite, or hidden provider call.
 
-Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas. A separate [issue #66 assisted cover-letter proposal](docs/issue-66-assisted-cover-letter-proposal.md) and [Pi 1.0.4 probe report](docs/issue-66-pi-1.0.4-probe-report.md) are research-only; the probes found blocking host-contract gaps and do not authorize provider/model implementation.
+Career Core remains authoritative for scores, evidence, warnings, uncertainty, matching, and proposal review. `pi-career` owns the Pi workflow and presentation layer; it does not reimplement Career Core algorithms or schemas. The high-assurance [issue #66 assisted cover-letter proposal](docs/issue-66-assisted-cover-letter-proposal.md) and [Pi 1.0.4 probe report](docs/issue-66-pi-1.0.4-probe-report.md) remain research-only because their isolation guarantees are unavailable. The separately approved ordinary-Pi workflow prepares a visible cover-letter prompt without submission and can persist only an explicitly pasted draft with permanent `model_assisted_non_authoritative` authority.
 
-> **Version note:** this documentation describes `pi-career@0.4.3`. The prior `pi-career@0.4.2`, `pi-career@0.4.1`, and application-centric `pi-career@0.4.0` releases are immutable; `pi-career@0.3.0` and `pi-career@0.2.0` are earlier native-free releases, and `pi-career@0.1.0` is the historical bundled-runtime release.
+> **Version note:** the latest published version is `pi-career@0.4.3`; it does not contain the Unreleased issue #166 implementation described here. All published releases remain immutable. The next release, including its version, remains a separate owner decision.
 
 ### `/career` application mode
 
@@ -287,7 +287,7 @@ Gate 1 can:
 
 Every mutation displays a complete canonical preview in the editor, requires the preview to return byte-identically, and then requires a separate confirmation. Writing a cover letter also requires a distinct persistence confirmation before the ordinary workspace-mutation approval; cancellation writes nothing. Configuration and workspace files use owner-only modes, locks, bounded no-clobber publication, sync, and fail-closed identity/disjointness checks. Application roots must remain physically disjoint in both directions from every resume-library root and variation-root suggestion.
 
-Workspace files outlive `/career-application clear`, `/new`, session deletion, transient shutdown, detach, package removal, and status `closed`. Gate 1 does **not** save an assisted resume, delete a workspace/root/application, copy or modify an original, save Core/provider output, create assisted cover-letter content, or create notes, `changes.md`, interview files, PDF/DOCX artifacts, repair, adoption, archive, or sync behavior. The cover-letter transaction accepts only content authored by the user in the local editor; it does not call Career Core, a model/provider, or the network, and it does not submit the letter. `/career-save` remains a separate resume-library variation workflow with independent consent.
+Workspace files outlive `/career-application clear`, `/new`, session deletion, transient shutdown, detach, package removal, and status `closed`. Gate 1 does **not** save an assisted resume, delete a workspace/root/application, copy or modify an original, automatically capture Core/provider output, or create notes, `changes.md`, interview files, PDF/DOCX artifacts, repair, adoption, archive, or sync behavior. Cover-letter actions support independently user-authored content and a separate model-assisted path: **Draft cover letter with Pi** places a bounded visible prompt in the native editor without submission, while **Import model-assisted cover letter** accepts only an explicit paste, exact preview, non-authoritative persistence confirmation, and ordinary workspace mutation approval. Imported authority remains `model_assisted_non_authoritative`; pi-career never captures the provider response or promotes it to user-authored. `/career-save` remains a separate resume-library variation workflow with independent consent.
 
 ### `/career-vacancy [clear]`
 
@@ -480,7 +480,7 @@ See [`SECURITY.md`](SECURITY.md), [`docs/design.md`](docs/design.md), and [`docs
 - Matching is conservative workflow guidance, not a hiring prediction or proprietary ATS simulation.
 - Supported runtime targets are `darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, and `linux-arm64-musl`; Windows is unsupported.
 
-Application-workspace Gate 1, the separately authorized user-authored cover-letter transaction, and the still-unimplemented assisted-resume/deletion protocols are documented in [`docs/application-workspaces.md`](docs/application-workspaces.md) and [`docs/cover-letter-contract.md`](docs/cover-letter-contract.md). Neither implemented workflow authorizes or implies Gates 2–4.
+Application-workspace Gate 1, the separately authorized user-authored and explicit model-assisted cover-letter transactions, and the still-unimplemented assisted-resume/deletion protocols are documented in [`docs/application-workspaces.md`](docs/application-workspaces.md) and [`docs/cover-letter-contract.md`](docs/cover-letter-contract.md). These cover-letter paths do not authorize or imply Gates 2–4.
 
 ## Development
 

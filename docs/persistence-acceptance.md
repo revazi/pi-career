@@ -195,7 +195,7 @@ The canonical value is:
 }
 ```
 
-The top-level keys and nested keys occur in exactly the displayed order. `cover_letter_artifact` is either `null` or the exact seven-key object shown. All fields have these unions and meanings:
+The top-level keys and nested keys occur in exactly the displayed order. `cover_letter_artifact` is `null`, the exact seven-key user-authored object shown, or the separately versioned eight-key assisted object defined below. All fields have these unions and meanings:
 
 - `application_id` is one canonical lowercase UUID; `sequence` is a safe integer from 1 through 64 inclusive; `parent_sha256` is 64 lowercase hexadecimal characters.
 - `status` is exactly `preparing`, `applied`, `interviewing`, or `closed`.
@@ -212,14 +212,14 @@ A state file is fatal-UTF-8 canonical two-space JSON plus one LF, with no BOM, d
 
 A non-null `cover_letter_artifact` has these rules:
 
-1. `relative_path` is one package-generated direct-child basename. The first distinct letter is `cover-letter.md` for `markdown` or `cover-letter.txt` for `text`. Every later distinct letter is `cover-letter-<six-digit-introducing-state-sequence>.md` or `.txt`. The suffix must equal the state sequence that first introduces those exact bytes. No separator, absolute form, dot component, control character, alternative padding, or user-selected name is accepted.
+1. `relative_path` is one package-generated direct-child basename. User-authored letters use `cover-letter.md`/`.txt` when accepted as the historical first form or `cover-letter-<six-digit-introducing-state-sequence>.md`/`.txt`. Assisted imports always use `cover-letter-assisted-<six-digit-introducing-state-sequence>.md`/`.txt`. A suffix must equal the state sequence that first introduces those exact bytes. No separator, absolute form, dot component, control character, alternative padding, or user-selected name is accepted.
 2. `artifact_sha256` is SHA-256 over the exact artifact bytes and is 64 lowercase hexadecimal characters. `utf8_bytes` is their exact byte length and is a safe integer from 1 through 262,144 inclusive.
 3. The artifact is fatal UTF-8 text with no BOM, NUL, carriage return, or unpaired surrogate after decoding. Bytes are otherwise preserved exactly; pi-career adds no heading, whitespace, or trailing LF. `format` is exactly `markdown` or `text` and must match the filename extension.
-4. `authority` is exactly `user_authored`. No other authority value is valid. A future assisted authority requires a separately approved contract and cannot be smuggled in as an unknown value.
+4. The historical seven-key variant has exactly `authority: "user_authored"`. The assisted eight-key variant starts with `schema_version: "pi.career.assisted_cover_letter_reference.v1"` and has exactly `authority: "model_assisted_non_authoritative"`; no operation promotes it. Unknown schemas, authorities, or mixed path/shape combinations fail closed.
 5. `job_description_sha256` and `effective_resume_sha256` are each 64 lowercase hexadecimal characters and bind the letter to the same revision's package-derived dependency digests defined below.
-6. There is no cover-letter sidecar. Authority, size, exact-byte hash, format, and dependencies live only in the immutable state reference. A draft cannot be attached before both dependencies can be derived. Draft storage outside this exact approved artifact transaction is not introduced.
-7. Carrying an unchanged reference into a later state is allowed and is how a letter becomes stale after a dependency changes. A rebind may retain the exact path, artifact hash, size, format, and authority while changing only the two dependency hashes, but it is a distinct explicitly reviewed future transaction and both new hashes must match that revision's dependencies. New bytes require a new immutable numbered path. One historical path may never claim different bytes, size, format, or authority.
-8. Every referenced cover-letter file is a direct-child owner-only `0600`, one-link, non-symlink regular file with exact size/hash. It counts toward the existing entry and managed-byte ceilings. The #57 authoring transaction, including exact preview, separate confirmation, under-lock revalidation, and exclusive no-clobber publication, is specified in [`cover-letter-contract.md`](cover-letter-contract.md) and implemented in the attached workspace workflow.
+6. There is no cover-letter sidecar. Authority/schema, size, exact-byte hash, format, and dependencies live only in the immutable state reference. A draft cannot be attached before both dependencies can be derived. Model output enters only through the explicit paste/import transaction.
+7. Carrying an unchanged reference into a later state is allowed and is how a letter becomes stale after a dependency changes. A rebind may retain the exact path, artifact hash, size, format, schema, and authority while changing only the two dependency hashes, but it is a distinct explicitly reviewed future transaction and both new hashes must match that revision's dependencies. New bytes require a new immutable numbered path. One historical path may never claim different bytes, size, format, schema, or authority.
+8. Every referenced cover-letter file is a direct-child owner-only `0600`, one-link, non-symlink regular file with exact size/hash. It counts toward the existing entry and managed-byte ceilings. The #57 user-authored and #166 assisted-import transactions, including exact preview, separate confirmation, under-lock revalidation, and exclusive no-clobber publication, are specified in [`cover-letter-contract.md`](cover-letter-contract.md) and implemented in the attached workspace workflow.
 
 ### Exact digest domains
 
@@ -380,7 +380,7 @@ Retain limits by default; reject over-capacity plans before preview and under lo
 The canonical application-state schema, cover-letter reference, digest domains, single-schema chain validation, historical-reference behavior, component classes, readiness table, and #64 attachment/activation contract are fixed above and in `application-workspaces.md`. Remaining decisions are:
 
 1. #64 behavior slices must implement strict entry replay, pointer revalidation, command convergence, safe explicit session replacement, and context-on-demand activation without combining them into an unreviewable UI change.
-2. #57 defines the user-authored cover-letter preview, distinct confirmation, immutable publication, and state-append transaction in [`cover-letter-contract.md`](cover-letter-contract.md). No draft is persisted; assisted authoring and dependency rebind remain out of scope.
+2. #57 defines the user-authored cover-letter transaction and #166 defines visible ordinary-Pi drafting plus explicit non-authoritative paste/import in [`cover-letter-contract.md`](cover-letter-contract.md). No draft is captured from a provider or persisted before the separate import preview and confirmations; dependency rebind remains out of scope.
 3. Later overlay issues must decide presentation copy and local detail navigation without changing classification/readiness semantics or exposing invalid-entry detail.
 4. #65's integration checks remain scoped: explicit consented attachment/activation entries are permitted by #64; blanket “no session append anywhere” would contradict reviewed session persistence.
 

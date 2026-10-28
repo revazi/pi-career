@@ -1075,6 +1075,183 @@ async function prepareAttachedCoverLetterFixture(value) {
   return path.join(value.root, `synthetic-company--platform-engineer--${value.identity.application_id}`);
 }
 
+test("assisted cover-letter drafting stays visible and explicit import preserves non-authoritative provenance", async () => {
+  const value = await workspaceFixture();
+  try {
+    const directory = await prepareAttachedCoverLetterFixture(value);
+    const menuCalls = [];
+    await runWorkspace(value.fake, { selects: ["Close"], selectCalls: menuCalls });
+    const workspaceMenu = menuCalls.find(({ title }) => title === "Career application workspace");
+    assert.ok(workspaceMenu.options.includes("Draft cover letter with Pi"));
+    assert.ok(workspaceMenu.options.includes("Import model-assisted cover letter"));
+
+    const editorText = [];
+    const entriesBeforeDraft = value.fake.entries.length;
+    const drafted = await runWorkspace(value.fake, {
+      selects: ["Draft cover letter with Pi"],
+      editorText,
+    });
+    assert.equal(editorText.length, 1);
+    assert.match(editorText[0], /Draft a concise cover letter/);
+    assert.match(editorText[0], /Synthetic vacancy bytes/);
+    assert.match(editorText[0], /Built reliable APIs/);
+    assert.match(editorText[0], /model-assisted and non-authoritative/);
+    assert.equal(value.fake.entries.length, entriesBeforeDraft, "visible handoff must not submit or append");
+    assert.ok(drafted.notifications.some(({ message }) => /no response is captured/i.test(message)));
+    const tuiEditorText = [];
+    const tui = makeContext(value.fake, {
+      mode: "tui", persisted: false, selects: ["Draft cover letter with Pi"], editorText: tuiEditorText,
+    });
+    await value.workspace.run("", tui.ctx);
+    assert.deepEqual(tuiEditorText, editorText, "TUI and RPC expose the same visible local handoff");
+    assert.equal(value.invocations, 0);
+
+    const assisted = "# Synthetic assisted letter\n\nCandidate review required.\n";
+    let exactPreview;
+    await runWorkspace(value.fake, {
+      selects: ["Import model-assisted cover letter", "Markdown (.md)"],
+      editors: [() => assisted, (_title, preview) => { exactPreview = preview; return preview; }, (_title, preview) => preview],
+      confirms: [true, true],
+    });
+    assert.equal(exactPreview, assisted);
+    const stateNames = (await readdir(directory)).filter((name) => name.startsWith(".pi-career-state-")).sort();
+    const head = JSON.parse(await readFile(path.join(directory, stateNames.at(-1)), "utf8"));
+    assert.deepEqual(head.cover_letter_artifact, {
+      schema_version: "pi.career.assisted_cover_letter_reference.v1",
+      relative_path: `cover-letter-assisted-${String(head.sequence).padStart(6, "0")}.md`,
+      artifact_sha256: sha256Bytes(Buffer.from(assisted)),
+      utf8_bytes: Buffer.byteLength(assisted),
+      format: "markdown",
+      authority: "model_assisted_non_authoritative",
+      job_description_sha256: head.vacancy.content_sha256,
+      effective_resume_sha256: head.selected_original.text_sha256,
+    });
+    assert.equal(await readFile(path.join(directory, head.cover_letter_artifact.relative_path), "utf8"), assisted);
+    const catalog = await readOverlayApplications(value.agentDir, await scanLibrary(await loadConfig(value.agentDir)));
+    const record = catalog.find(({ application_id }) => application_id === value.identity.application_id);
+    assert.equal(record.readiness, "Ready 3/3");
+    assert.equal(record.cover_letter_authority, "model_assisted_non_authoritative");
+
+    const viewed = [];
+    await runWorkspace(value.fake, {
+      selects: ["View current cover letter"],
+      editors: [(title, text) => { viewed.push({ title, text }); return undefined; }],
+    });
+    assert.deepEqual(viewed, [{
+      title: "View current model_assisted_non_authoritative cover letter (markdown)",
+      text: assisted,
+    }]);
+
+    const staleContext = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      editors: [(_title, preview) => preview], confirms: [true],
+    });
+    await value.workspace.writeAttachedVacancy(staleContext.ctx, "Changed synthetic vacancy.\n");
+    const staleRecord = (await readOverlayApplications(
+      value.agentDir, await scanLibrary(await loadConfig(value.agentDir)),
+    )).find(({ application_id }) => application_id === value.identity.application_id);
+    assert.equal(staleRecord.readiness, "Incomplete 2/3");
+    assert.equal(staleRecord.components.cover_letter, "Stale");
+    assert.equal(staleRecord.cover_letter_authority, "model_assisted_non_authoritative");
+
+    await runWorkspace(value.fake, {
+      selects: ["Clear current cover-letter reference"],
+      editors: [(_title, preview) => preview],
+      confirms: [true],
+    });
+    const clearedNames = (await readdir(directory)).filter((name) => name.startsWith(".pi-career-state-")).sort();
+    const cleared = JSON.parse(await readFile(path.join(directory, clearedNames.at(-1)), "utf8"));
+    assert.equal(cleared.cover_letter_artifact, null);
+    assert.equal(await readFile(path.join(directory, head.cover_letter_artifact.relative_path), "utf8"), assisted);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("assisted cover-letter prerequisites, bounds, changed preview, and cancellation fail without persistence", async () => {
+  const unavailable = await workspaceFixture({ vacancy: false });
+  try {
+    await prepareAttachedCoverLetterFixture(unavailable);
+    const attempt = makeContext(unavailable.fake, {
+      mode: "rpc", persisted: false, selects: ["Draft cover letter with Pi"], editorText: [],
+    });
+    await assert.rejects(unavailable.workspace.run("", attempt.ctx), /workspace_unavailable/);
+    assert.deepEqual(attempt.ctx.ui.editorText, undefined);
+  } finally {
+    await rm(unavailable.temp, { recursive: true, force: true });
+  }
+
+  const value = await workspaceFixture();
+  try {
+    const directory = await prepareAttachedCoverLetterFixture(value);
+    const before = (await readdir(directory)).sort();
+    const oversized = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Import model-assisted cover letter", "Plain text (.txt)"],
+      editors: [() => "x".repeat(262_145)],
+    });
+    await assert.rejects(value.workspace.run("", oversized.ctx), /workspace_limit_reached/);
+    const changed = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Import model-assisted cover letter", "Plain text (.txt)"],
+      editors: [() => "Synthetic assisted draft.\n", () => "Changed during preview.\n"],
+    });
+    await assert.rejects(value.workspace.run("", changed.ctx), /workspace_preview_changed/);
+    await runWorkspace(value.fake, {
+      selects: ["Import model-assisted cover letter", "Plain text (.txt)"],
+      editors: [() => "Synthetic assisted draft.\n", (_title, preview) => preview],
+      confirms: [false],
+    });
+    assert.deepEqual((await readdir(directory)).sort(), before);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
+test("assisted cover-letter import revalidates after confirmation and never clobbers a racing target", async () => {
+  const value = await workspaceFixture();
+  try {
+    const directory = await prepareAttachedCoverLetterFixture(value);
+    const stateBefore = await readFile(path.join(directory, ".pi-career-state-000002.json"));
+    const collision = path.join(directory, "cover-letter-assisted-000003.txt");
+    const collisionBytes = Buffer.from("Unknown racing assisted artifact.\n");
+    const workflow = new ApplicationWorkspaceWorkflow({
+      agentDir: value.agentDir,
+      now: value.workspaceNow,
+      uuid: value.ids,
+      afterWorkspaceLockAcquired: async (operation) => {
+        if (operation === "record_state") {
+          await writeFile(collision, collisionBytes, { mode: 0o600 });
+          await chmod(collision, 0o600);
+        }
+      },
+    });
+    const context = makeContext(value.fake, {
+      mode: "rpc", persisted: false,
+      selects: ["Import model-assisted cover letter", "Plain text (.txt)"],
+      editors: [() => "Synthetic assisted draft.\n", (_title, preview) => preview, (_title, preview) => preview],
+      confirms: [true, true],
+    });
+    let error;
+    try {
+      await workflow.run("", context.ctx);
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(error?.message ?? "", /workspace_drift|workspace_collision|workspace_identity_conflict|workspace_verification_failed/);
+    assert.doesNotMatch(error?.message ?? "", /Synthetic assisted draft|Unknown racing/);
+    assert.deepEqual(await readFile(collision), collisionBytes);
+    assert.deepEqual(await readFile(path.join(directory, ".pi-career-state-000002.json")), stateBefore);
+    await assert.rejects(readFile(path.join(directory, ".pi-career-state-000003.json")), { code: "ENOENT" });
+    assert.equal((await readdir(directory)).some((name) => name.endsWith(".tmp")), false);
+    assert.equal(value.invocations, 0);
+  } finally {
+    await rm(value.temp, { recursive: true, force: true });
+  }
+});
+
 test("cover letters persist as user-authored immutable revisions and clear only the current reference", async () => {
   const value = await workspaceFixture();
   try {
