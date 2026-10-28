@@ -179,6 +179,41 @@ test("P3-19/P3-44: exact cover-letter references validate path, authority, bytes
   }
 });
 
+test("#166 assisted cover-letter references require the exact schema, path, and permanent authority", async (t) => {
+  const vacancy = makeVacancyBinding();
+  const selectedOriginal = makeSelectedOriginal();
+  const legacy = makeCoverLetter();
+  const assisted = {
+    schema_version: "pi.career.assisted_cover_letter_reference.v1",
+    relative_path: "cover-letter-assisted-000002.md",
+    artifact_sha256: legacy.artifact_sha256,
+    utf8_bytes: legacy.utf8_bytes,
+    format: "markdown",
+    authority: "model_assisted_non_authoritative",
+    job_description_sha256: legacy.job_description_sha256,
+    effective_resume_sha256: legacy.effective_resume_sha256,
+  };
+  const cases = [
+    ["valid", assisted, true],
+    ["missing-schema", Object.fromEntries(Object.entries(assisted).filter(([key]) => key !== "schema_version")), false],
+    ["wrong-path", { ...assisted, relative_path: "cover-letter-000002.md" }, false],
+    ["promoted-authority", { ...assisted, authority: "user_authored" }, false],
+  ];
+  for (const [id, binding, valid] of cases) {
+    const chain = buildChain([
+      { vacancy, selectedOriginal },
+      { vacancy, selectedOriginal, coverLetterArtifact: binding },
+    ]);
+    const value = await materialize(t, chain, new Map([
+      ["vacancy.md", SYNTHETIC.vacancyBytes],
+      [binding.relative_path, SYNTHETIC.coverBytes],
+    ]));
+    const catalog = await readApplicationCatalog(value.root, SYNTHETIC.rootId);
+    if (valid) assert.equal(catalog.applications.length, 1, id);
+    else assert.equal(onlyClassification(catalog), "drifted", id);
+  }
+});
+
 test("P3-19/P3-44: cover-letter bytes reject BOM, NUL, carriage return, and invalid UTF-8", async (t) => {
   const vacancy = makeVacancyBinding();
   const selectedOriginal = makeSelectedOriginal();

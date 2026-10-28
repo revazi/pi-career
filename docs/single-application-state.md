@@ -8,7 +8,7 @@ This contract replaces application-state schema versioning with one exact pi-car
 pi.career.application_state
 ```
 
-Issue #140 approved this contract. Issue #141 implements production, fixture, generated-bundle, and documentation convergence. Issue #66's assisted cover-letter proposal is explicitly transient and non-authoritative; it adds no state field, migration, reader compatibility, or persistence authorization.
+Issue #140 approved this contract. Issue #141 implements production, fixture, generated-bundle, and documentation convergence. Issue #66's high-assurance proposal adds no state migration or provider integration. Issue #166 separately authorizes one versioned assisted reference variant inside the existing nullable `cover_letter_artifact` field; it does not change the application-state schema identifier or add a top-level key.
 
 There is no application-state schema migration or compatibility path. Files whose `schema_version` is `pi.career.application_state.v1`, `pi.career.application_state.v2`, or any other value are unsupported and fail closed. They are never rewritten, adopted, interpreted as a compatible prefix, or exposed as current state.
 
@@ -46,7 +46,7 @@ The field meanings and bounds remain:
 - `cover_letter_artifact`: `null` or the exact ordered reference below.
 - `updated_at`: canonical UTC timestamp with milliseconds, strictly increasing across revisions.
 
-A non-null cover-letter reference has exactly these ordered keys:
+A non-null user-authored cover-letter reference has exactly these ordered keys:
 
 ```json
 {
@@ -60,7 +60,22 @@ A non-null cover-letter reference has exactly these ordered keys:
 }
 ```
 
-Issue #57 separately authorizes a narrowly scoped user-authored writer using this exact reference shape. It does not authorize rebind, artifact deletion/adoption, or model-assisted content. The transaction, byte bound, authority, preview, confirmation, and immutable-history rules are specified in [`cover-letter-contract.md`](cover-letter-contract.md).
+Issue #57 separately authorizes a narrowly scoped user-authored writer using that exact reference shape. Issue #166 authorizes this distinct exact assisted reference shape:
+
+```json
+{
+  "schema_version": "pi.career.assisted_cover_letter_reference.v1",
+  "relative_path": "cover-letter-assisted-000003.md",
+  "artifact_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "utf8_bytes": 42,
+  "format": "markdown",
+  "authority": "model_assisted_non_authoritative",
+  "job_description_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "effective_resume_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}
+```
+
+The variants never convert into one another. Neither authorizes dependency rebind, artifact deletion/adoption, automatic provider submission, or response capture. Their transactions, byte bounds, authority, preview, confirmation, and immutable-history rules are specified in [`cover-letter-contract.md`](cover-letter-contract.md).
 
 ## Complete-chain rules
 
@@ -99,7 +114,7 @@ This simplification changes no authority or consent boundary:
 | S1-05 | Gap, fork, duplicate name, bad parent, or malformed state | Discover or read | Fail closed under the existing drift classification |
 | S1-06 | New application | Commit approved creation | Write sequence 1 using only `pi.career.application_state` |
 | S1-07 | Approved status, vacancy, or selected-original mutation | Commit | Append one canonical single-schema revision |
-| S1-08 | Nullable or valid non-null cover-letter reference | Parse and derive | Preserve the exact shape and existing readiness rules without authorizing a writer |
+| S1-08 | Nullable or valid user-authored/versioned-assisted cover-letter reference | Parse and derive | Preserve the exact shape, authority, and existing readiness rules |
 | S1-09 | Concurrent same-next-revision plans | Commit | One no-clobber winner; no fork, retry name, or overwrite |
 | S1-10 | Capacity, byte, metadata, or post-preview race boundary | Plan or commit | Preserve existing before-preview and under-lock rejection |
 | S1-11 | Unsupported former-schema application | Open overlay or restore attachment | Do not expose as valid/current, attach, migrate, or append |
@@ -107,4 +122,4 @@ This simplification changes no authority or consent boundary:
 
 ## Explicit exclusions
 
-This contract does not authorize cover-letter persistence, deletion, archive, synchronization, repair, unknown-file adoption, provider behavior, a package-version change, publication, or release. It does not change config, marker, identity, attachment, activation, variant-sidecar, Career Core, or managed-tool schema identifiers.
+This contract alone does not authorize cover-letter persistence, deletion, archive, synchronization, repair, unknown-file adoption, provider behavior, a package-version change, publication, or release; #57/#166 separately authorize only the bounded transactions documented above. It does not change config, marker, identity, attachment, activation, variant-sidecar, Career Core, or managed-tool schema identifiers.

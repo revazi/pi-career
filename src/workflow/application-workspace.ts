@@ -43,6 +43,7 @@ import { privacyDisplayPath } from "./renderers.ts";
 import { deriveApplicationReadiness } from "./application-readiness.ts";
 import type { ApplicationReadinessProjection } from "./application-readiness.ts";
 export { deriveApplicationReadiness } from "./application-readiness.ts";
+import { buildAssistedCoverLetterPrompt } from "./assisted-cover-letter.ts";
 import { eligibleOriginals, scanLibrary, sha256 } from "./scan.ts";
 import { parseStrictJson } from "./strict-json.ts";
 import {
@@ -100,7 +101,10 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const STATE_BASENAME = /^\.pi-career-state-([0-9]{6})\.json$/;
 const VACANCY_BASENAME = /^vacancy(?:-([0-9]{6}))?\.md$/;
-const COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/;
+const USER_COVER_LETTER_BASENAME = /^cover-letter(?:-([0-9]{6}))?\.(md|txt)$/;
+const ASSISTED_COVER_LETTER_BASENAME = /^cover-letter-assisted-([0-9]{6})\.(md|txt)$/;
+const ASSISTED_COVER_LETTER_REFERENCE_SCHEMA = "pi.career.assisted_cover_letter_reference.v1";
+const COVER_LETTER_BASENAME = /^(?:cover-letter(?:-[0-9]{6})?|cover-letter-assisted-[0-9]{6})\.(?:md|txt)$/;
 const APPLICATION_BASENAME = /^([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|company)--([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?|role)--([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/;
 const APPLICATION_STATUSES = new Set<ApplicationStatus>(["preparing", "applied", "interviewing", "closed"]);
 
@@ -153,7 +157,7 @@ interface ResumeArtifactBinding {
   sidecar_sha256: string;
 }
 
-interface CoverLetterArtifactBinding {
+interface UserAuthoredCoverLetterArtifactBinding {
   relative_path: string;
   artifact_sha256: string;
   utf8_bytes: number;
@@ -162,6 +166,21 @@ interface CoverLetterArtifactBinding {
   job_description_sha256: string;
   effective_resume_sha256: string;
 }
+
+interface AssistedCoverLetterArtifactBinding {
+  schema_version: typeof ASSISTED_COVER_LETTER_REFERENCE_SCHEMA;
+  relative_path: string;
+  artifact_sha256: string;
+  utf8_bytes: number;
+  format: "markdown" | "text";
+  authority: "model_assisted_non_authoritative";
+  job_description_sha256: string;
+  effective_resume_sha256: string;
+}
+
+type CoverLetterArtifactBinding =
+  | UserAuthoredCoverLetterArtifactBinding
+  | AssistedCoverLetterArtifactBinding;
 
 interface ApplicationStateRevisionBase {
   kind: "application_state_revision";
@@ -265,6 +284,7 @@ export interface AttachedApplicationSources {
   vacancy?: VacancyEntry;
   selected_original?: ResumeRecord;
   effective_resume?: ResumeRecord;
+  cover_letter_authority?: "user_authored" | "model_assisted_non_authoritative";
 }
 
 interface CurrentApplicationTarget {
@@ -329,6 +349,7 @@ type WorkspaceOperation =
   | "select_original"
   | "update_vacancy"
   | "save_cover_letter"
+  | "save_assisted_cover_letter"
   | "clear_cover_letter";
 
 interface PreviewEnvelope {
@@ -622,25 +643,51 @@ function parseResumeArtifact(value: unknown): ResumeArtifactBinding | null | und
 
 function parseCoverLetterArtifact(value: unknown): CoverLetterArtifactBinding | null | undefined {
   if (value === null) return null;
-  if (!isRecord(value) || !exactKeys(value, [
-    "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
-    "job_description_sha256", "effective_resume_sha256",
-  ]) || !validRelativeBasename(value.relative_path) || !COVER_LETTER_BASENAME.test(value.relative_path) ||
+  if (!isRecord(value) || !validRelativeBasename(value.relative_path) ||
     !validHash(value.artifact_sha256) || !Number.isSafeInteger(value.utf8_bytes) ||
-    (value.utf8_bytes as number) < 1 ||
-    !["markdown", "text"].includes(value.format as string) || value.authority !== "user_authored" ||
+    (value.utf8_bytes as number) < 1 || !["markdown", "text"].includes(value.format as string) ||
     !validHash(value.job_description_sha256) || !validHash(value.effective_resume_sha256)) return undefined;
   const extension = (value.relative_path as string).endsWith(".md") ? "markdown" : "text";
   if (value.format !== extension) return undefined;
-  return {
+  const shared = {
     relative_path: value.relative_path as string,
     artifact_sha256: value.artifact_sha256 as string,
     utf8_bytes: value.utf8_bytes as number,
     format: value.format as "markdown" | "text",
-    authority: "user_authored",
     job_description_sha256: value.job_description_sha256 as string,
     effective_resume_sha256: value.effective_resume_sha256 as string,
   };
+  if (value.authority === "user_authored" && exactKeys(value, [
+    "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
+    "job_description_sha256", "effective_resume_sha256",
+  ]) && USER_COVER_LETTER_BASENAME.test(value.relative_path as string)) {
+    return {
+      relative_path: shared.relative_path,
+      artifact_sha256: shared.artifact_sha256,
+      utf8_bytes: shared.utf8_bytes,
+      format: shared.format,
+      authority: "user_authored",
+      job_description_sha256: shared.job_description_sha256,
+      effective_resume_sha256: shared.effective_resume_sha256,
+    };
+  }
+  if (value.authority === "model_assisted_non_authoritative" &&
+    value.schema_version === ASSISTED_COVER_LETTER_REFERENCE_SCHEMA && exactKeys(value, [
+      "schema_version", "relative_path", "artifact_sha256", "utf8_bytes", "format", "authority",
+      "job_description_sha256", "effective_resume_sha256",
+    ]) && ASSISTED_COVER_LETTER_BASENAME.test(value.relative_path as string)) {
+    return {
+      schema_version: ASSISTED_COVER_LETTER_REFERENCE_SCHEMA,
+      relative_path: shared.relative_path,
+      artifact_sha256: shared.artifact_sha256,
+      utf8_bytes: shared.utf8_bytes,
+      format: shared.format,
+      authority: "model_assisted_non_authoritative",
+      job_description_sha256: shared.job_description_sha256,
+      effective_resume_sha256: shared.effective_resume_sha256,
+    };
+  }
+  return undefined;
 }
 
 function parseStateBase(value: Record<string, unknown>): ApplicationStateRevisionBase | undefined {
@@ -921,7 +968,9 @@ function sameCoverLetterIdentity(
 ): boolean {
   return left === null || right === null ? left === right :
     left.relative_path === right.relative_path && left.artifact_sha256 === right.artifact_sha256 &&
-    left.utf8_bytes === right.utf8_bytes && left.format === right.format && left.authority === right.authority;
+    left.utf8_bytes === right.utf8_bytes && left.format === right.format && left.authority === right.authority &&
+    (left.authority !== "model_assisted_non_authoritative" ||
+      (right.authority === "model_assisted_non_authoritative" && left.schema_version === right.schema_version));
 }
 
 function sameCoverLetterBinding(
@@ -969,9 +1018,11 @@ async function inspectCoverLetterReference(
   const extension = binding.format === "markdown" ? "md" : "txt";
   const earlierCoverCount = [...referencedFiles.keys()].filter((name) => COVER_LETTER_BASENAME.test(name)).length;
   const numberedName = `cover-letter-${String(state.sequence).padStart(6, "0")}.${extension}`;
-  const expectedNames = earlierCoverCount === 0
-    ? new Set([`cover-letter.${extension}`, numberedName])
-    : new Set([numberedName]);
+  const expectedNames = binding.authority === "model_assisted_non_authoritative"
+    ? new Set([`cover-letter-assisted-${String(state.sequence).padStart(6, "0")}.${extension}`])
+    : earlierCoverCount === 0
+      ? new Set([`cover-letter.${extension}`, numberedName])
+      : new Set([numberedName]);
   if (!expectedNames.has(binding.relative_path)) throw workflowError("workspace_drift");
   const file = await inspectArtifactFile(
     directoryPath, binding.relative_path, binding.artifact_sha256, VACANCY_MAX_BYTES,
@@ -1492,6 +1543,7 @@ export interface OverlayCatalogApplication {
   readiness: ApplicationReadinessProjection["readiness"];
   components: ApplicationReadinessProjection["components"];
   effective_resume: ApplicationReadinessProjection["effective_resume"];
+  cover_letter_authority?: "user_authored" | "model_assisted_non_authoritative";
   vacancy_bound: boolean;
   original_bound: boolean;
   pointer?: ApplicationAttachmentPointer;
@@ -1543,6 +1595,9 @@ export async function readOverlayApplications(
       readiness: readiness.readiness,
       components: readiness.components,
       effective_resume: readiness.effective_resume,
+      ...(inspected.head.cover_letter_artifact === null ? {} : {
+        cover_letter_authority: inspected.head.cover_letter_artifact.authority,
+      }),
       vacancy_bound: inspected.head.vacancy !== null,
       original_bound: inspected.head.selected_original !== null,
       ...(record.classification !== "valid" || identity === undefined ? {} : {
@@ -1776,6 +1831,9 @@ export async function loadAttachedApplicationSources(
     ...(vacancy === undefined ? {} : { vacancy }),
     ...(selectedOriginal === undefined ? {} : { selected_original: selectedOriginal }),
     ...(effective === undefined ? {} : { effective_resume: effective }),
+    ...(application.head.cover_letter_artifact === null ? {} : {
+      cover_letter_authority: application.head.cover_letter_artifact.authority,
+    }),
   };
 }
 
@@ -2464,6 +2522,8 @@ export class ApplicationWorkspaceWorkflow {
       ...(menuState.canMigrate ? ["Finish application migration"] : []),
       ...(menuState.canRecord ? ["Record current status and vacancy"] : []),
       ...(menuState.canSelectOriginal ? ["Select original resume"] : []),
+      ...(menuState.canCoverLetter ? ["Draft cover letter with Pi"] : []),
+      ...(menuState.canCoverLetter ? ["Import model-assisted cover letter"] : []),
       ...(menuState.canCoverLetter ? ["Write or revise user-authored cover letter"] : []),
       ...(menuState.canCoverLetter ? ["View current cover letter"] : []),
       ...(menuState.canCoverLetter ? ["Clear current cover-letter reference"] : []),
@@ -2487,6 +2547,8 @@ export class ApplicationWorkspaceWorkflow {
     if (action === "Finish application migration") return this.finishMigration(ctx);
     if (action === "Record current status and vacancy") return this.record(ctx);
     if (action === "Select original resume") return this.selectOriginal(ctx);
+    if (action === "Draft cover letter with Pi") return this.draftAssistedCoverLetter(ctx);
+    if (action === "Import model-assisted cover letter") return this.importAssistedCoverLetter(ctx);
     if (action === "Write or revise user-authored cover letter") return this.writeCoverLetter(ctx);
     if (action === "View current cover letter") return this.viewCoverLetter(ctx);
     if (action === "Clear current cover-letter reference") return this.clearCoverLetter(ctx);
@@ -3637,6 +3699,95 @@ export class ApplicationWorkspaceWorkflow {
       roleLabel: identity.identity.role_label,
     });
     ctx.ui.notify(`Recorded immutable workspace state revision ${sequence}. Earlier vacancy files remain unchanged.`, "info");
+  }
+
+  private async draftAssistedCoverLetter(ctx: ExtensionCommandContext): Promise<void> {
+    const records = this.sessionRecords(ctx);
+    if (records.attachment === undefined) throw workflowError("attachment_unavailable");
+    const sources = await loadAttachedApplicationSources(this.options.agentDir, records.attachment);
+    if (sources.vacancy === undefined || sources.effective_resume === undefined) {
+      throw workflowError("workspace_unavailable");
+    }
+    const prompt = buildAssistedCoverLetterPrompt({
+      companyLabel: sources.company_label,
+      roleLabel: sources.role_label,
+      resume: sources.effective_resume,
+      vacancy: sources.vacancy,
+    });
+    if (prompt === undefined) throw workflowError("workbench_too_large");
+    ctx.ui.setEditorText(prompt);
+    ctx.ui.notify(
+      "Review and submit the visible editor prompt yourself. Loaded Pi extensions and handlers remain trusted inputs; no response is captured. Paste the result through Import model-assisted cover letter.",
+      "info",
+    );
+  }
+
+  private async importAssistedCoverLetter(ctx: ExtensionCommandContext): Promise<void> {
+    const mutation = await this.attachedMutation(ctx);
+    const application = mutation.application;
+    if (application.head.vacancy === null || effectiveResumeDigest(application.head) === undefined) {
+      throw workflowError("workspace_unavailable");
+    }
+    const formatChoice = await ctx.ui.select("Imported assisted cover-letter format", ["Markdown (.md)", "Plain text (.txt)"]);
+    if (formatChoice === undefined) return;
+    const pasted = await ctx.ui.editor("Paste model-assisted cover letter", "");
+    if (pasted === undefined) return;
+    const bytes = Buffer.from(pasted, "utf8");
+    if (bytes.length === 0 || bytes.length > VACANCY_MAX_BYTES || pasted.includes("\r") || pasted.includes("\0") ||
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== pasted || hasUnpairedSurrogate(pasted)) {
+      throw workflowError("workspace_limit_reached");
+    }
+    const reviewed = await ctx.ui.editor("Preview exact model-assisted non-authoritative cover letter", pasted);
+    if (reviewed === undefined) return;
+    if (reviewed !== pasted) throw workflowError("workspace_preview_changed");
+    if (await ctx.ui.confirm(
+      "Persist this model-assisted non-authoritative cover letter?",
+      "A new immutable assisted artifact revision will be created. Approval never upgrades it to user-authored, and no provider response is captured automatically.",
+    ) !== true) return;
+    const sequence = application.head.sequence + 1;
+    if (sequence > STATE_MAX_REVISIONS) throw workflowError("workspace_limit_reached");
+    const createdAt = this.options.now().toISOString();
+    if (Date.parse(createdAt) <= Date.parse(application.head.updated_at)) throw workflowError("workspace_unavailable");
+    const mutationId = this.options.uuid().toLowerCase();
+    const extension = formatChoice === "Markdown (.md)" ? "md" : "txt";
+    const relativePath = `cover-letter-assisted-${String(sequence).padStart(6, "0")}.${extension}`;
+    const binding: AssistedCoverLetterArtifactBinding = {
+      schema_version: ASSISTED_COVER_LETTER_REFERENCE_SCHEMA,
+      relative_path: relativePath,
+      artifact_sha256: hashBytes(bytes),
+      utf8_bytes: bytes.length,
+      format: extension === "md" ? "markdown" : "text",
+      authority: "model_assisted_non_authoritative",
+      job_description_sha256: application.head.vacancy.content_sha256,
+      effective_resume_sha256: effectiveResumeDigest(application.head)!,
+    };
+    const state: ApplicationStateRevision = {
+      schema_version: STATE_SCHEMA,
+      kind: "application_state_revision",
+      application_id: application.manifest.application_id,
+      sequence,
+      parent_sha256: application.headFile.sha256,
+      status: application.head.status,
+      vacancy: application.head.vacancy,
+      selected_original: application.head.selected_original,
+      resume_artifact: application.head.resume_artifact,
+      cover_letter_artifact: binding,
+      updated_at: createdAt,
+    };
+    const stateBuffer = stateBytes(state);
+    const result = await this.publishAttachedRevision(ctx, mutation, "save_assisted_cover_letter", mutationId, createdAt, [
+      {
+        final: path.join(application.directoryPath, relativePath),
+        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-assisted-cover.tmp`),
+        bytes,
+      },
+      {
+        final: path.join(application.directoryPath, stateName(sequence)),
+        temp: path.join(application.directoryPath, `.pi-career-${mutationId}-state.tmp`),
+        bytes: stateBuffer,
+      },
+    ], stateBuffer, 1, `Saved model-assisted non-authoritative cover letter revision ${sequence}.`);
+    if (result === "cancelled") return;
   }
 
   private async writeCoverLetter(ctx: ExtensionCommandContext): Promise<void> {

@@ -184,6 +184,7 @@ export function applicationNextAction(
 function applicationPackageChecklist(
   components: { job_description: string; resume: string; cover_letter: string },
   effectiveResume: "original" | "tailored" | null,
+  coverLetterAuthority?: "user_authored" | "model_assisted_non_authoritative",
 ): string {
   const effective = effectiveResume === null ? "none" : effectiveResume === "original" ? "Original" : "Assisted variant (non-authoritative)";
   return [
@@ -191,6 +192,9 @@ function applicationPackageChecklist(
     `Job description: ${components.job_description === "Available" ? "Ready" : components.job_description}`,
     `Selected original: ${components.resume === "Available" ? "Ready" : components.resume}`,
     `Cover letter: ${components.cover_letter}`,
+    ...(coverLetterAuthority === "model_assisted_non_authoritative"
+      ? ["Cover letter authority: Model-assisted (non-authoritative)"]
+      : []),
     `Effective Resume: ${components.resume} • ${effective}`,
   ].join("\n");
 }
@@ -427,7 +431,7 @@ export async function buildCareerUiModel(
             : `${application.company_label} — ${application.role_label} — ${status} — ${application.readiness}`;
           const detail = application.company_label === undefined
             ? `Legacy application\nStatus: ${application.status}\nClassification: ${application.classification}\nRecommended next action: finish identity migration (i).\nSafe alternative: review only or return to Applications. Opening does not attach.`
-            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume)}\nAnalysis: No current result in this session\nMatch: No current result in this session\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
+            : `${application.company_label} — ${application.role_label}\nStatus: ${status}\nReadiness: ${application.readiness}\n${applicationPackageChecklist(application.components, application.effective_resume, application.cover_letter_authority)}\nAnalysis: No current result in this session\nMatch: No current result in this session\nLast updated: ${application.updated_at}\nClassification: ${application.classification}\nRecommended next action: attach this application (a) to use package actions.\nSafe alternatives: review only or return to Applications. Opening does not attach.`;
           const row = item(application.application_id, label, detail, application.pointer);
           row.applicationStatus = application.status;
           if (application.classification === "legacy") row.legacyMigration = true;
@@ -457,7 +461,7 @@ export async function buildCareerUiModel(
         attachedRow.attachedApplication = true;
         attachedRow.canUpdateApplication = true;
         attachedRow.label += " — Attached";
-        attachedRow.detail += "\nAttached to this Pi session. Lifecycle and package actions apply only to this exact application. Press m to manage its local application workspace, including user-authored cover-letter revisions.";
+        attachedRow.detail += "\nAttached to this Pi session. Lifecycle and package actions apply only to this exact application. Press m to manage its local application workspace, including user-authored and explicitly imported model-assisted cover-letter revisions.";
       }
     }
     const metadata = attachment === undefined ? undefined : await validateApplicationAttachment(agentDir, attachment);
